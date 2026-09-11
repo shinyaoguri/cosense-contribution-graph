@@ -1,0 +1,17 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# 実装が入ったら typecheck と test のジョブをここに足す。
+# 詳細は docs/design.md の実装順序を参照。
+jobs:
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Markdown の相対リンクを検査
+        run: ./scripts/check-links.sh
