@@ -1,0 +1,46 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm ci)",
+      "Bash(npm install)",
+      "Bash(npm run lint)",
+      "Bash(npm run lint:fix)",
+      "Bash(npm run typecheck)",
+      "Bash(npm run knip)",
+      "Bash(npm test)",
+      "Bash(npm run test)",
+      "Bash(npm run typegen)",
+      "Bash(npm run build)",
+      "Bash(npm run build:userscript)",
+      "Bash(npm run db:migrate:local)",
+      "Bash(npm run check)",
+      "Bash(npx wrangler types)",
+      "Bash(npx wrangler types --check)",
+      "Bash(npx wrangler whoami)",
+      "Bash(npx wrangler auth list)",
+      "Bash(./scripts/check-links.sh)",
+      "Bash(./scripts/check-pr-title.sh)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git show:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr checks:*)",
+      "Bash(gh issue view:*)",
+      "Bash(gh issue list:*)",
+      "Bash(gh run view:*)",
+      "Bash(gh run list:*)"
+    ],
+    "deny": [
+      "Bash(npx wrangler deploy:*)",
+      "Bash(npx wrangler delete:*)",
+      "Bash(npx wrangler secret:*)",
+      "Bash(npx wrangler d1 create:*)",
+      "Bash(npx wrangler d1 delete:*)",
+      "Bash(npx wrangler d1 migrations apply:*)",
+      "Bash(npx wrangler d1 time-travel:*)",
+      "Bash(npx wrangler auth activate:*)"
+    ]
+  }
+}
