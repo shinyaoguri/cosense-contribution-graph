@@ -398,10 +398,282 @@ D1 マイグレーションは `readD1Migrations()` (Node 側、プラグイン�
 
 ---
 
-## 6. まだ確認できていないこと
+### WebCrypto の ECDSA (署名の形式が最重要)
+
+Workers の対応アルゴリズムは `RSASSA-PKCS1-v1.5` / `RSA-PSS` / `ECDSA` / `Ed25519` /
+`NODE-ED25519`。ECDSA の対応カーブは workerd の実装で P-256 / P-384 / P-521 のみ
+(secp256k1 は非対応)。
+
+**ブラウザの `sign` と Workers の `verify` はどちらも r‖s 形式** (IEEE P1363)。
+P-256 なら 64 バイト固定で、各 32 バイトのビッグエンディアン。DER 変換は不要。
+
+**DER を渡すと例外ではなく静かに `false` が返る。** workerd が内部で長さをチェックし、
+合わなければ空の署名として扱うため。
+
+```cpp
+if (signature.size() != rsSize * 2) {
+  // The signature is the wrong size. Return an empty signature, which will be judged invalid.
+  return jsg::JsArrayBuffer::create(js, 0);
+}
+```
+
+「鍵が違うのか署名が壊れているのか」が区別できない最悪のモードなので、**検証前に自分で
+64 バイトを確認して別のエラーにする**。
+
+公開鍵のインポートは `importKey("raw", 65 バイトの非圧縮 SEC1, {name:"ECDSA",
+namedCurve:"P-256"}, ["verify"])`。`raw` 経由は**公開鍵のみで、許可 usage は `verify` のみ**。
+`algorithm.namedCurve` と鍵データの曲線が一致しないと `DOMDataError`。
+
+Ed25519 はブラウザ普及率 88% (caniuse, 2026-09-12)。Chrome 137+ / Firefox 129+ / Safari 17.0+
+で実装済みだが、約 12% が未対応なので公開提供の唯一の方式にはしない。
+なお Ed25519 の `verify` は署名長が 64 バイト以外なら**例外を投げる** (ECDSA と挙動が違う)。
+
+`extractable: false` の `CryptoKey` を IndexedDB に保存できることは Web Cryptography API
+Level 2 に根拠がある。「any existing or future web storage mechanisms that support storing
+serializable objects can be used to store CryptoKey objects」「It is expected that most authors
+will make use of the Indexed Database API」。ただし Firefox に読み出し失敗の報告
+([bug 1348279](https://bugzilla.mozilla.org/show_bug.cgi?id=1348279)) があり、
+プライベートブラウジングや storage eviction 下の挙動は未検証。
+
+### Rate Limiting と DoS 対策 (Free 枠)
+
+**Workers の Rate Limiting binding は 2025-09-19 に GA。**
+
+```jsonc
+{ "ratelimits": [ { "name": "MY_LIMITER", "namespace_id": "1001",
+    "simple": { "limit": 100, "period": 60 } } ] }
+```
+
+`period` は **10 か 60 のみ**。カウンタは Cloudflare のロケーション単位で、公式が
+「permissive, eventually consistent, and intentionally designed to not be used as an accurate
+accounting system」と明言している。**キーに IP を使うのは公式が非推奨。**
+
+**Free プランで使えるかは公式に明記がない。** plan gate の記述が見つからず、課金項目もないので
+使える見込みが高いが、確証はない。実機検証が必要。
+
+**WAF の rate limiting rules は Free で 1 ルール。** characteristics は IP のみ、period は 10 秒のみ、
+mitigation timeout も 10 秒のみ、式に使えるのは Path と Verified Bot のみ。
+counting expression は使えない。
+
+**`workers.dev` では zone の WAF が効かない。** WAF は zone 単位の設定で、`workers.dev` は
+自分の zone ではないため構造上適用されない (明文は見つからず、推定)。独自ドメインが必要。
+
+**Bot Fight Mode は画像ビーコンを壊す。** 「computationally expensive challenges」は JS 実行を
+要求するので `<img src>` では完了できない。WAF custom rules でバイパスもできない。OFF にする。
+
+**`is_timed_hmac_valid_v0()`** (WAF 側で署名付き URL を検証する関数) は Pro 以上。Free では使えない。
+
+**Workers Free は日次 10 万リクエスト。** 超過時の挙動は route 設定で選べる。
+fail open は「Worker が設定されていないかのように振る舞う」、fail closed は 1027 エラーページ。
+**セキュリティ上は fail closed を選ぶ。**
+
+WAF でブロックされたリクエストは Workers に到達しないので日次枠を消費しない。
+一方 binding 方式は Worker 内で動くので必ず消費する。役割が違う。
+
+### rows written の定義 (書き込み予算に直結)
+
+公式の定義は「Write operations include `INSERT`, `UPDATE`, and `DELETE`」。
+
+**インデックス分は別にカウントされる。** 「Indexes will add an additional written row when writes
+include the indexed column, as there are two rows written: one to the table itself, and one to
+the index.」つまり**インデックス列を更新する UPSERT は 1 行で 2 rows written 以上**になる。
+10 万行/日は実質 5 万更新/日になりうるので、インデックスを絞ることが予算の節約に直結する。
+
+**no-op な UPDATE がカウントされるかは公式に記述がない。**
+`ON CONFLICT DO UPDATE SET x = ? WHERE ? > x` で条件が偽のときの課金挙動は不明。
+`meta.rows_written` / `meta.changes` / `meta.changed_db` がクエリ単位で取れるので、
+実機で確認できる。**課金上の真実は meta ではなく翌日のアカウント集計値なので両方突き合わせる。**
+
+上限到達時のエラーは `D1_ERROR` 系で、メッセージは
+「Your account has exceeded D1's free tier daily row write limit.」**数値コードはない。**
+メッセージの部分一致で分岐するのは脆いので、**エラー種別に依存せず「書き込みが throw したら
+degrade」**にする。
+
+---
+
+## 6. Google OAuth と COOP
+
+Worker が Cosense とは独立に OpenID Connect のリライングパーティになる前提で調べた
+(ADR-0011)。基準日 2026-09-12。
+
+### 審査の要否 (確定)
+
+> If your app utilizes only **non-sensitive** scopes, it is not mandatory for your app to complete
+> the app verification process.
+
+`openid` / `email` / `profile` は non-sensitive。**`openid` のみなら審査は不要。**
+
+- **「このアプリは確認されていません」の警告が出るのは sensitive / restricted スコープのとき**だけ
+- **100 ユーザー上限も sensitive / restricted 限定。** 非機密スコープならかからない
+- 同意画面にアプリ名とロゴを出したいなら brand verification が別途必要。必須ではない
+
+出典: [OAuth App Verification](https://support.google.com/cloud/answer/13463073),
+[Unverified apps](https://support.google.com/cloud/answer/7454865),
+[FAQ](https://support.google.com/cloud/answer/13463817)
+
+### ポリシー URL (不明が残る)
+
+[App Branding](https://support.google.com/cloud/answer/15549049) に
+「**These links are required for all external production apps.** You will not be able to submit your
+app for verification if it is missing these links.」とある。
+
+ただし根拠文が「verification に submit できない」なので、**審査に出さない non-sensitive アプリが
+ポリシー URL 未設定で publish できるかは読み取れない。** 実機検証が必要。
+
+Testing モードには例外がある。「The only exception to this behavior is if your app requests a
+subset of the following: name, email address, and user profile」の場合、テストユーザー登録が
+不要で警告も出ず、7 日で失効もしない。
+
+### `sub` は public subject type (設計への影響大)
+
+discovery document (`https://accounts.google.com/.well-known/openid-configuration`) の実測値。
+
+```
+subject_types_supported: ["public"]
+issuer: "https://accounts.google.com"
+jwks_uri: "https://www.googleapis.com/oauth2/v3/certs"
+id_token_signing_alg_values_supported: ["RS256"]
+code_challenge_methods_supported: ["plain", "S256"]
+```
+
+`public` なので、**`sub` はアプリごとに異なる値ではなく、同じ Google アカウントなら全 OAuth
+クライアントで同じ値**。公式も「unique among all Google Accounts and never reused」と書いている。
+
+つまり素の `SHA-256(sub)` は、同じハッシュ関数を使う他サービスのデータと突合できる
+グローバル識別子になる。**アプリ固有の秘密で HMAC する必要がある。**
+
+### ID トークンの検証
+
+- `iss` は **`https://accounts.google.com` と `accounts.google.com` の両方を許容する**。
+  スキームなしも正当で、自前実装でよく落ちる
+- `aud` がクライアント ID、`exp` が未来、`nonce` が一致することを確認する
+- `alg` は RS256 のみ受け入れる (`none` / HS256 の混入を弾く)。`kid` でキーを引く
+- `tokeninfo` エンドポイントは**デバッグ専用**。「For production purposes, retrieve Google's public
+  keys from the keys endpoint and perform the validation locally」
+- JWKS の実測 (2026-09-12): `cache-control: public, max-age=23651, must-revalidate` で約 6.6 時間、
+  常に 2 本 (ローテーション中の新旧)。**未知の `kid` が来たらキャッシュを無視して 1 回だけ
+  再取得する**経路を用意する
+
+Workers は `RSASSA-PKCS1-v1_5` に対応しているので JWT を検証できる。Google の JWK は `n` / `e`
+だけで SPKI 変換は不要。`importKey("jwk", ...)` に `alg` / `use` / `key_ops` を含めたまま渡すと
+整合でエラーになる可能性があるので、`{kty, n, e}` だけ抜いて渡すのが無難 (未検証)。
+
+### CSP は postMessage を妨げない (確定)
+
+CSP Level 3 のディレクティブ一覧に**ウィンドウ間メッセージングを管轄するものは存在しない**。
+CSP が検査するのはリソース取得 (fetch directives)、ナビゲーション (`form-action`,
+`frame-ancestors`)、ドキュメント設定 (`base-uri`, `sandbox`) で、`postMessage` はどれにも属さない。
+MDN の `Window.postMessage()` のセキュリティ節も防御機構として `targetOrigin` だけを挙げ、
+CSP に言及していない。
+
+**`window.open` も CSP では制限されない。** それを行うはずだった `navigate-to` ディレクティブは
+**2022 年 9 月に CSP 仕様から削除され、どのブラウザにも出荷されなかった**。
+`form-action 'self'` は form の submit のみを制限するので `window.open` には無関係。
+
+### COOP の実測値 (2026-09-12)
+
+**scrapbox.io はパスによって違う。**
+
+| パス | COOP |
+|---|---|
+| `https://scrapbox.io/` | `same-origin` (opener が切れる) |
+| `https://scrapbox.io/help-jp` | `unsafe-none` |
+| `https://scrapbox.io/help-jp/Scrapbox` | `unsafe-none` |
+| `https://scrapbox.io/villagepump/雑談` | `unsafe-none` |
+
+**UserScript が動くのはプロジェクトページなので `unsafe-none`。** 親側で opener が切れる条件には
+該当しない。ルート `/` だけ `same-origin` なのは後から強化したためと見られる。
+
+**Google のサインイン画面は report-only。**
+
+| ドキュメント | COOP |
+|---|---|
+| `accounts.google.com/o/oauth2/v2/auth` (302) | `cross-origin-opener-policy-report-only: same-origin` |
+| `accounts.google.com/v3/signin/identifier` (実際の画面) | `cross-origin-opener-policy-report-only: same-origin` |
+| `accounts.google.com/signin/oauth/error` | `cross-origin-opener-policy: same-origin` (enforced) |
+
+report-only は強制しないので `window.opener` は維持される。
+**ただし `report-to` が設定されているのは移行準備の典型で、enforced に切り替わるリスクがある。**
+Bluesky は 2025 年 3 月に実際に壊れた (`popup.closed` が常に `true`、`popup.opener` が `null`)。
+
+Worker 側のポップアップ用レスポンスには **COOP を付けない** (`unsafe-none`)。
+`same-origin` を付けると opener が切れて設計が崩壊する。
+`same-origin-allow-popups` は「開く側」のための緩和なので、開かれる側の Worker には効かない。
+
+**`popup.closed` のポーリングに依存しない。** COOP 下では嘘をつく。
+`postMessage` の受信をタイムアウト付きで待つ。
+
+### ポップアップブロッカー
+
+`window.open` は **transient activation** を必要とする。「within five seconds of user interaction」
+で、`await` を挟むと失われる可能性が高い。
+
+実装は **click ハンドラの同期的な先頭で `window.open('/auth/start', ...)` を呼び、
+URL 構築とリダイレクトは Worker 側でやる**のが一番堅い。
+`navigator.userActivation.isActive` で事前チェックもできる。
+
+### state / nonce / PKCE の保持
+
+**署名付き cookie が最も素直。** `HttpOnly; Secure; SameSite=Lax; Path=/auth; Max-Age=600`。
+Google からの復帰は top-level GET navigation なので `SameSite=Lax` でも送られる
+(`None` は不要で、その方が安全)。
+
+**KV は state には使わない。** eventual consistency で、書いた直後の読み取りが別のロケーションで
+miss しうる。OAuth の往復はまさにその時間スケール。
+
+PKCE は Google が `S256` に対応している。Worker は client secret を持てるので必須ではないが、
+認可コード横取り対策として付ける。
+
+### クエリ文字列の正規化
+
+`URLSearchParams.toString()` を署名対象にしてはいけない。AWS SigV4 が `UriEncode` を自前で
+書くよう推奨しているのと同じ理由で、「standard UriEncode functions provided by your development
+platform might not work because of differences in implementation」。
+空白が `+` になる、エンコード集合が違う、順序が実装依存、重複キーの扱いが不定。
+
+本プロジェクトは固定順・固定フィールドの改行区切りにするので、SigV4 のような汎用の正規化は不要。
+
+### Cosense の認証プロバイダ
+
+`/api/users/me` の `provider` は `"google" | "microsoft" | "email"`。
+
+**非 Google 認証は有料のビジネス版限定で、かつ申込制。**
+[プレスリリース](https://prtimes.jp/main/html/rd/p/000000059.000027275.html) (2021-01-07) に
+「ビジネス版にて、Googleアカウント以外のログイン認証方法が設定できるようになりました」
+「ご利用にはお申し込みが必要です」とある。SAML 認証もビジネス版向け。
+
+**無料プランと個人利用の Cosense ユーザーは Google アカウントでしかログインできない。**
+Google のみの対応で実質的な取りこぼしはない。
+
+参考: GitHub OAuth は審査もポリシー URL も不要で要件が最も軽い。
+Microsoft は `openid profile` のみなら publisher verification は不要と推定されるが、
+必要になった場合は Partner Program のアカウントが要るのでハードルが高い。
+
+---
+
+## 7. まだ確認できていないこと
+
+実装の前に潰すもの。どれも設計の前提になっている。
+
+- **ECDSA P-256 のラウンドトリップ。** ブラウザで sign して Workers で verify できるか。
+  仕様・MDN・workerd 実装の 3 点が一致しているので通る見込みは高いが、
+  `importKey("raw", ..., ["verify"])` の usage 制約を含めて 1 回確認する
+- **`importKey("jwk", ...)` に Google の JWK をそのまま渡して通るか。** `alg` / `use` / `key_ops` の
+  整合でエラーになる可能性がある
+- **ポップアップから `window.opener.postMessage` が scrapbox.io のプロジェクトページに届くか。**
+  COOP の実測値からは通るはずだが、設計の根幹なので確認する
+- **ポリシー URL 未設定のまま non-sensitive スコープのアプリを publish できるか。**
+  Google Cloud Console の Branding を空欄にして Audience の Publish app が押せるか
+- **Rate Limiting binding が Free プランで使えるか。** 公式に plan gate の記述がない
+- **no-op な UPDATE が rows written にカウントされるか。** `meta.rows_written` と翌日の
+  アカウント集計値の両方を突き合わせる
+- **`extractable: false` の `CryptoKey` を IndexedDB から読み戻せるか。** Firefox に報告がある
+
+設計に影響しないが残っているもの。
 
 - `/api/commits` の保持期間がプランに依存するか (personal プランでのみ実測)
 - `/api/commits` のレート制限
 - ページリネーム時の一括リンク更新がどのユーザーの commit として記録されるか
 - `page-edit-for-ai` が Cookie + `X-CSRF-TOKEN` でも通るか (CLI は PAT ヘッダのみ送っている)
 - `[[ ]]` 記法とクエリ付き URL の組み合わせの実挙動 (`[ ]` を使うので回避している)
+- brand verification をせずに production で公開した場合、同意画面に実際に何が表示されるか
