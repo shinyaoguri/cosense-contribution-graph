@@ -1,17 +1,96 @@
-name: ci
+# CI: 単一ジョブで全チェックを直列実行する。
+# **ネットワーク・Cloudflare の認証情報なしで green になることが不変条件**
+# (vitest の Workers project はローカルの workerd だけで走るので API トークンは要らない)。
+# チェック列の実体は package.json の `check` (lint / typecheck / knip / test / build) —
+# ローカルの push 前ゲートと同一コマンドで、乖離を構造的に防ぐ。
+#
+# `secrets.required` を宣言しているので、テスト中に「Missing required secrets」の
+# 警告が出る。**CI に秘密を置かない設計どおりの表示**で、失敗ではない。
+name: CI
 
 on:
   pull_request:
+    # edited も対象: PR タイトルを後から直したときに再検査する
+    types: [opened, synchronize, reopened, edited]
   push:
     branches: [main]
 
-# 実装が入ったら typecheck と test のジョブをここに足す。
-# 詳細は docs/design.md の実装順序を参照。
+# PR 単位 (main への push はブランチ単位) で 1 本に絞る。
+# **deploy には別のグループを与えて cancel 対象から外す** (下記)。
+# ここで cancel すると D1 のマイグレーション適用中の run が中断されうる。
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
-  docs:
-    name: docs
+  ci:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check
       - name: Markdown の相対リンクを検査
         run: ./scripts/check-links.sh
+      # 外部 action を使わない。履歴の体裁を守るだけの検査に
+      # サプライチェーンのリスクを負う理由がない
+      - name: PR タイトルの形式を検査
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: ./scripts/check-pr-title.sh
+
+  # デプロイは **main への push だけ、ci が通った後**。ローカルからは打たない (ADR-0014)。
+  # required status check は `ci` だけにする。条件付きでスキップされる deploy を
+  # required にすると auto-merge が永久に pending になる。
+  deploy:
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # **途中で止めない。** マイグレーション適用中に中断されると、スキーマだけ進んで
+    # コードが古いまま残る状態になりうる
+    concurrency:
+      group: deploy-${{ github.ref }}
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # secrets 未設定なら CI を落とさずスキップする。設定前でも PR と push が通る
+      - name: 認証情報の有無を確認
+        id: guard
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::notice::CLOUDFLARE_API_TOKEN が未設定なのでデプロイをスキップします"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      # スキーマはコードより先に上げる。逆にすると新しいコードがまだ無いテーブルを引く
+      # 時間帯ができる。識別子は**データベース名**で指定する (バインディング名は変わりうる)。
+      # `--remote` を必ず明示する (省略時の既定はローカル)
+      # **マイグレーションが 1 本も無いうちは走らせない。** D1 を作るのは段階 3 なので、
+      # それ以前にトークンが登録されると「データベースが無い」で main が赤くなる
+      - name: D1 マイグレーションを適用
+        if: steps.guard.outputs.skip != 'true' && hashFiles('migrations/*.sql') != ''
+        run: npx wrangler d1 migrations apply cosense-grass --remote
+      # **初回デプロイだけはこれでは通らない。** secrets.required を宣言しているので、
+      # worker がまだ存在しない状態では「required secrets have not been set」で落ちる。
+      # 初回は `wrangler deploy --secrets-file` が必要で、ADR-0014 がローカルからの
+      # デプロイを禁じているため **workflow_dispatch の 1 回限りの段**として用意する。
+      # 設計は段階 1 で詰める (roadmap の段階 0 の持ち越し)
+      - name: デプロイ
+        if: steps.guard.outputs.skip != 'true'
+        run: npx wrangler deploy

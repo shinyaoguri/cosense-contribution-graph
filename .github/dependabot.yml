@@ -1,0 +1,39 @@
+# 依存とワークフローの陳腐化防止。
+#
+# **commit-message.prefix を明示するのが要点。** 未指定だと Dependabot は
+# コミット履歴から prefix を推測し、外れると scripts/check-pr-title.sh
+# (Conventional Commits) が落ちて PR が永久に通らなくなる。
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 1
+    # まとめて 1 本にする。個別に出ると check-pr-title を通す手間が件数ぶん増える
+    groups:
+      npm:
+        patterns: ["*"]
+    # リリース公開から PR 起票までの待機。悪意あるリリースが取り下げられる猶予。
+    # security update には適用されない (脆弱性公表時は無視して即座に PR が出る)
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: build
+    # **wrangler の bump だけは typecheck が必ず落ちる。** 生成される
+    # worker-configuration.d.ts の先頭に `workerd@<版> <日付>` が入り、
+    # `wrangler types --check` がその行を比較するため。PR 上で `npm run typegen` を
+    # 回してから通す (wrangler は exact pin なので、上がるときは必ず明示的)
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 1
+    groups:
+      actions:
+        patterns: ["*"]
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: ci
