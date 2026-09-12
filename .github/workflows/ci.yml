@@ -77,6 +77,14 @@ jobs:
       # 設定がある方が優先される (wrangler のエラーメッセージが明示している)。
       # 設定に書いてあるとアカウント一覧の API 呼び出しも省かれる
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      # **アプリの secret が揃っているか。** wrangler.jsonc に secrets.required を
+      # 宣言しているので、Worker がまだ存在しない状態の deploy はこれらが無いと
+      # 必ず例外になる (wrangler の secrets-validation。`--secrets-file` を促す)。
+      # 値そのものは渡さない。揃っているかの真偽だけを見る
+      APP_SECRETS_PRESENT: >-
+        ${{ secrets.WORKER_SECRET != ''
+            && secrets.GOOGLE_CLIENT_ID != ''
+            && secrets.GOOGLE_CLIENT_SECRET != '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -84,12 +92,16 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
-      # secrets 未設定なら CI を落とさずスキップする。設定前でも PR と push が通る
-      - name: 認証情報の有無を確認
+      # 揃っていなければ CI を落とさずスキップする。**デプロイできない状態を
+      # 赤で知らせない。** 段階 1 で secrets を入れるまで main を緑に保つため
+      - name: デプロイに必要なものが揃っているか確認
         id: guard
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
             echo "::notice::CLOUDFLARE_API_TOKEN が未設定なのでデプロイをスキップします"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [ "$APP_SECRETS_PRESENT" != "true" ]; then
+            echo "::notice::WORKER_SECRET / GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET が未設定なのでデプロイをスキップします (secrets.required を満たせないため、初回デプロイは必ず失敗する)"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
       # スキーマはコードより先に上げる。逆にすると新しいコードがまだ無いテーブルを引く
