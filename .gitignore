@@ -1,0 +1,28 @@
+# 依存
+node_modules/
+
+# Wrangler のローカル状態 (D1 の SQLite、ビルドキャッシュ)
+# worker-configuration.d.ts は `wrangler types --check` が差分を見るのでコミットする
+.wrangler/
+
+# ビルド生成物
+dist/
+
+# ローカルの秘密
+# .dev.vars は `wrangler dev` が読む。絶対にコミットしない
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+!.env.example
+
+# Claude Code
+.claude/worktrees/
+.claude/settings.local.json
+
+# ログ
+*.log
+npm-debug.log*
+
+# macOS
+.DS_Store
