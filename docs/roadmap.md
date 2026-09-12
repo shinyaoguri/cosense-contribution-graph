@@ -111,7 +111,7 @@ npx wrangler whoami
 壊れたら、そのアカウント用の API トークンを必要なコマンドだけにワンショットで渡す形に切り替える。
 
 ```sh
-CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=... npx wrangler d1 create cosense-grass
+CLOUDFLARE_API_TOKEN=... npx wrangler d1 create cosense-grass
 ```
 
 **`CLOUDFLARE_API_TOKEN` をシェルの rc ファイルや `.env` に置かない。**
@@ -498,7 +498,7 @@ COOP のフォールバック (コードを貼る経路) も実際に試す。
 |---|---|---|
 | 段階 0 | **認証プロファイルの束縛** | 使いたいアカウントで `wrangler auth create` / `activate`。`whoami` で確認 |
 | 段階 1 | **CI 用の API トークン** | account-owned token。「Edit Cloudflare Workers」+ **Account > D1 > Edit**。KV / R2 / Tail は落とす。対象アカウント 1 つに限定。TTL を設定 |
-| 段階 1 | **GitHub Secrets** | `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID`。**段階 0 で登録しない** (下記) |
+| 段階 1 | **Environment secrets** | `production` 環境を作り `CLOUDFLARE_API_TOKEN` だけを置く。**deployment branch を main に限定する。required reviewers は付けない** (自動デプロイが止まる)。`CLOUDFLARE_ACCOUNT_ID` は不要 (`account_id` が設定にある)。**段階 0 で登録しない** (下記) |
 | 段階 1 | Cloudflare アカウント | 無料枠。D1 はまだ不要 |
 | 段階 1 | Cosense の確認用ページ | 自分のプロジェクトのどこかに 1 ページ |
 | 段階 3 | D1 データベース | `wrangler d1 create cosense-grass`。**ローカルから 1 回だけ打つ** |
