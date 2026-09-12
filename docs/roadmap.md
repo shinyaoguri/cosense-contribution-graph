@@ -26,6 +26,7 @@
 | Worker 設定 | **`wrangler.jsonc`** | 公式が新規プロジェクトに推奨。既存も 5 対 1 で jsonc |
 | UserScript のバンドル | **esbuild** (IIFE) | Cosense は `<script>` で読むので ESM は使えない |
 | CI | **単一ジョブで直列** | Actions の課金はジョブ単位の分切り上げ。秒で終わる仕事に独立ジョブを与えない |
+| デプロイ | **GitHub Actions からだけ** | 複数アカウントを持っているので、ローカルから打つと誤アカウントへの事故が起きる (ADR-0014) |
 
 **`.editorconfig` は置かない。** 個人標準で明示的に不採用 (フォーマットは biome に任せる)。
 
@@ -71,14 +72,41 @@ migrations/0001_init.sql        空で置くか、段階 3 で作る
   "typegen": "wrangler types",
   "build:userscript": "node scripts/build-userscript.mjs",
   "build": "wrangler deploy --dry-run && npm run build:userscript",
-  "deploy": "wrangler deploy",
   "db:migrate:local": "wrangler d1 migrations apply cosense-grass --local",
-  "db:migrate:remote": "wrangler d1 migrations apply cosense-grass --remote",
   "check": "npm run lint && npm run typecheck && npm run knip && npm test && npm run build"
 }
 ```
 
 `build` に `--dry-run` を使うのは、**Cloudflare アカウントなしでバンドルの検証ができる**ため。
+
+**`deploy` と `db:migrate:remote` はローカルに置かない。** どちらも GitHub Actions からだけ実行する
+(ADR-0014)。リモートを触るコマンドがローカルの `npm run` に並んでいると、手が滑ったときに止められない。
+
+### ローカルの認証
+
+`wrangler login` のグローバル認証は 1 つしか持てない。**別のアカウントを使うので、
+認証プロファイルをこのディレクトリに束縛する。**
+
+```sh
+npx wrangler auth create <名前>
+npx wrangler auth activate <名前> /Users/so/Repos/cosense-contribution-graph
+npx wrangler auth list
+npx wrangler whoami
+```
+
+**`wrangler auth` のサブコマンドは 4.131.1 時点ですべて `[experimental]`。**
+壊れたら、そのアカウント用の API トークンを必要なコマンドだけにワンショットで渡す形に切り替える。
+
+```sh
+CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=... npx wrangler d1 create cosense-grass
+```
+
+**`CLOUDFLARE_API_TOKEN` をシェルの rc ファイルや `.env` に置かない。**
+この変数はすべての認証プロファイルを上書きするので、意図しないアカウントに向いたまま気づかない。
+`.env` は特に危うく、wrangler CLI が読むだけでなくローカル開発時の Worker の `env` にも入る。
+ローカルの秘密値は `.dev.vars` に置く。
+
+`wrangler.jsonc` に `account_id` も書いて二重化する。アカウント ID は秘密ではない。
 
 ### tsconfig を 3 つに分ける理由
 
@@ -98,6 +126,7 @@ Worker は wrangler 内蔵の esbuild) ので、解決規則を揃える手間�
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "cosense-grass",
   "main": "src/worker/index.ts",
+  "account_id": "<ACCOUNT_ID>",
   "compatibility_date": "2026-09-12",
   "observability": { "enabled": true },
   "d1_databases": [
@@ -182,12 +211,66 @@ vitest の Workers project はローカルの workerd だけで走るので、AP
 大量に持つので、到達性を CI で見ると先方の都合で赤くなる。外部リンクの死活は後から週次の
 別ワークフローに分ける。
 
+### デプロイのジョブ
+
+同じ `ci.yml` に足す。**`main` への push だけ、`ci` が通った後。**
+必要になるのは段階 1 からだが、形は段階 0 で決めておく。
+
+```yaml
+  deploy:
+    needs: ci
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 24, cache: npm }
+      - run: npm ci
+      # secrets 未設定なら CI を落とさずスキップする
+      - name: 認証情報の有無を確認
+        id: guard
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::notice::CLOUDFLARE_API_TOKEN が未設定なのでデプロイをスキップします"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      # スキーマはコードより先に上げる
+      - name: D1 マイグレーションを適用
+        if: steps.guard.outputs.skip != 'true'
+        run: npx wrangler d1 migrations apply cosense-grass --remote
+      - name: デプロイ
+        if: steps.guard.outputs.skip != 'true'
+        run: npx wrangler deploy
+```
+
+押さえる点。
+
+- **マイグレーションをコードより先に適用する。** 逆にすると新しいコードがまだ無いテーブルを
+  引く時間帯ができる
+- **識別子はデータベース名で指定する。** バインディング名は変わりうるがデータベース名は変わらない
+- **`--remote` を必ず明示する。** 省略時の既定はローカルで、公式ドキュメントの記述は実装と逆になっている
+- **secrets 未設定なら `::notice::` を出してスキップし、CI を赤くしない。** 設定前でも PR が通る
+- `cloudflare/wrangler-action` は使わず `npx wrangler deploy` を直接呼ぶ。
+  マイグレーションとの順序を明示したいのと、外部 action に依存しない方針のため
+- required status check は `ci` だけにする。条件付きでスキップされる `deploy` を required にすると
+  auto-merge が永久に pending になる
+
+**初回デプロイだけは `wrangler deploy --secrets-file` で secrets と一緒に投入する。**
+`secrets.required` を宣言しているので、未設定の secret があるとデプロイが失敗する。
+
 ### 完了条件
 
 - `npm run check` がローカルで green
 - CI が PR で green になり、チェックが 1 件以上登録されている
   (今はチェックが 0 件で、green と区別が付かない)
 - `npm run dev` で Worker が起動し、`/cdn-cgi/local/scheduled` で Cron を叩ける
+- `npx wrangler whoami` が**使いたいアカウント**を指している
+- **`wrangler logout` 相当の状態で `dev` / `types` / `--dry-run` / `--local` のマイグレーションが
+  動くことを実測する。** 公式に認証不要と明言されていないので確認する
 
 ---
 
@@ -367,9 +450,12 @@ COOP のフォールバック (コードを貼る経路) も実際に試す。
 
 | いつ | 用意するもの | 備考 |
 |---|---|---|
+| 段階 0 | **認証プロファイルの束縛** | 使いたいアカウントで `wrangler auth create` / `activate`。`whoami` で確認 |
+| 段階 0 | **CI 用の API トークン** | account-owned token。「Edit Cloudflare Workers」+ **Account > D1 > Edit**。KV / R2 / Tail は落とす。対象アカウント 1 つに限定。TTL を設定 |
+| 段階 0 | **GitHub Secrets** | `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` |
 | 段階 1 | Cloudflare アカウント | 無料枠。D1 はまだ不要 |
 | 段階 1 | Cosense の確認用ページ | 自分のプロジェクトのどこかに 1 ページ |
-| 段階 3 | D1 データベース | `wrangler d1 create cosense-grass` |
+| 段階 3 | D1 データベース | `wrangler d1 create cosense-grass`。**ローカルから 1 回だけ打つ** |
 | 段階 4 | **独自ドメイン** | `workers.dev` では zone の WAF が効かず、レートリミットがかけられない |
 | 段階 4 | **`WORKER_SECRET`** | uid の導出鍵。**失うと全利用者の識別子が再計算できなくなる。必ずバックアップ** |
 | 段階 4 | Google Cloud の OAuth クライアント | `openid` スコープのみなら審査は不要 |

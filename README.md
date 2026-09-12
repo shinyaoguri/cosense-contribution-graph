@@ -132,6 +132,12 @@ Worker の API も同様に `/v1/` を固定し、破壊的変更では `/v2/` �
 - **プライバシーポリシー。** Google の同意画面の要件であり、利用者に何を預けるのか示す責任もある
 - **Bot Fight Mode は OFF にする。** JS 実行を要求するチャレンジは画像ビーコンを静かに壊す
 
+**デプロイは GitHub Actions からだけ行う。** ローカルに `npm run deploy` は置かない。
+複数の Cloudflare アカウントを持っている場合に、どのアカウントに向いているか分からないまま
+実行する事故を防ぐため (ADR-0014)。CI に置く API トークンは
+「Edit Cloudflare Workers」に **D1 Edit を足したもの**で、対象アカウントを 1 つに限定する。
+テンプレートに D1 は含まれていない。
+
 書き込みの上限に達した日は記録が受け付けられず、翌日に再送される。データは失われない。
 
 問い合わせは [Issue](https://github.com/shinyaoguri/cosense-contribution-graph/issues) で受ける。

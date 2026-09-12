@@ -489,6 +489,62 @@ the index.」つまり**インデックス列を更新する UPSERT は 1 行で
 メッセージの部分一致で分岐するのは脆いので、**エラー種別に依存せず「書き込みが throw したら
 degrade」**にする。
 
+### 認証とデプロイ (2026-09-12 調査)
+
+複数の Cloudflare アカウントを持っていて、ログイン中のものとは別のアカウントを使う前提で調べた。
+
+**認証情報の優先順位は公式が明記している。** 高い順に、`CLOUDFLARE_API_TOKEN` 環境変数、
+`--profile` フラグ、直近の activate 済み祖先ディレクトリ、既定プロファイル。
+**環境変数はすべての認証プロファイルを上書きする。**
+
+**認証プロファイルが 2026-07-02 のリリースで追加された。** `wrangler auth create` /
+`activate` / `deactivate` / `list` / `delete`。ディレクトリに束縛できる。
+**ただし 4.131.1 時点でこれらはすべて `[experimental]` と表示される** (実測)。
+プロファイルはローカルの利便機能で、CI には適用されない。
+
+`wrangler login` の認証情報の置き場は、公式が `~/.config/.wrangler/config/default.toml` と
+書いているが、**macOS の実体は `~/Library/Preferences/.wrangler/config/default.toml`** (実測、mode 600)。
+中身は `oauth_token` / `refresh_token` / `expiration_time` / `scopes` の TOML。
+
+**`wrangler` CLI は `.env` から `CLOUDFLARE_API_TOKEN` などを読む。** 公式が「セッション間で値が
+永続するので推奨」とまで書いている。ただし**同じ `.env` はローカル開発時に Worker の `env` にも
+ロードされる** (`.dev.vars` も `secrets.required` も無い場合)。秘密値は `.dev.vars` に置いて
+`.env` は使わないのが安全。
+
+**アカウントの取り違えは公式リポジトリでも未解決の議題。** 非対話で複数アカウントに属している
+ときにリストの先頭を黙って選ぶ挙動が workers-sdk の issue #9001 で提起され、open のまま。
+`wrangler.jsonc` の `account_id` か `CLOUDFLARE_ACCOUNT_ID` を**必ず明示する**。
+両者の相互の優先順位は公式に明記がない。
+
+**API トークンの「Edit Cloudflare Workers」テンプレートに D1 は含まれない。** 公式の一覧は
+Workers Routes Write / Workers Scripts Write / Workers KV Storage Write / Workers Tail Read /
+Workers R2 Storage Write / Account Settings Read / User Details Read / User Memberships Read の 8 つ。
+
+**`wrangler d1 migrations apply --remote` には Account > D1 > Edit が必要。**
+2025-05-02 の D1 リリースノートで、HTTP API 経由の書き込みに `D1:Edit` が要ると明記された
+(それ以前は `D1:Read` だけで書けていた)。
+
+**Cloudflare は GitHub Actions の OIDC によるトークンレス認証をサポートしていない。**
+`wrangler-action` の要望 (#402) と workers-sdk の議論 (#11434、2025-11-26 起票) はどちらも
+open のままで、Cloudflare 側の回答もロードマップもない。長命トークンを Secrets に置くしかない。
+
+緩和策として公式にあるもの。**account-owned token** (ユーザーに紐づかない独立した権限セット)、
+Account Resources で対象アカウントを限定、TTL (`expires_on`。既定では期限切れしない)、
+Client IP Filtering (CIDR。ただし Verify Token エンドポイントには適用されない)。
+
+**`wrangler d1` のフラグ省略時の既定はローカル** (実装をソースで確認)。
+公式の D1 Local development ページは「`--local` なしならリモート」と書いているが**実装と逆**。
+常に明示する。
+
+`wrangler deploy --secrets-file <path>` でコードと secrets を 1 操作で投入できる。
+1 version あたり 100 件まで。**ファイルに含まれない secret は前の version から引き継がれる。**
+`secrets.required` を宣言していると、未設定の secret があると `deploy` が失敗して
+どれが足りないかを列挙する。
+
+**認証が不要なコマンドの範囲は公式に明言がない。** `wrangler dev` / `types` / `deploy --dry-run` /
+`d1 migrations apply --local` はローカルで完結するはずだが、公式に「ログイン不要」と書いた文は
+見つからなかった。実測で確認する必要がある。
+
 ---
 
 ## 6. Google OAuth と COOP
