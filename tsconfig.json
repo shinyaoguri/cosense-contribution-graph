@@ -1,0 +1,30 @@
+{
+  // 共通の compilerOptions だけを持つ土台。**このファイル自体は何も検査しない**
+  // (files: [])。実際の検査は lib と include が違う 3 つの派生が行う。
+  //
+  // lib を分ける理由: worker-configuration.d.ts は workerd のランタイム型
+  // (Response / Request / crypto) をグローバルに宣言する。これを DOM lib と
+  // 同時に読むと同名グローバルが衝突し、Worker 側から document が見えてしまう。
+  // 分けることで「src/shared/ には両方の lib で通るコードしか置けない」を
+  // 機械的に強制できる。
+  //
+  // paths は使わず相対 import にする。バンドラが 2 つある (UserScript は自前の
+  // esbuild、Worker は wrangler 内蔵の esbuild) ので、解決規則を揃える手間に見合わない。
+  "compilerOptions": {
+    "target": "es2023",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    // 相対 import に .ts 拡張子を書く形に揃える (noEmit が前提)
+    "allowImportingTsExtensions": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "verbatimModuleSyntax": true,
+    // enum / namespace / parameter properties を禁止する (ambient の declare は対象外)
+    "erasableSyntaxOnly": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "files": []
+}

@@ -1,0 +1,35 @@
+{
+  "name": "cosense-contribution-graph",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Cosense の活動を草として可視化する UserScript と Cloudflare Worker",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "typecheck": "wrangler types --check && tsc -p tsconfig.worker.json && tsc -p tsconfig.userscript.json && tsc -p test/tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "knip": "knip",
+    "dev": "wrangler dev --test-scheduled",
+    "typegen": "wrangler types",
+    "build:userscript": "node scripts/build-userscript.mjs",
+    "build": "wrangler deploy --dry-run && npm run build:userscript",
+    "db:migrate:local": "wrangler d1 migrations apply cosense-grass --local",
+    "check": "npm run lint && npm run typecheck && npm run knip && npm test && npm run build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.13",
+    "@cloudflare/vitest-plugin": "^1.1.8",
+    "@types/node": "^24.13.4",
+    "esbuild": "^0.28.2",
+    "jsdom": "^29.1.1",
+    "knip": "^6.35.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11",
+    "wrangler": "4.131.1"
+  }
+}

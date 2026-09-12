@@ -1,0 +1,17 @@
+{
+  // UserScript 側。ブラウザで動くので DOM を入れる。
+  // **worker-configuration.d.ts は読まない** (workerd のグローバルと衝突する)。
+  // test/userscript もここで検査する。jsdom のテストは DOM lib が必要で、
+  // workerd 側の test/tsconfig.json とは lib を共有できない。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["es2023", "dom", "dom.iterable"],
+    "types": []
+  },
+  "include": [
+    "src/userscript/**/*.ts",
+    "src/shared/**/*.ts",
+    "test/userscript/**/*.ts",
+    "test/shared/**/*.ts"
+  ]
+}

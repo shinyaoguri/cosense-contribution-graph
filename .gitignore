@@ -12,6 +12,7 @@ dist/
 # .dev.vars は `wrangler dev` が読む。絶対にコミットしない
 .dev.vars
 .dev.vars.*
+!.dev.vars.example
 .env
 .env.*
 !.env.example

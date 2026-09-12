@@ -1,0 +1,24 @@
+{
+  // workerd で走るテスト。cloudflare:test などのモジュール宣言は
+  // @cloudflare/vitest-plugin/types が与える。
+  // jsdom 側のテストは lib が違うので tsconfig.userscript.json が見る。
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "lib": ["es2023"],
+    "types": ["node", "@cloudflare/vitest-plugin/types"]
+  },
+  "include": [
+    "../worker-configuration.d.ts",
+    "env.d.ts",
+    "apply-migrations.ts",
+    "worker/**/*.ts",
+    "shared/**/*.ts",
+    "../src/worker/**/*.ts",
+    "../src/shared/**/*.ts",
+    // 設定ファイル自体も型検査に載せる。壊れても tsc で分からないと、
+    // vitest / build で初めて落ちることになる
+    "../vitest.config.ts",
+    "../vitest.worker.config.ts",
+    "../vitest.userscript.config.ts"
+  ]
+}

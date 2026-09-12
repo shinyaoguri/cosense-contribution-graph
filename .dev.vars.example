@@ -1,0 +1,13 @@
+# ローカル開発用の秘密値のひな形。**実際の値を書いたら .dev.vars にコピーする**
+# (.dev.vars は gitignore 済み)。wrangler dev がこれを読む。
+#
+# wrangler.jsonc の secrets.required に宣言してあるので、未設定だと警告が出る。
+# 本番の値は GitHub Actions から wrangler deploy --secrets-file で投入する。
+# ローカルに CLOUDFLARE_API_TOKEN は置かない (ADR-0014 決定 3)。
+
+# 利用者の識別子を導出する鍵。**失うと全利用者の識別子が再計算できなくなる**
+WORKER_SECRET=dummy-not-a-real-secret
+
+# Google Cloud の OAuth クライアント (openid スコープのみ)
+GOOGLE_CLIENT_ID=dummy.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=dummy-not-a-real-secret
