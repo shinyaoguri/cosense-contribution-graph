@@ -603,6 +603,38 @@ JSDoc で非推奨と注記され、後継として `cloudflare:workers` から�
 プラグインは `wrangler 4.131.1` を依存として固定しているので、wrangler も同じ版に合わせる。
 輸出は `cloudflareTest` / `readD1Migrations` / `D1Migration` がルートから取れる。
 
+### 初回デプロイの経路 (2026-09-13、wrangler 4.131.1 のソース)
+
+**`--secrets-file` はまず JSON として読み、失敗したら dotenv として読む** (`parseBulkInputToObject`)。
+dotenv は引用符を剥がし、値の中の ` #` 以降を注釈として捨てる。**一度しか決められない値は JSON で書く。**
+`#`・引用符・`+/=` を混ぜたダミー値を Node の `JSON.stringify` で書き出し、化けずに往復することを確かめた。
+
+**Worker が存在しない状態の deploy は、`secrets.required` の値が揃わないと例外になる**
+(`addRequiredSecretsInheritBindings`)。
+
+```
+if (options.type === "deploy" && !options.workerExists) {
+  throw new UserError(`The following required secrets have not been set: ...`)
+```
+
+2 回目以降は宣言した secret が `{ type: "inherit" }` バインディングになるので、
+毎回 `--secrets-file` で渡しても害は無い。
+
+**`workers_dev` の既定は `routes` の有無で変わる** (`getSubdomainValues`)。
+
+```
+const defaultWorkersDev = routes.length === 0;
+const workers_dev = config_workers_dev ?? defaultWorkersDev;
+```
+
+`routes` を足した瞬間に workers.dev が既定で無効になる。独自ドメインへ移る前後で動作確認の場を
+残したいなら明示する。
+
+**バインディングを実アカウントと照合する検査は wrangler 側に無い。** 存在しない D1 の ID や、
+プランで使えないバインディングの扱いは Cloudflare の API 側の判定で、ソースからは確かめられない。
+`--dry-run` はアカウントを参照しない (`requireAuth` を通らない) ので、**`--dry-run` が通っても
+本番デプロイが通る保証にならない。**
+
 ---
 
 ## 6. Google OAuth と COOP
