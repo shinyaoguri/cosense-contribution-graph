@@ -304,15 +304,15 @@ vitest の Workers project はローカルの workerd だけで走るので、AP
   ローカルで消したいときは `.dev.vars.example` を `.dev.vars` にコピーする。
   なお `secrets` を宣言すると wrangler が `process.env` も参照するので、
   **シェルに同名の値を export しているとローカルのテストに静かに混ざる**
-- **GitHub Secrets の登録は段階 0 では行わない。** 登録すると main への初 push で
-  `deploy` が動いてしまい、(1) D1 は段階 3 まで存在しないのでマイグレーションが失敗し、
-  (2) worker 未作成 + secret 未投入で `wrangler deploy` が失敗する。main が赤くなる。
-  マイグレーションの段は `hashFiles('migrations/*.sql') != ''` で守ったが、
-  **`deploy` 自体は守れないので登録を遅らせるのが正解**
-- **初回デプロイの経路が未設計。** `secrets.required` を宣言しているので、worker が
-  存在しない状態の `wrangler deploy` は「required secrets have not been set」で落ちる。
-  通すには `--secrets-file` が必要だが、ADR-0014 がローカルからのデプロイを禁じている。
-  **`workflow_dispatch` の 1 回限りの段**として設計する。段階 1 で詰める
+- **デプロイの guard は「必要なものが揃っているか」で判定する。** 当初はトークンの有無だけを
+  見ていたが、それでは足りない。`secrets.required` を宣言しているので、**Worker が存在しない
+  状態の `wrangler deploy` はアプリの secret が無いと必ず例外になる**
+  (wrangler の secrets-validation をソースで確認)。トークンだけ登録した時点で main が
+  赤くなるので、**アプリの secret 3 つが揃っているかも guard で見る。**
+  マイグレーションの段は別に `hashFiles('migrations/*.sql') != ''` で守っている
+- **初回デプロイの経路が未設計。** 上記の例外を通すには `--secrets-file` が必要で、
+  ADR-0014 がローカルからのデプロイを禁じている。**CI で Environment secrets から
+  ファイルを組んで渡す段**として段階 1 で設計する
 - **dependabot が wrangler を上げると `typecheck` が必ず落ちる。** 生成される
   `worker-configuration.d.ts` の先頭に `workerd@<版> <日付>` が入り、
   `wrangler types --check` がこの行を比較するため。**bump の PR では `npm run typegen` を
@@ -498,12 +498,13 @@ COOP のフォールバック (コードを貼る経路) も実際に試す。
 |---|---|---|
 | 段階 0 | **認証プロファイルの束縛** | 使いたいアカウントで `wrangler auth create` / `activate`。`whoami` で確認 |
 | 段階 1 | **CI 用の API トークン** | account-owned token。「Edit Cloudflare Workers」+ **Account > D1 > Edit**。KV / R2 / Tail は落とす。対象アカウント 1 つに限定。TTL を設定 |
-| 段階 1 | **Environment secrets** | `production` 環境を作り `CLOUDFLARE_API_TOKEN` だけを置く。**deployment branch を main に限定する。required reviewers は付けない** (自動デプロイが止まる)。`CLOUDFLARE_ACCOUNT_ID` は不要 (`account_id` が設定にある)。**段階 0 で登録しない** (下記) |
+| 段階 0 | **Environment secrets** | `production` 環境に `CLOUDFLARE_API_TOKEN` を置く。**deployment branch を main に限定。required reviewers は付けない** (自動デプロイが止まる)。`CLOUDFLARE_ACCOUNT_ID` は不要 (`account_id` が設定にある) |
+| 段階 1 | **アプリの secret 3 つ** | `WORKER_SECRET` / `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` を `production` に置く。`secrets.required` を宣言しているので**初回デプロイはこれが揃わないと必ず失敗する**。Google の 2 つは段階 4 までプレースホルダでよい (段階 4 で実値に差し替える) |
 | 段階 1 | Cloudflare アカウント | 無料枠。D1 はまだ不要 |
 | 段階 1 | Cosense の確認用ページ | 自分のプロジェクトのどこかに 1 ページ |
 | 段階 3 | D1 データベース | `wrangler d1 create cosense-grass`。**ローカルから 1 回だけ打つ** |
 | 段階 4 | **独自ドメイン** | `workers.dev` では zone の WAF が効かず、レートリミットがかけられない |
-| 段階 4 | **`WORKER_SECRET`** | uid の導出鍵。**失うと全利用者の識別子が再計算できなくなる。必ずバックアップ** |
+| 段階 1 | **`WORKER_SECRET` の実値** | uid の導出鍵。**一度決めたら変えられない** (変えると全利用者の識別子が変わる)。初回デプロイで入れるので段階 1 で作る。**失うと再計算できなくなるので必ずバックアップ** |
 | 段階 4 | Google Cloud の OAuth クライアント | `openid` スコープのみなら審査は不要 |
 | 段階 4 | プライバシーポリシーの公開先 | Google の同意画面の要件。`privacy.md` を Worker から配信する |
 | 段階 5 | **Cosense の配布用公開プロジェクト** | バンドルを貼る。リリースのたびに手動 |
