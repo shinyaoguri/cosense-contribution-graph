@@ -3,10 +3,9 @@
   "name": "cosense-grass",
   "main": "src/worker/index.ts",
 
-  // account_id は段階 1 (最初のデプロイ) で入れる。ADR-0014 決定 4 は
-  // 「設定ファイルにも書いて二重化する」と決めているが、値がまだ無い。
-  // 不正な値を置くと --dry-run が壊れるので、キーごと省いてある (Issue #8)。
-  // "account_id": "<ACCOUNT_ID>",
+  // 誤アカウント防止の二重化 (ADR-0014 決定 4)。認証プロファイルの束縛が外れていても、
+  // ここで対象が固定される。アカウント ID は秘密ではないのでコミットしてよい。
+  "account_id": "d82286ae14a7c357b84e19863fe9f220",
 
   // compatibility_flags は書かない。2026-08-04 以降の compatibility_date では
   // nodejs_compat / nodejs_compat_v2 が既定で有効で、公式が省略を勧めている。
