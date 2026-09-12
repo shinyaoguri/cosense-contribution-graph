@@ -24,6 +24,16 @@ updates:
     # worker-configuration.d.ts の先頭に `workerd@<版> <日付>` が入り、
     # `wrangler types --check` がその行を比較するため。PR 上で `npm run typegen` を
     # 回してから通す (wrangler は exact pin なので、上がるときは必ず明示的)
+    ignore:
+      # **vitest の major を上げられない。** @cloudflare/vitest-plugin の peer が
+      # `vitest: ^4.1.0` で、5 系にすると npm ci が ERESOLVE で落ちる (#13 で実証)。
+      # プラグインが 5 系に対応したらこの ignore を外す
+      - dependency-name: vitest
+        update-types: ["version-update:semver-major"]
+      # **@types/node は engines.node と CI の Node に合わせる。** 先に型だけ上げると、
+      # 動かす Node に無い API が型として見えてしまう。Node を上げるときに一緒に上げる
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: "/"
