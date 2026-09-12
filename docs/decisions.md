@@ -769,3 +769,110 @@ Service Account ならプロジェクト単位に絞れるが、ビジネスプ�
 プライバシーポリシーにも GitHub のリポジトリと Issue を連絡先として書く。
 メールアドレスを公開せずに済み、やりとりが記録に残る。
 Google の OAuth 同意画面の Homepage URL もリポジトリを指す。
+
+---
+
+## ADR-0014 デプロイは GitHub Actions からだけ行う
+
+日付 2026-09-12 / 状態 採用
+
+### 問題
+
+Cloudflare のアカウントを複数持っていて、**`wrangler login` で認証しているのとは別のアカウント**に
+デプロイしたい。`wrangler login` のグローバル認証は 1 つしか持てない。
+
+さらにローカルから手で `wrangler deploy` を打つと、どのアカウントに向いているか分からないまま
+実行する事故が起きる。非対話で複数アカウントに属している場合に
+**リストの先頭を黙って選ぶ挙動**が workers-sdk の issue で議論されており、未解決のまま残っている。
+
+### 決定 1 — デプロイは GitHub Actions からだけ
+
+`main` への push で動かす。順序は **D1 マイグレーション → コードデプロイ**。
+
+マイグレーションを先にするのは、逆にすると新しいコードがまだ無いテーブルを引く時間帯ができるため。
+**識別子はバインディング名ではなくデータベース名で指定する。** バインディング名は変わりうるが
+データベース名は変わらないので、誤ったデータベースに当てる事故を避けられる (公式の注記)。
+
+ローカルに `npm run deploy` は置かない。`npm run build` は `wrangler deploy --dry-run` なので
+アカウント認証なしでバンドルの検証ができる。
+
+### 決定 2 — ローカルは認証プロファイルをディレクトリに束縛する
+
+wrangler 4.131.1 に認証プロファイルがある (2026-07-02 のリリースで追加)。
+
+```sh
+npx wrangler auth create <名前>
+npx wrangler auth activate <名前> /Users/so/Repos/cosense-contribution-graph
+npx wrangler auth list
+```
+
+ディレクトリに束縛すると、そのディレクトリ以下では自動的にそのプロファイルになる。
+
+**ただし `wrangler auth create` / `activate` / `list` はすべて `[experimental]` と表示される。**
+破壊的変更がありうるので、代替手段も用意しておく。
+
+代替は**ワンショットの環境変数**。そのアカウント用の API トークンを用意し、必要なコマンドだけに渡す。
+
+```sh
+CLOUDFLARE_API_TOKEN=... CLOUDFLARE_ACCOUNT_ID=... npx wrangler d1 create cosense-grass
+```
+
+`wrangler login` の認証情報を壊さず、トークンをファイルに残さない。
+1Password から読んで渡せば平文で置く必要もない。
+
+### 決定 3 — ローカルに `CLOUDFLARE_API_TOKEN` を置かない
+
+公式が優先順位を明記している。**`CLOUDFLARE_API_TOKEN` はすべての認証プロファイルを上書きする。**
+シェルの rc ファイルや `.env` に置くと、意図しないアカウントに向いたまま気づかない。
+
+`.env` に置くのは特に危うい。**wrangler CLI はこのファイルを読むが、同時にローカル開発時の
+Worker の `env` にもロードされる** (`.dev.vars` も `secrets.required` も無い場合)。
+ローカルの秘密値は `.dev.vars` に置き、`.env` は使わない。
+
+### 決定 4 — `wrangler.jsonc` に `account_id` を書く
+
+誤アカウント防止の二重化。プロファイルの束縛が外れていても、設定ファイルが対象を固定する。
+アカウント ID は秘密ではないのでコミットしてよい。
+
+### 決定 5 — CI 用トークンは account-owned token にして D1 Edit を足す
+
+**「Edit Cloudflare Workers」テンプレートに D1 は含まれない。** 公式の一覧では
+Workers Routes Write / Workers Scripts Write / Workers KV Storage Write / Workers Tail Read /
+Workers R2 Storage Write / Account Settings Read / User Details Read / User Memberships Read の 8 つで、
+D1 がない。
+
+**`wrangler d1 migrations apply --remote` には Account > D1 > Edit が必要。**
+2025-05-02 の D1 リリースノートで、書き込みに `D1:Edit` が要ると明記された
+(それ以前は `D1:Read` だけで書けてしまっていた)。
+
+絞る方針。
+
+- ベースは「Edit Cloudflare Workers」、**追加で Account > D1 > Edit**
+- 使わない権限は落とす。KV も R2 も Tail も使っていない
+- **Account Resources を対象アカウント 1 つに限定する**
+- TTL (`expires_on`) を設定する。既定では期限切れしない
+- **account-owned token** にする。ユーザーに紐づく token ではなく独立した権限セットなので、
+  作成者のアカウント状態に左右されない
+
+### 決定 6 — OIDC は使えないので長命トークンを Secrets に置く
+
+**Cloudflare は GitHub Actions の OIDC によるトークンレス認証をサポートしていない** (2026-09-12 時点)。
+`wrangler-action` の要望 (#402) と workers-sdk の議論 (#11434) はどちらも open のままで、
+Cloudflare 側からの回答もロードマップの提示もない。
+
+長命の API トークンを GitHub Secrets に置くしかない。決定 5 の絞り込みが唯一の緩和策になる。
+
+`cloudflare/wrangler-action` は使わず `npx wrangler deploy` を直接呼ぶ。
+**マイグレーションとデプロイの順序を明示したいので、そのほうが素直。**
+外部 action に依存しないという方針とも揃う。
+
+### 帰結
+
+- **ローカルでアカウント認証が必要なのは初回セットアップだけになる。**
+  `wrangler dev` と `wrangler types` と `--dry-run` と `--local` のマイグレーションは
+  認証なしで動く見込み。ただしこれは公式に明言がないので段階 0 で実測する
+- トークンが漏れたら、そのアカウントの Worker を書き換えられる。
+  TTL と最小権限とアカウント限定で被害の範囲と期間を絞る
+- デプロイの履歴が Actions に残る。誰が何をいつデプロイしたかが後から読める
+- **初回デプロイは `wrangler deploy --secrets-file` で secrets と一緒に投入する。**
+  `secrets.required` を宣言していると未設定の secret があるとデプロイが失敗するため
