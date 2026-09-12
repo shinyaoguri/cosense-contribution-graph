@@ -49,6 +49,7 @@ read の記録にページ識別子を一切載せていないので、「誰が
 | [docs/decisions.md](docs/decisions.md) | 設計判断の記録。なぜこの形なのか。**最初に読む** |
 | [docs/design.md](docs/design.md) | 設計。アーキテクチャ、指標、配色、スキーマ、API、脅威モデル |
 | [docs/research.md](docs/research.md) | Cosense と Cloudflare と Google の実測結果。出典と基準日付き |
+| [docs/roadmap.md](docs/roadmap.md) | 実装計画。開発環境の整備から段階ごとの完了条件まで |
 | [docs/privacy.md](docs/privacy.md) | プライバシーポリシーの草案。何を保存して何を保存しないか |
 
 `decisions.md` を先に読むのは、送信経路・指標の持ち方・身元の紐づけ方が素朴な設計と違うため。
