@@ -59,14 +59,24 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # **トークンは Environment secrets に置く。** Repository secrets だとリポジトリの
+    # 全ワークフローから読めてしまう。Cloudflare は OIDC に対応しておらず長命トークンを
+    # 置くしかないので、読める範囲を宣言したジョブだけに絞る。
+    # あわせて Environment 側で **deployment branch を main に限定**する
+    # (ワークフローの if と独立に GitHub 側で強制される)。
+    # **required reviewers は付けない** — 毎回のデプロイが承認待ちで止まり、
+    # 「Actions から自動でデプロイする」(ADR-0014) と衝突する。
+    environment: production
     # **途中で止めない。** マイグレーション適用中に中断されると、スキーマだけ進んで
     # コードが古いまま残る状態になりうる
     concurrency:
       group: deploy-${{ github.ref }}
       cancel-in-progress: false
     env:
+      # CLOUDFLARE_ACCOUNT_ID は要らない。wrangler.jsonc の account_id と代替関係で、
+      # 設定がある方が優先される (wrangler のエラーメッセージが明示している)。
+      # 設定に書いてあるとアカウント一覧の API 呼び出しも省かれる
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

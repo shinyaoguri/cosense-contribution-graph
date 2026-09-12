@@ -873,13 +873,27 @@ D1 がない。
 - **account-owned token** にする。ユーザーに紐づく token ではなく独立した権限セットなので、
   作成者のアカウント状態に左右されない
 
-### 決定 6 — OIDC は使えないので長命トークンを Secrets に置く
+### 決定 6 — OIDC は使えないので長命トークンを Environment secrets に置く
 
 **Cloudflare は GitHub Actions の OIDC によるトークンレス認証をサポートしていない** (2026-09-12 時点)。
 `wrangler-action` の要望 (#402) と workers-sdk の議論 (#11434) はどちらも open のままで、
 Cloudflare 側からの回答もロードマップの提示もない。
 
-長命の API トークンを GitHub Secrets に置くしかない。決定 5 の絞り込みが唯一の緩和策になる。
+長命の API トークンを置くしかない。緩和策は 2 つ重ねる。決定 5 のトークン自体の絞り込みと、
+**置き場を Environment secrets にすること。**
+
+Repository secrets はリポジトリの全ワークフロー・全ジョブから読める。
+Environment secrets は `environment:` を宣言したジョブだけが読み、さらに Environment 側で
+**deployment branch を `main` に限定できる。** この限定は**ワークフローの `if` と独立に
+GitHub 側で強制される**ので、ファイルの書き換えから独立した層になる。
+段階 8 で週次の外部リンク検査ワークフローを足す予定があり、Repository secrets だと
+それも射程に入ってしまう。
+
+**required reviewers は付けない。** 毎回のデプロイが承認待ちで止まり、
+「Actions から自動でデプロイする」という決定 1 と衝突する。
+
+`CLOUDFLARE_ACCOUNT_ID` は置かない。`account_id` を設定ファイルに書いた時点で不要
+(wrangler は両者を代替として扱い、設定がある方でアカウント一覧の API 呼び出しを省く)。
 
 `cloudflare/wrangler-action` は使わず `npx wrangler deploy` を直接呼ぶ。
 **マイグレーションとデプロイの順序を明示したいので、そのほうが素直。**
