@@ -21,15 +21,25 @@ Cosense (旧 Scrapbox) の活動を草として可視化する。成果物は **
 ## 検証
 
 ```sh
+npm run check                # push 前のゲート。lint → typecheck → knip → test → build
+npm run lint:fix             # biome の自動修正 (import の並びもここで直る)
+npm run dev                  # wrangler dev。/__scheduled で Cron を叩ける
 ./scripts/check-links.sh     # Markdown の相対リンクが実在するか
 ```
+
+**CI も `npm run check` を呼ぶ**ので、ローカルと CI が乖離しない。
+**Cloudflare の認証情報なしで green になることが不変条件。** Workers のテストは
+ローカルの workerd だけで走る。
 
 **`check-links.sh` は外部 URL を見ない。意図的。** docs は Cosense と Cloudflare の一次情報への
 出典を大量に持つので、到達性を CI で見ると先方の都合で赤くなる。出典の鮮度は `research.md` の
 基準日付きの記述で人間が管理する。
 
-段階 0 が終わると `npm run check` (lint → typecheck → knip → test → build) が push 前のゲートになる。
-CI も同じコマンドを呼ぶので乖離しない。
+### テスト中に出る警告は設計どおり
+
+`wrangler.jsonc` に `secrets.required` を宣言しているので、値が無いと
+「Missing required secrets」が出る。**CI に秘密を置かないので消えない。失敗ではない。**
+ローカルで消したいときは `.dev.vars.example` を `.dev.vars` にコピーする。
 
 ## 触るときの注意
 
@@ -63,6 +73,16 @@ rc ファイルにも `.env` にも書かない。ローカルは `wrangler auth
 | `publicId` | `SHA-256(uid + ":" + 対象)` の先頭 **32 桁** |
 
 `uid` は全行に出るので行サイズに直接効く。短縮した経緯は ADR-0013 決定 2 にある。
+
+### 生成物と設定の細かい約束
+
+- **`worker-configuration.d.ts` はコミットする。** `wrangler types --check` が差分を見るため。
+  **wrangler を上げたら `npm run typegen` を回す** (でないと `typecheck` が落ちる)
+- **`migrations/` は空に保つ** (段階 3 まで)。`applyD1Migrations` は文を含まない `.sql` を
+  拒否するので、中身の無いプレースホルダは置けない
+- **knip の `ignoreDependencies: ["cloudflare"]` は消さない。** `cloudflare:test` という
+  仮想モジュールを `cloudflare` という実パッケージだと誤認するため
+- **biome は `worker-configuration.d.ts` を見ない** (生成物で 15,000 行あるため)
 
 ### 破壊的変更では配布ページを分ける
 

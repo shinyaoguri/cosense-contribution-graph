@@ -60,7 +60,9 @@ Cosense (旧 Scrapbox) の活動を GitHub のコントリビューショング�
 
 ```
 wrangler.jsonc              Worker + D1 + Cron + Rate Limiting
-vitest.config.ts            @cloudflare/vitest-plugin
+vitest.config.ts            projects を列挙する薄い root
+vitest.worker.config.ts     @cloudflare/vitest-plugin (workerd)
+vitest.userscript.config.ts environment: jsdom
 migrations/0001_init.sql
 src/shared/                 Worker と UserScript の両方から import する
   ids.ts                    ph / publicId の導出
@@ -89,7 +91,7 @@ src/userscript/
   store.ts                  localStorage
   render.ts                 DOM 注入の草とツールチップ
   settings.ts               設定 UI
-tools/publish-userscript.ts バンドルを Cosense の配布ページへ反映
+scripts/build-userscript.mjs esbuild でバンドルする (配布ページへの反映は手動。ADR-0013 決定 3)
 ```
 
 `shared/` を両方から import するので、Worker が出す SVG と DOM 注入の草で配色が食い違わない。

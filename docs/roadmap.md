@@ -9,8 +9,13 @@
 
 ## 段階 0 — 開発環境を整える
 
-コードは書かない。**main ブランチには今 `LICENSE` と `README.md` と `docs/` しかない。**
-`.gitignore` も `CLAUDE.md` もないので、まずそこを埋める。
+**骨組みまで書く。** 当初は「コードは書かない」としていたが、完了条件の `npm run check` は
+`build` (= `wrangler deploy --dry-run`) を含み、これは `main` に指定した実体を要求する。
+`/__scheduled` で Cron を叩く条件も実体が無いと満たせない。
+そこで **404 を返す `fetch` と空の `scheduled`、UserScript の空のエントリ、
+各 project にスモークテスト 1 本**までを置く。機能は段階 1 以降。
+
+`.gitignore` と `CLAUDE.md` と `.github/` のテンプレートは個人標準の監査で先に入った。
 
 ### 採用する道具
 
@@ -49,7 +54,15 @@ vitest.userscript.config.ts     environment: jsdom
 test/apply-migrations.ts        applyD1Migrations
 scripts/build-userscript.mjs    esbuild の Build API
 scripts/check-pr-title.sh       Conventional Commits の 9 type を検査
-migrations/0001_init.sql        空で置くか、段階 3 で作る
+migrations/.gitkeep             **空に保つ。** applyD1Migrations は文を含まない .sql を拒否する
+.dev.vars.example               ローカルの秘密値のひな形 (.dev.vars は gitignore 済み)
+src/worker/index.ts             404 を返す fetch と空の scheduled
+src/shared/ids.ts               ph の桁数と検証。**両方の lib で型検査される**
+src/userscript/index.ts         esbuild の入力になる最小のエントリ
+test/env.d.ts                   テスト専用バインディングを Cloudflare.Env に併合
+test/shared/ids.test.ts         **両 project の include に入れて 2 回走らせる**
+test/worker/smoke.test.ts       404 / D1 接続 / secrets / DOM が無いことを workerd で
+test/userscript/smoke.test.ts   DOM があること / UserScript のエントリを jsdom で
 .github/workflows/ci.yml        既存を更新 (下記)
 .github/dependabot.yml          npm + github-actions / monthly / grouped / limit 1
 .github/pull_request_template.md  目的 / 変更点 / 確認方法
@@ -158,14 +171,17 @@ Worker のテストは workerd 内で走るので `document` がない。UserScr
 公式も「Workers Vitest integration で custom environment は非対応」と明記しているので、
 同じ project には混ぜられない。
 
-**`src/shared/**` を両方の project の `include` に入れる。** 同じコードが workerd と jsdom で
-同じ答えを返すかを二重に検証できる。Worker が出す SVG と DOM 注入の草で配色が食い違わないこと
+**`test/shared/**/*.test.ts` を両方の project の `include` に入れる。** 同じ**テストファイル**が
+workerd と jsdom で 2 回走り、shared が両環境で同じ答えを返すことを 1 つの検証で保証できる。
+`include` はテストファイルの glob なので、source のパスを入れても拾われない。Worker が出す SVG と DOM 注入の草で配色が食い違わないこと
 という設計の要求に、これが直接効く。
 
 - `@cloudflare/vitest-plugin` からの import は**ルートから**。`/config` サブパスは存在しない
   (公式ドキュメントに古い記述が残っている)
 - coverage は **istanbul**。V8 の native coverage は Workers plugin では使えない
 - ストレージの分離はテストファイル単位。ファイルをまたいでデータは残らない
+- **この 2 点は 1.1.8 で未再確認。** `isolatedStorage` オプションが schema から消えている
+  (0.18 にはあった) ので、**D1 を本格的に使う段階 3 の前に確かめる**
 
 ### CI の更新
 
@@ -264,13 +280,43 @@ vitest の Workers project はローカルの workerd だけで走るので、AP
 
 ### 完了条件
 
-- `npm run check` がローカルで green
-- CI が PR で green になり、チェックが 1 件以上登録されている
-  (今はチェックが 0 件で、green と区別が付かない)
-- `npm run dev` で Worker が起動し、`/cdn-cgi/local/scheduled` で Cron を叩ける
-- `npx wrangler whoami` が**使いたいアカウント**を指している
-- **`wrangler logout` 相当の状態で `dev` / `types` / `--dry-run` / `--local` のマイグレーションが
-  動くことを実測する。** 公式に認証不要と明言されていないので確認する
+- [x] `npm run check` がローカルで green (lint / typecheck / knip / test 14 件 / build)
+- [x] `npm run dev` で Worker が起動し、**`/__scheduled`** で Cron を叩ける
+      (`--test-scheduled` が公開する経路。`/cdn-cgi/handler/scheduled` と
+      `/cdn-cgi/local/scheduled` でも走ることを実測したが、**文書化されているのは
+      `/__scheduled`** なのでこちらを条件にする。research.md §5)
+- [x] **認証なしで `dev` / `types --check` / `--dry-run` / `--local` のマイグレーションが動く**
+      ことを実測した (`HOME` を空にして確認)。公式に明言が無いので測った
+- [ ] CI が PR で green になり、チェックが 1 件以上登録されている
+      (チェックが 0 件のままだと green と区別が付かない)
+- [ ] `npx wrangler whoami` が**使いたいアカウント**を指している
+      — **これは手で行う作業。** 今は既存のアカウントを指していて、認証プロファイルは
+      `default` だけでディレクトリ束縛も無い。`wrangler auth create` / `activate` が必要
+
+### 段階 0 で持ち越したもの
+
+- **`wrangler.jsonc` の `account_id`。** 値がまだ無く、不正な値を置くと `--dry-run` が壊れるので
+  キーごと省いてコメントを残した。**段階 1 の最初のデプロイまでに入れる** (ADR-0014 決定 4)
+- **`d1_databases[].database_id` はプレースホルダ。** miniflare はローカルの識別子としてしか
+  使わないので段階 0 の足場は通る。段階 3 で実 ID に差し替える
+- **`secrets.required` を宣言したので、テスト中に「Missing required secrets」の警告が出る。**
+  `deploy --dry-run` は壊れない。**CI に秘密を置かない設計どおりの表示**で、失敗ではない。
+  ローカルで消したいときは `.dev.vars.example` を `.dev.vars` にコピーする。
+  なお `secrets` を宣言すると wrangler が `process.env` も参照するので、
+  **シェルに同名の値を export しているとローカルのテストに静かに混ざる**
+- **GitHub Secrets の登録は段階 0 では行わない。** 登録すると main への初 push で
+  `deploy` が動いてしまい、(1) D1 は段階 3 まで存在しないのでマイグレーションが失敗し、
+  (2) worker 未作成 + secret 未投入で `wrangler deploy` が失敗する。main が赤くなる。
+  マイグレーションの段は `hashFiles('migrations/*.sql') != ''` で守ったが、
+  **`deploy` 自体は守れないので登録を遅らせるのが正解**
+- **初回デプロイの経路が未設計。** `secrets.required` を宣言しているので、worker が
+  存在しない状態の `wrangler deploy` は「required secrets have not been set」で落ちる。
+  通すには `--secrets-file` が必要だが、ADR-0014 がローカルからのデプロイを禁じている。
+  **`workflow_dispatch` の 1 回限りの段**として設計する。段階 1 で詰める
+- **dependabot が wrangler を上げると `typecheck` が必ず落ちる。** 生成される
+  `worker-configuration.d.ts` の先頭に `workerd@<版> <日付>` が入り、
+  `wrangler types --check` がこの行を比較するため。**bump の PR では `npm run typegen` を
+  回してから通す** (`wrangler` は exact pin にしてあるので、上がるときは必ず明示的)
 
 ---
 
@@ -451,8 +497,8 @@ COOP のフォールバック (コードを貼る経路) も実際に試す。
 | いつ | 用意するもの | 備考 |
 |---|---|---|
 | 段階 0 | **認証プロファイルの束縛** | 使いたいアカウントで `wrangler auth create` / `activate`。`whoami` で確認 |
-| 段階 0 | **CI 用の API トークン** | account-owned token。「Edit Cloudflare Workers」+ **Account > D1 > Edit**。KV / R2 / Tail は落とす。対象アカウント 1 つに限定。TTL を設定 |
-| 段階 0 | **GitHub Secrets** | `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID` |
+| 段階 1 | **CI 用の API トークン** | account-owned token。「Edit Cloudflare Workers」+ **Account > D1 > Edit**。KV / R2 / Tail は落とす。対象アカウント 1 つに限定。TTL を設定 |
+| 段階 1 | **GitHub Secrets** | `CLOUDFLARE_API_TOKEN` と `CLOUDFLARE_ACCOUNT_ID`。**段階 0 で登録しない** (下記) |
 | 段階 1 | Cloudflare アカウント | 無料枠。D1 はまだ不要 |
 | 段階 1 | Cosense の確認用ページ | 自分のプロジェクトのどこかに 1 ページ |
 | 段階 3 | D1 データベース | `wrangler d1 create cosense-grass`。**ローカルから 1 回だけ打つ** |

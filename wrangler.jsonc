@@ -1,0 +1,43 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "cosense-grass",
+  "main": "src/worker/index.ts",
+
+  // account_id は段階 1 (最初のデプロイ) で入れる。ADR-0014 決定 4 は
+  // 「設定ファイルにも書いて二重化する」と決めているが、値がまだ無い。
+  // 不正な値を置くと --dry-run が壊れるので、キーごと省いてある (Issue #8)。
+  // "account_id": "<ACCOUNT_ID>",
+
+  // compatibility_flags は書かない。2026-08-04 以降の compatibility_date では
+  // nodejs_compat / nodejs_compat_v2 が既定で有効で、公式が省略を勧めている。
+  "compatibility_date": "2026-09-12",
+
+  "observability": { "enabled": true },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cosense-grass",
+      // 実 ID は段階 3 で `wrangler d1 create` したものに差し替える。
+      // miniflare はこの値をローカルの識別子としてしか使わないので、
+      // 段階 0 でも vitest の Workers project とマイグレーションの仕組みは通る。
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // period は 10 か 60 しか取れない。namespace_id は正整数を文字列で書く。
+  // Free プランで使えるかは段階 2 の実機検証項目 (design.md §14)。
+  "ratelimits": [
+    { "name": "INGEST_LIMITER", "namespace_id": "1001", "simple": { "limit": 60, "period": 60 } },
+    { "name": "ENROLL_LIMITER", "namespace_id": "1002", "simple": { "limit": 5, "period": 60 } }
+  ],
+
+  // UTC。デプロイのたびに内容で置き換わるので、空配列にすると全削除される。
+  "triggers": { "crons": ["17 3 * * *"] },
+
+  // デプロイ前に未設定の secret を列挙してエラーで止まる。wrangler types の
+  // 型生成もここを見るので、.dev.vars が無い CI でも Env の型が安定する。
+  // 初回デプロイは `wrangler deploy --secrets-file` で一緒に投入する。
+  "secrets": { "required": ["WORKER_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"] }
+}

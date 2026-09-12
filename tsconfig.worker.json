@@ -1,0 +1,11 @@
+{
+  // Worker 側。**lib に DOM を入れない。** document や window が見えたら設計の誤り。
+  // グローバルの型は worker-configuration.d.ts (wrangler types の出力) が与える。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["es2023"],
+    // nodejs_compat が既定で有効なので wrangler が @types/node の導入を促す
+    "types": ["node"]
+  },
+  "include": ["worker-configuration.d.ts", "src/worker/**/*.ts", "src/shared/**/*.ts"]
+}

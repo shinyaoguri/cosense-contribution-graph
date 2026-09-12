@@ -847,6 +847,12 @@ Worker の `env` にもロードされる** (`.dev.vars` も `secrets.required` 
 誤アカウント防止の二重化。プロファイルの束縛が外れていても、設定ファイルが対象を固定する。
 アカウント ID は秘密ではないのでコミットしてよい。
 
+**2026-09-12 の補足 — 書くのは段階 1 から。** 段階 0 の時点ではまだ値が無く、
+不正な値を置くと `wrangler deploy --dry-run` が壊れる。`--dry-run` は
+`requireAuth` を通らないのでアカウントを一切参照せず、`wrangler types` も
+API を呼ばないため、**段階 0 ではキーごと省いても何も失われない。**
+最初のデプロイ (段階 1) までに入れる。
+
 ### 決定 5 — CI 用トークンは account-owned token にして D1 Edit を足す
 
 **「Edit Cloudflare Workers」テンプレートに D1 は含まれない。** 公式の一覧では

@@ -541,9 +541,67 @@ Client IP Filtering (CIDR。ただし Verify Token エンドポイントには�
 `secrets.required` を宣言していると、未設定の secret があると `deploy` が失敗して
 どれが足りないかを列挙する。
 
-**認証が不要なコマンドの範囲は公式に明言がない。** `wrangler dev` / `types` / `deploy --dry-run` /
-`d1 migrations apply --local` はローカルで完結するはずだが、公式に「ログイン不要」と書いた文は
-見つからなかった。実測で確認する必要がある。
+**認証が不要なコマンドの範囲は公式に明言がない。** 公式に「ログイン不要」と書いた文は
+見つからなかったので実測した (下記)。
+
+### 段階 0 の実測 (2026-09-12、wrangler 4.131.1)
+
+資格情報の置き場を見せない状態 (`HOME` を空のディレクトリに差し替えて実行) で測った。
+
+| コマンド | 結果 |
+|---|---|
+| `wrangler types --check` | **通る。** 「Types at worker-configuration.d.ts are up to date.」 |
+| `wrangler deploy --dry-run` | **通る。** バインディング一覧を出して終了する |
+| `wrangler d1 migrations apply <db> --local` | **通る。** 「Resource location: local」と明示し、`--remote` の案内を出す |
+| `vitest run` (Workers project 込み) | **通る。** 14 件すべて緑 |
+
+**`wrangler types --check` は実在する。** バンドルされたコマンド定義に
+「指定パスの型が最新かを再生成せずに検査する」とあり、`status: "stable"`。
+生成物を追跡下に置いて CI で差分を見る運用が成立する。
+
+**`wrangler dev --test-scheduled` の Cron 起動は `/__scheduled` を使う。**
+ヘルプ文字列が案内するのもこれ。`/cdn-cgi/handler/scheduled` は miniflare 直の口
+(legacy は `/cdn-cgi/mf/scheduled`)。
+
+実測では**3 つの経路すべてで `scheduled` ハンドラが走った**
+(`/__scheduled` / `/cdn-cgi/handler/scheduled` / `/cdn-cgi/local/scheduled`。
+ハンドラ内に一時的なログを入れて、経路ごとに回数を数えて確認)。
+ただし `wrangler` のソースを読むと `/cdn-cgi/local/` は R2 の public 用の名前空間で、
+scheduled の口としては定義されていない。**文書化されている `/__scheduled` を使う。**
+Worker のリクエストログに残るのも `/__scheduled` だけで、他の 2 つはログに出ない。
+
+**テストストレージの分離の根拠が 1.1.8 で変わっている可能性がある。**
+`WorkersPoolOptionsSchema` に `isolatedStorage` オプションが見当たらない (0.18 にはあった)。
+「分離はテストファイル単位」という前提は **D1 を本格的に使う段階 3 の前に再確認する。**
+
+**`applyD1Migrations` は文を含まない `.sql` を拒否する** (`D1_ERROR: SQL code did not contain a
+statement`)。中身の無いプレースホルダのマイグレーションは置けないので、スキーマが決まるまでは
+`migrations/` を空に保つ (`readD1Migrations` は `.sql` だけを拾うので、他のファイルは無害)。
+
+**`secrets.required` は `deploy --dry-run` を壊さない。** 未設定でもバンドルの検証は通る。
+ただしテスト中に「Missing required secrets」の警告が出る。**`vitest` の
+`miniflare.bindings` にダミー値を置いても、この警告は消えない**
+(警告は設定読み込み時のもの)。バインディング自体は効いていて、テスト内の
+`env.WORKER_SECRET` はダミー値になる。
+
+**`database_id` がプレースホルダでもローカルは動く。** miniflare はこの値をローカルの
+識別子としてしか使わないので、D1 を作る前から Workers のテストとマイグレーションの
+仕組みを組める。
+
+**`cloudflare:workers` の型宣言がどこにも無い。** `cloudflare:test` の `env` と `SELF` は
+JSDoc で非推奨と注記され、後継として `cloudflare:workers` からの import を案内しているが、
+`wrangler types` の出力にも `@cloudflare/vitest-plugin` にもそのモジュール宣言が無い
+(`cloudflare:email` / `cloudflare:pipelines` / `cloudflare:sockets` はある)。
+**型が付く経路は現時点で `cloudflare:test` 側だけ。**
+
+**`@types/node` の `latest` タグは 22 系を指す。** `npm i --save-dev @types/node` をそのまま
+打つと 22 が入り、`engines.node: ">=24"` と食い違う。TypeScript の版ごとの dist-tag
+(`ts6.0` など) は別に用意されている。**明示的に `^24` を指定する。**
+
+**vitest は 5.0.0 が出ているが上げられない。** `@cloudflare/vitest-plugin@1.1.8` の peer が
+`vitest: ^4.1.0` / `@vitest/runner: ^4.1.0` / `@vitest/snapshot: ^4.1.0`。
+プラグインは `wrangler 4.131.1` を依存として固定しているので、wrangler も同じ版に合わせる。
+輸出は `cloudflareTest` / `readD1Migrations` / `D1Migration` がルートから取れる。
 
 ---
 
