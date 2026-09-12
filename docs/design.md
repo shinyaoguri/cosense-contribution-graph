@@ -16,8 +16,10 @@ Cosense (旧 Scrapbox) の活動を GitHub のコントリビューショング�
 - Cosense ユーザーが `code:script.js` に1行書くだけで導入できる
 - 「書いた」だけでなく「読んだ」活動も記録する
 - 活動量を濃さ、読み書きのバランスを色相で表す2次元の草
+- **複数プロジェクトを使っている人が、全体を集約した草とプロジェクトごとの草の両方を見られる**
 - 共有可能な静的 SVG URL を発行する
-- 個人情報を持たない。アカウント登録も認証フローもなし
+- 個人情報を持たない。アカウント登録も認証フローもなし。
+  **プロジェクト名もサーバに送らない** (ADR-0007)
 
 ### 非ゴール
 
@@ -35,17 +37,28 @@ Cosense (旧 Scrapbox) の活動を GitHub のコントリビューショング�
   センサー  20 秒ごとに localStorage のビットマップへ bit を立てる
   送信      3 分ごと + visibilitychange(hidden) に new Image().src で GET
   表示      localStorage の日次集計から DOM に SVG を描く (ツールチップあり)
-  設定      鍵の表示と貼り付け、共有 URL のコピー、read 計上の on/off
+            合算の草 1 枚 + プロジェクト別の草を並べる
+  設定      鍵の表示と貼り付け、共有 URL の一覧、プロジェクトのラベル、read 計上の on/off
                     │
                     ▼ GET /v1/p.gif?...
          [Cloudflare Worker] ─── [D1]
                     │
                     ▼ GET /v1/g/{publicId}.svg
          Cosense の任意ページに [URL] で貼れる
+         publicId は「全体用」と「プロジェクト別」を独立に導出する
 ```
 
 送信が GET なのは CSP の制約 (ADR-0001)。受信方向は使えないので DOM 注入の草はローカルのデータから
 描く (ADR-0003)。
+
+### 複数プロジェクトの扱い
+
+UserScript は**プロジェクトごとに置く必要がある**。Cosense は
+`/api/code/{project}/{自分のユーザー名}/script.js` しか読まないため、これは仕様で回避できない。
+
+一方 **鍵はプロジェクト間で自動的に共有される**。localStorage はオリジン単位で、Cosense は
+全プロジェクトが `scrapbox.io` の同一オリジン。プロジェクトごとに 1 行書くだけで同じ鍵が使われ、
+集約が成立する。鍵の貼り付けが必要なのは Enterprise の独自ドメインを使っている場合だけ。
 
 ### リポジトリ構成
 
@@ -54,6 +67,7 @@ wrangler.jsonc              Worker + D1 + Cron
 vitest.config.ts            @cloudflare/vitest-plugin
 migrations/0001_init.sql
 src/shared/                 Worker と UserScript の両方から import する
+  ids.ts                    uid / ph / publicId の導出
   bits.ts                   ビットマップ: base64url 往復 / OR / popcount
   scale.ts                  四分位スケール
   balance.ts                色相バランス
@@ -88,13 +102,22 @@ UserScript は esbuild で単一ファイルにバンドルする。
 アカウント登録なし。認証フローなし。クライアントが自分で鍵を生成する。
 
 ```
-secret    localStorage に置く秘密        書き込み権
-uid       SHA-256(secret)               サーバ主キー。外部に出さない
-publicId  SHA-256(uid) の先頭 32 桁      共有 URL。書き込み権を導出できない
+secret       localStorage に置く秘密                     書き込み権
+uid          SHA-256(secret)                            サーバ主キー。外部に出さない
+ph           SHA-256(uid + ":" + プロジェクト名)[0:12]    プロジェクト識別子。'*' は全体を指す予約値
+publicId     SHA-256(uid)[0:32]                         全体の草の共有 URL
+publicId_p   SHA-256(uid + ":" + ph)[0:32]              そのプロジェクトの草の共有 URL
 ```
 
 一方向ハッシュなので `publicId` から `uid` / `secret` は復元できない。
-`publicId` はクライアント側でも計算できるので、共有 URL の表示にサーバ問い合わせは不要。
+すべてクライアント側で計算できるので、共有 URL の表示にサーバ問い合わせは不要。
+
+**`ph` は `uid` でソルトする。** ソルトなしのハッシュだと、既知のプロジェクト名の辞書で
+サーバ側の値を逆引きできてしまう。`uid` を知らなければ逆引きできない形にする。
+
+**プロジェクト別の publicId を独立に導出するのが要点。** クエリでプロジェクトを切り替える方式だと、
+そのプロジェクトの草を共有した相手がクエリを外すだけで全体の草を見られてしまう。
+独立導出なら、ある URL を渡しても全体も他のプロジェクトも見られない (ADR-0007)。
 
 OAuth やサーバ発行トークンは検討して不採用。サードパーティ Cookie は Safari ITP 等でブロックされるため
 どのみち localStorage にベアラトークンが必要になり、OAuth が唯一解決する「localStorage 消失時の復旧」は
@@ -152,32 +175,61 @@ OAuth やサーバ発行トークンは検討して不採用。サードパー�
 ```sql
 CREATE TABLE users (
   uid       TEXT PRIMARY KEY,            -- SHA-256(secret)
-  public_id TEXT UNIQUE NOT NULL,        -- SHA-256(uid)[0:32]
   tz        TEXT NOT NULL DEFAULT 'Asia/Tokyo',
   ver       INTEGER NOT NULL DEFAULT 0,  -- ETag 兼用
   created   INTEGER NOT NULL,
   last_seen INTEGER NOT NULL
 ) WITHOUT ROWID;
 
+-- 共有 URL の解決表。全体用とプロジェクト別の publicId が混在する
+CREATE TABLE graphs (
+  public_id TEXT PRIMARY KEY,
+  uid       TEXT NOT NULL,
+  ph        TEXT NOT NULL       -- '*' なら全体
+) WITHOUT ROWID;
+
+CREATE INDEX graphs_uid ON graphs (uid);
+
+-- プロジェクトのラベル。オプトインで設定されたときだけ行が立つ
+CREATE TABLE projects (
+  uid   TEXT,
+  ph    TEXT,
+  label TEXT,                   -- NULL なら未設定。共有 SVG にラベルを出さない
+  PRIMARY KEY (uid, ph)
+) WITHOUT ROWID;
+
 -- 集計値。永続
 CREATE TABLE daily (
-  uid TEXT, project TEXT, day TEXT,
+  uid TEXT, ph TEXT, day TEXT,
   w INTEGER NOT NULL DEFAULT 0,
   r INTEGER NOT NULL DEFAULT 0,
   pages INTEGER NOT NULL DEFAULT 0,
   created INTEGER NOT NULL DEFAULT 0,
   backfilled INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY (uid, project, day)
+  PRIMARY KEY (uid, ph, day)
 ) WITHOUT ROWID;
 
 -- 冪等マージ用のビットマップ。Cron で 90 日より古いものを削除
 CREATE TABLE daybits (
-  uid TEXT, project TEXT, day TEXT,
+  uid TEXT, ph TEXT, day TEXT,
   wbits BLOB NOT NULL,   -- 180 バイト
   rbits BLOB NOT NULL,
-  PRIMARY KEY (uid, project, day)
+  PRIMARY KEY (uid, ph, day)
 );
 ```
+
+### 合算は `ph = '*'` の行で持つ
+
+**プロジェクト別の `w` を合計してはいけない。** タブを切り替えて 2 つのプロジェクトで作業した分は
+両方のビットマップに bit が立つので、合計すると同じ分を二重に数える。
+
+クライアントが**全プロジェクトを OR した合算ビットマップ**を `ph = '*'` として一緒に送る。
+OR 済みの正しい値が永続化され、サーバ側で計算する必要がない。複数デバイスでも `*` 行同士が
+OR されるので整合する。
+
+bit を立てるときは「現在のプロジェクトの行」と「`*` の行」の両方に立てる。
+
+`ph` のバリデーションは **12 桁の 16 進数か `*` のみ許可**する。
 
 ### なぜビットマップを別テーブルにするか
 
@@ -205,38 +257,50 @@ CREATE TABLE daybits (
 ### `GET /v1/p.gif` — 記録
 
 ```
-?v=1&s=<secret>&tz=<tz>&d=<project>|<day>|<wbits>|<rbits>|<pages>|<created>;...
+?v=1&s=<secret>&tz=<tz>&d=<ph>|<day>|<wbits>|<rbits>|<pages>|<created>;...
 ```
 
-1. `uid = SHA-256(secret)`、`publicId = SHA-256(uid)[0:32]`
+`ph` には現在のプロジェクトのハッシュと、合算を表す `*` の両方が載る。
+プロジェクトのラベルを設定している場合のみ `&l=<ph>|<label>;...` を添える (オプトイン)。
+
+1. `uid = SHA-256(secret)`
 2. `users` に UPSERT して `last_seen` を更新
-3. 対象の `(project, day)` の `daybits` を 1 クエリでまとめて SELECT
-4. Worker 内で OR してから popcount。`r_effective = r & ~w`
-5. `daybits` を UPSERT、`daily` を UPSERT (w / r / pages / created は max)
-6. `ver` を +1
-7. **200 と 43 バイトの透過 GIF** を返す。クライアントが `onload` で到達を判定できる
+3. 受け取った `ph` ごとに `graphs` を UPSERT する
+   (`public_id` は `*` なら `SHA-256(uid)[0:32]`、それ以外は `SHA-256(uid + ":" + ph)[0:32]`)
+4. 対象の `(ph, day)` の `daybits` を 1 クエリでまとめて SELECT
+5. Worker 内で OR してから popcount。`r_effective = r & ~w`
+6. `daybits` を UPSERT、`daily` を UPSERT (w / r / pages / created は max)
+7. `l` があれば `projects` を UPSERT
+8. `ver` を +1
+9. **200 と 43 バイトの透過 GIF** を返す。クライアントが `onload` で到達を判定できる
 
 バリデーション。
 
+- `ph` は 12 桁の 16 進数か `*` のみ許可する
 - `day` が未来なら拒否する。システム時計を進めるだけで未来の草が生えてしまう
 - 30 日より古い `day` は ingest では拒否する。バックフィルは別経路で緩める
 - ビットマップ長が 180 バイトでなければ拒否する
-- 1 リクエストの `(project, day)` 件数に上限を置く (14 程度)。D1 のバインドパラメータ 100 と
+- 1 リクエストの `(ph, day)` 件数に上限を置く (14 程度)。D1 のバインドパラメータ 100 と
   Free の 50 クエリに収める
+- ラベルの長さに上限を置く (64 文字程度)
 
 ### `GET /v1/g/{publicId}.svg` — 共有グラフ
+
+`publicId` が全体用かプロジェクト別かは `graphs` を引いて判定する。
+**どのプロジェクトを描くかはクエリで指定しない。** URL 自体が対象を決める (ADR-0007)。
 
 | クエリ | 既定 | 意味 |
 |---|---|---|
 | `theme` | `light` | `light` / `dark` |
 | `weeks` | `53` | 表示週数 |
 | `mode` | `bi` | `bi` = 2 次元 / `write` = 単色 (色相を 155° 固定) |
-| `project` | 全部 | 指定時はそのプロジェクトのみ |
 
 - ETag は `users.ver` と描画パラメータから作る。**日付は入れない。**
   四分位は全期間の分布で決まるので、1 日更新されると全マスの色が変わり得る
 - `Cache-Control: public, max-age=300`。Cosense 側にキャッシュはないので鮮度はここで決まる
 - `Content-Type: image/svg+xml; charset=utf-8` を必ず付ける。これがないと Cosense で表示されない
+- プロジェクト別の草では、`projects.label` が設定されていればタイトルとして描く。
+  未設定ならラベルなしで描く。**プロジェクト名をサーバが持っていないので推測で出さない**
 
 ### `GET /v1/g/{publicId}.json`
 
@@ -292,6 +356,10 @@ Level 4 になる。テストでここを固定する。
 **母集団は `backfilled = 0` の日に限定する。** バックフィル日は read が 0 なので、混ぜると
 導入後の日だけ活動量が底上げされ、導入前が不当に薄くなる。
 
+**母集団は常に `ph = '*'` (全体合算) の日次データから取る。** プロジェクト別の草も、この共通の
+スケールで塗る。プロジェクトごとに別のスケールにすると、活動の少ないプロジェクトも濃く見えて
+並べたときの比較が成立しない。`scale=self` のようなクエリは作らない (ADR-0007)。
+
 ### バランス (色相)
 
 読みと書きの比は典型的に 6 対 1 程度。素朴な `w / (w + r)` では全マスが青一色になる。
@@ -305,6 +373,10 @@ const balance = d => Math.tanh((odds(d) - center) / 1.2);   // -1 (読) .. +1 (�
 
 **`center` の母集団から `backfilled` を除く。** バックフィル日は `r = 0` なので、混ぜると
 中心が書き側に大きくずれる。
+
+**`center` も `ph = '*'` から取る。** 結果としてプロジェクトの性格が色相に出る。
+読むだけのプロジェクトは全体的に青寄り、書くプロジェクトは黄寄りになる。これは意図した挙動で、
+並べたときにプロジェクトごとの使い方の違いが読める。
 
 ### OKLCH から sRGB
 
@@ -347,6 +419,11 @@ code:script.js
 
 外部ドメインからの import は成立しない (ADR-0005)。バンドルは Cosense の公開プロジェクトに置く。
 
+**複数プロジェクトで使うなら、各プロジェクトの自分のページに同じ 1 行を書く。**
+鍵は localStorage 経由で自動的に共有されるので、2 つ目以降で貼り直す必要はない。
+
+記録したくないプロジェクトには 1 行を書かなければよい。設定 UI に除外機能は作らない (ADR-0007)。
+
 ### センサー
 
 20 秒ごとに判定し、条件を満たせば現在の分の read bit を立てる。
@@ -366,11 +443,16 @@ write は `scrapbox.on("lines:changed", ({by}) => ...)` の `by === "edit"` の�
 | キー | 内容 |
 |---|---|
 | `secret` | 鍵 |
-| `bits` | `{"<project>:<YYYY-MM-DD>": {w, r}}` ビットマップを base64url で。当日と未送信分 |
-| `daily` | `{"<project>:<YYYY-MM-DD>": {w, r, pages, created}}` 表示用。53 週分 |
+| `bits` | `{"<ph>:<YYYY-MM-DD>": {w, r}}` ビットマップを base64url で。当日と未送信分。`*` の行も持つ |
+| `daily` | `{"<ph>:<YYYY-MM-DD>": {w, r, pages, created}}` 表示用。53 週分 |
+| `projects` | `{"<ph>": {name, label}}` `name` はローカル表示用のプロジェクト名。`label` は共有用 (オプトイン) |
 | `settings` | read 計上の on/off など |
 
-複数タブでキューが共有される (Cosense は複数タブで開かれがち)。
+**プロジェクト名は `projects` にローカルだけで持つ。** サーバへ送るのは `ph` と、
+ユーザーが明示的に設定した `label` だけ。
+
+複数タブでキューが共有される (Cosense は複数タブで開かれがち)。オリジンが同じなので、
+別プロジェクトのタブとも共有される。これが集約を成立させている。
 
 ### 送信
 
@@ -381,7 +463,8 @@ write は `scrapbox.on("lines:changed", ({by}) => ...)` の `by === "edit"` の�
 | ロード時 | 未送信分を送る |
 
 - `img.referrerPolicy = "no-referrer"` を `src` より前に設定する
-- URL が 8KB を超えるなら日を分割して複数回送る
+- URL が 8KB を超えるなら日を分割して複数回送る。1 回に載るのは「当日の `*` 行」
+  「当日の現在のプロジェクト行」「未送信の前日分」程度で、3〜4 エントリ × 約 500 文字
 - 複数タブの重複は localStorage のロックで 10 秒抑制する程度でよい。OR なので重複送信は無害
 
 ### 表示
@@ -397,7 +480,20 @@ write は `scrapbox.on("lines:changed", ({by}) => ...)` の `by === "edit"` の�
 2 次元表示では色の絶対的な意味が読めないので、DOM 注入版では必ず出す。
 テーマは `document.documentElement` から判定する。
 
+レイアウトは上に合算の草を 1 枚、下にプロジェクト別の草を小さく並べる。
+各プロジェクトにはローカルの名前と期間の合計分数を添える。数が多ければスクロールさせる。
+スケールは合算から決まるので、並べたまま比較できる。
+
 `page:changed` / `layout:changed` で再マウントと後片付けをする。
+
+### 設定 UI
+
+- 鍵の表示とコピー、貼り付け欄。パスワードマネージャ保管の案内。
+  **Cosense のページに書かないよう明記する**
+- 共有 URL の一覧。全体用とプロジェクト別をそれぞれコピーできる
+- プロジェクトのラベル設定。設定すると共有 SVG にタイトルとして出る (オプトイン)。
+  **未設定なら名前はサーバへ送られない**ことを明記する
+- read 計上の on/off。全体で 1 つ。プロジェクト単位にはしない
 
 ### バックフィル
 
@@ -441,6 +537,9 @@ commits は約 30 日で消えるので、それ以前は遡れない。UI に�
 
 - **read イベントにページ識別子を一切載せない。** 「誰がいつ何を読んだか」は Cosense 上のどこにも
   公開されていない情報で、共同プロジェクトでは監視感が強い。ビットマップは分の情報しか持たない
+- **プロジェクト名をサーバに送らない。** 非公開プロジェクトの名前も Cosense 上のどこにも
+  公開されていない情報。送るのは `uid` でソルトしたハッシュだけなので、D1 が漏洩しても
+  プロジェクト名は復元できない。ラベルはユーザーが明示的に設定したときだけ送る (ADR-0007)
 - 共有 SVG には合算スコアのみ。読みと書きの内訳は DOM 注入版 (本人のみ) に出す
 - **読みの活動量は検証手段がゼロ。** プロジェクト内ランキング等の競争的な用途には使わない
 
@@ -454,13 +553,17 @@ commits は約 30 日で消えるので、それ以前は遡れない。UI に�
    最も不確実な部分を最小コストで潰す。
    **この段階で CI も入れる** (`.github/workflows`)。型チェックとテストを PR で回す。
    いま CI が 1 件もないので、チェックが 0 件の PR と green の PR が見分けられない
-2. **D1 と `GET /v1/p.gif`** — curl で冪等性を確認する (同じビーコンを 2 回送って値が変わらないこと)
+2. **D1 と `GET /v1/p.gif`** — curl で冪等性を確認する (同じビーコンを 2 回送って値が変わらないこと)。
+   `graphs` による publicId の解決、`*` 行の OR、`ph` のバリデーションを含める。
+   二重計上が起きないことをテストで固定する
 3. **UserScript のセンサーとビットマップ** — 送信せず console で挙動確認。
-   特に `by === "edit"` で他人の編集を弾けているか
-4. **接続** — 実データで 1 週間動かす
+   特に `by === "edit"` で他人の編集を弾けているか。
+   bit をプロジェクト行と `*` 行の両方に立てる
+4. **接続** — 実データで 1 週間動かす。**2 つ以上のプロジェクトで動かして集約を確認する**
 5. **パラメータ確定** — §13 を実測値で決める
 6. **バックフィル**
-7. **DOM 注入とツールチップ、設定 UI**
+7. **DOM 注入とツールチップ、設定 UI** — プロジェクト別の草を並べる表示、ラベル設定、
+   共有 URL の一覧
 
 ## 12. テスト
 
@@ -468,9 +571,14 @@ commits は約 30 日で消えるので、それ以前は遡れない。UI に�
 - `shared/scale.ts` 四分位。**比較が `<=` であること**と、離散値が少ないと四分位が同値に潰れるケース
 - `shared/oklch.ts` リファレンス値との突き合わせ。ガモット外 (高明度と青) で二分探索が効くこと
 - `shared/balance.ts` `backfilled` を center の母集団から除くと中心がずれないこと
+- `shared/ids.ts` `ph` が `uid` でソルトされていること (同じプロジェクト名でも別 uid なら別の `ph`)。
+  プロジェクト別 publicId から `uid` も全体用 publicId も導けないこと
 - `worker/ingest.ts` 同じビーコンを 2 回送って値が変わらない。未来と 30 日超の過去を拒否する。
-  `r & ~w` の排他。`daybits` がない日に古いビーコンが来ても `daily.w` が減らない
-- `worker/svg.ts` スナップショットで構造の回帰を見る。`viewBox` と凡例があること
+  `r & ~w` の排他。`daybits` がない日に古いビーコンが来ても `daily.w` が減らない。
+  **2 つのプロジェクトで同じ分に活動したとき、`*` 行の `w` が 2 にならず 1 になること** (二重計上の回帰)。
+  不正な `ph` (12 桁 16 進数でも `*` でもない) を拒否すること
+- `worker/svg.ts` スナップショットで構造の回帰を見る。`viewBox` と凡例があること。
+  プロジェクト別の草がラベル未設定でも壊れないこと
 
 バグ修正は失敗する再現テストを先に書く。新しいテストは検証対象の振る舞いを一時的に壊して
 赤くなるのを見てから仕上げる。
@@ -508,3 +616,9 @@ commits は約 30 日で消えるので、それ以前は遡れない。UI に�
 - **読みの活動は導入日より前が一切存在しない。** 原理的に取得不能
 - **20 秒間隔のポーリングは分境界で過大に数えうる。** 実作業 20 秒でも 2 分計上されることがある。
   許容する
+- **プロジェクト名を変更すると `ph` が変わり、別プロジェクト扱いになる。** Cosense の
+  プロジェクト名変更は稀なので許容する。古い識別子を統合する機能は作らない
+- **プロジェクト別の合計が合算を下回ることがある。** Cron でビットマップを消した後に
+  プロジェクト別の行だけ再送されないケース。表示側でこれを矛盾として扱わない
+- **活動の少ないプロジェクトの草はほぼ真っ白になる。** スケールを合算から取る帰結で、
+  並べて比較できることとの引き換え
