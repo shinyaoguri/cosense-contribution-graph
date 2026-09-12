@@ -8,6 +8,4 @@
 # 利用者の識別子を導出する鍵。**失うと全利用者の識別子が再計算できなくなる**
 WORKER_SECRET=dummy-not-a-real-secret
 
-# Google Cloud の OAuth クライアント (openid スコープのみ)
-GOOGLE_CLIENT_ID=dummy.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=dummy-not-a-real-secret
+# GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET は段階 4 (Google サインイン) で足す

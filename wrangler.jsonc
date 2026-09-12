@@ -13,30 +13,31 @@
 
   "observability": { "enabled": true },
 
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "cosense-grass",
-      // 実 ID は段階 3 で `wrangler d1 create` したものに差し替える。
-      // miniflare はこの値をローカルの識別子としてしか使わないので、
-      // 段階 0 でも vitest の Workers project とマイグレーションの仕組みは通る。
-      "database_id": "00000000-0000-0000-0000-000000000000",
-      "migrations_dir": "migrations"
-    }
-  ],
+  // 既定でも有効 (routes が空なら workers.dev が有効になる) だが明示する。
+  // 段階 4 で独自ドメインの routes を足した瞬間に既定が無効へ変わり、
+  // 切り替え前に動作を確かめる場が消えるため。
+  "workers_dev": true,
 
-  // period は 10 か 60 しか取れない。namespace_id は正整数を文字列で書く。
-  // Free プランで使えるかは段階 2 の実機検証項目 (design.md §14)。
-  "ratelimits": [
-    { "name": "INGEST_LIMITER", "namespace_id": "1001", "simple": { "limit": 60, "period": 60 } },
-    { "name": "ENROLL_LIMITER", "namespace_id": "1002", "simple": { "limit": 5, "period": 60 } }
-  ],
+  // **バインディングは使っているコードに合わせて足していく** (secrets.required と同じ規則)。
+  // `--dry-run` と違って本番デプロイはバインディングを実アカウントと照合するので、
+  // 使っていないものを宣言すると初回デプロイがそれで落ちうる。
+  //
+  // - d1_databases — 段階 3 で `wrangler d1 create` し、実 ID と migrations_dir を入れて足す
+  // - ratelimits   — Free プランで使えるかが段階 2 の実機検証項目。検証してから足す
+  //                  (INGEST_LIMITER 60/60s、ENROLL_LIMITER 5/60s の予定。design §6)
 
   // UTC。デプロイのたびに内容で置き換わるので、空配列にすると全削除される。
   "triggers": { "crons": ["17 3 * * *"] },
 
   // デプロイ前に未設定の secret を列挙してエラーで止まる。wrangler types の
   // 型生成もここを見るので、.dev.vars が無い CI でも Env の型が安定する。
-  // 初回デプロイは `wrangler deploy --secrets-file` で一緒に投入する。
-  "secrets": { "required": ["WORKER_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"] }
+  //
+  // **使っているコードに合わせて足していく。** Worker がまだ無い状態の初回デプロイは、
+  // ここに宣言した secret が揃わないと必ず失敗する。使わない secret まで宣言すると、
+  // 仮の値を本番に置くことになる。GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET は
+  // 段階 4 (Google サインイン) で足す。
+  //
+  // WORKER_SECRET は一度決めたら変えられない (変えると全利用者の識別子が変わる)。
+  // 値は GitHub の production 環境にあり、CI が毎回 --secrets-file で渡す。
+  "secrets": { "required": ["WORKER_SECRET"] }
 }

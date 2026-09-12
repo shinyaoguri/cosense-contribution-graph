@@ -12,7 +12,6 @@
       "Bash(npm run typegen)",
       "Bash(npm run build)",
       "Bash(npm run build:userscript)",
-      "Bash(npm run db:migrate:local)",
       "Bash(npm run check)",
       "Bash(npx wrangler types)",
       "Bash(npx wrangler types --check)",
