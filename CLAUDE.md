@@ -83,6 +83,8 @@ rc ファイルにも `.env` にも書かない。ローカルは `wrangler auth
 - **knip の `ignoreDependencies: ["cloudflare"]` は消さない。** `cloudflare:test` という
   仮想モジュールを `cloudflare` という実パッケージだと誤認するため
 - **biome は `worker-configuration.d.ts` を見ない** (生成物で 15,000 行あるため)
+- **`npx wrangler deploy --dry-run` を直接打たない。** `.claude/settings.json` の deny が
+  `wrangler deploy` を前置マッチで止めるので `--dry-run` も止まる。**`npm run build` を使う**
 
 ### 破壊的変更では配布ページを分ける
 

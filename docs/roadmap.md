@@ -280,23 +280,23 @@ vitest の Workers project はローカルの workerd だけで走るので、AP
 
 ### 完了条件
 
-- [x] `npm run check` がローカルで green (lint / typecheck / knip / test 14 件 / build)
+- [x] `npm run check` がローカルで green (lint / typecheck / knip / test 19 件 / build)
 - [x] `npm run dev` で Worker が起動し、**`/__scheduled`** で Cron を叩ける
       (`--test-scheduled` が公開する経路。`/cdn-cgi/handler/scheduled` と
       `/cdn-cgi/local/scheduled` でも走ることを実測したが、**文書化されているのは
       `/__scheduled`** なのでこちらを条件にする。research.md §5)
 - [x] **認証なしで `dev` / `types --check` / `--dry-run` / `--local` のマイグレーションが動く**
       ことを実測した (`HOME` を空にして確認)。公式に明言が無いので測った
-- [ ] CI が PR で green になり、チェックが 1 件以上登録されている
-      (チェックが 0 件のままだと green と区別が付かない)
-- [ ] `npx wrangler whoami` が**使いたいアカウント**を指している
-      — **これは手で行う作業。** 今は既存のアカウントを指していて、認証プロファイルは
-      `default` だけでディレクトリ束縛も無い。`wrangler auth create` / `activate` が必要
+- [x] CI が PR で green になり、**必須チェック `ci` が ruleset に登録されている**
+      (チェックが 0 件だと green と区別が付かない。`deploy` は条件付きでスキップするので
+      required にしない — auto-merge が永久に pending になる)
+- [x] `npx wrangler whoami` が**使いたいアカウント**を指している。
+      プロファイルをメインのチェックアウトに束縛した (`wrangler auth create` / `activate`)
+
+**段階 0 は完了。**
 
 ### 段階 0 で持ち越したもの
 
-- **`wrangler.jsonc` の `account_id`。** 値がまだ無く、不正な値を置くと `--dry-run` が壊れるので
-  キーごと省いてコメントを残した。**段階 1 の最初のデプロイまでに入れる** (ADR-0014 決定 4)
 - **`d1_databases[].database_id` はプレースホルダ。** miniflare はローカルの識別子としてしか
   使わないので段階 0 の足場は通る。段階 3 で実 ID に差し替える
 - **`secrets.required` を宣言したので、テスト中に「Missing required secrets」の警告が出る。**
@@ -518,7 +518,9 @@ COOP のフォールバック (コードを貼る経路) も実際に試す。
   相互参照のリンクが増える。**段階 0 では触らず、ADR が 20 件を超えたら分割する**
 - 週次の外部リンク死活検査ワークフロー。`check-links.sh` が意図的に外部 URL を見ないので、
   別途必要になる。ただし required にしない。**段階 8 の後**
-- `.github/repo-settings.json` による GitHub 設定のコード化。設定変更が PR の diff に残る
-  利点があるが、個人標準ではなく 1 リポジトリだけの実践。**採否は段階 0 で判断する**
+- `.github/repo-settings.json` による GitHub 設定のコード化。**段階 0 では採らなかった。**
+  設定は個人標準の監査で `gh` コマンドから当て、何をなぜ変えたかは PR #11 の本文に残した。
+  定義ファイルを採るなら当てた内容を移して正本を 1 つにする必要があり、
+  1 リポジトリだけの実践を先に入れる理由が無かった。**再検討は Issue #10**
 - 配布の自動化。Personal Access Token はスコープがなくアカウント全体にアクセスできるので、
   CI の Secrets に置かない。**リリース頻度が上がったら再検討**
