@@ -16,11 +16,15 @@ on:
     branches: [main]
 
 # PR 単位 (main への push はブランチ単位) で 1 本に絞る。
-# **deploy には別のグループを与えて cancel 対象から外す** (下記)。
-# ここで cancel すると D1 のマイグレーション適用中の run が中断されうる。
+#
+# **cancel するのは PR のときだけ。** main への push で cancel すると、連続マージのときに
+# 前のコミットの run が途中で消え、(1) そのコミットが green だった記録が残らず、
+# (2) `deploy` は `needs: ci` なので動く機会を失う (実際に #16 の run が #15 のマージで
+# 消えた)。後続の run が新しいコードをデプロイするので結果は収束するが、
+# 連続マージの直後に止まると最後のデプロイが飛ぶ。
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
