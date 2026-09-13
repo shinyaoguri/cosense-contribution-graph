@@ -199,6 +199,9 @@ function normalizeIconUrl(e){
 ```
 
 - `svg` は本体バンドルにもパーサにも入っている。**SVG は画像として展開される**
+- **実際の Worker に対して端から端まで成立した (2026-09-13)。** `workers.dev` にデプロイした
+  `/v1/g/demo.svg` (`Content-Type: image/svg+xml; charset=utf-8`、`width` / `height` / `viewBox` 付き)
+  を `[ ]` 記法で Cosense のページに貼り、表示されることを確認した (Issue #20)
 - クエリパラメータ付きでも `[ ]` 単体記法なら展開される (実レンダリングで確認)
 - `[[ ]]` (strongImage) の正規表現にはクエリ許容部がないので、**クエリ付き URL は `[ ]` で貼る**
 - 拡張子のない URL も末尾に `#.png` を付ければ画像化できる
