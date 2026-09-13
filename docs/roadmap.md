@@ -352,6 +352,11 @@ Cosense のページに実際に貼って表示を確認する。D1 は使わな
 **完了条件。** main へのマージで deploy が green になり、`curl -sI` が `200` と
 `image/svg+xml; charset=utf-8` を返し、Cosense に貼った格子が表示されること。
 
+**疎通確認は完了 (2026-09-13)。** 3 つとも確かめた。初回デプロイは `WORKER_SECRET` を
+`--secrets-file` で渡して通り、本番の `curl -sI` が期待どおりのヘッダを返し、Cosense に貼った SVG が
+表示された。**縦横比とダークテーマでの見え方は未確認**なので、本体で配色と凡例を入れるときに
+Gyazo の証跡付きで確かめる (Issue #20)。
+
 作るもの。
 
 - `src/shared/scale.ts` 四分位スケール
