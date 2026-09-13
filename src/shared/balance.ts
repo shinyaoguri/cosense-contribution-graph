@@ -1,7 +1,7 @@
 /**
- * 読み書きのバランスから色相を決める (design §7)。
+ * 読み書きのバランスを測る (design §7)。**色は決めない** (色はスキームの関心、`scheme.ts`)。
  *
- * 読みと書きの比は典型的に 6 対 1 程度で、素朴な `w / (w + r)` では全マスが青一色になる。
+ * 読みと書きの比は典型的に 6 対 1 程度で、素朴な `w / (w + r)` では偏りが全日に出る。
  * 対数オッズを取り、**中心を自分の中央値に置いて** `tanh` で -1 (読) .. +1 (書) に押し込める。
  * `center` も四分位と同じく `ph = '*'` から取る。両 lib で型検査され、両環境でテストされる。
  */
@@ -21,10 +21,6 @@ const ODDS_PRIOR = 3;
 
 /** `tanh` の除数。大きいほど色相の変化が穏やかになる。**仮値** (design §15) */
 const TANH_DIVISOR = 1.2;
-
-// 色相は 155° を中心に ±80°。書き寄りで 75° (黄)、読み寄りで 235° (青) (design §7)
-const HUE_CENTER = 155;
-const HUE_SPAN = 80;
 
 export function oddsOf(day: Minutes): number {
   return Math.log((day.w + ODDS_PRIOR) / (day.r + ODDS_PRIOR));
@@ -47,9 +43,4 @@ export function centerOf(days: Iterable<Minutes>): number {
 /** -1 (読み寄り) .. +1 (書き寄り)。 */
 export function balanceOf(day: Minutes, center: number): number {
   return Math.tanh((oddsOf(day) - center) / TANH_DIVISOR);
-}
-
-/** バランスを色相 (度) にする。-1 → 235° (青)、0 → 155° (緑)、+1 → 75° (黄)。 */
-export function hueOf(balance: number): number {
-  return HUE_CENTER - HUE_SPAN * balance;
 }

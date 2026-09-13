@@ -1,9 +1,9 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { centerOf, hueOf } from "../../src/shared/balance.ts";
-import { levelColor } from "../../src/shared/color.ts";
-import { DEFAULT_PARAMS, MAX_WEEKS } from "../../src/shared/graph.ts";
-import { buildScale } from "../../src/shared/scale.ts";
+import { centerOf } from "../../src/shared/balance.ts";
+import { DEFAULT_PARAMS, gridCells, MAX_WEEKS } from "../../src/shared/graph.ts";
+import { buildScale, levelOf } from "../../src/shared/scale.ts";
+import { DEFAULT_SCHEME, schemeOf, type Theme } from "../../src/shared/scheme.ts";
 import { DEMO_TODAY, demoData } from "../../src/worker/demo.ts";
 import { renderGraph } from "../../src/worker/svg.ts";
 
@@ -172,21 +172,46 @@ describe("SVG の構造", () => {
   });
 });
 
-describe("凡例の意味", () => {
-  it("左上は Level 1 の読み寄り、右下は Level 4 の書き寄り", async () => {
+describe("write モードの格子", () => {
+  it("**全マスのバランスを 0 とみなして塗る** (描画側が 0 を渡していること)", async () => {
+    // スキームの側で「バランス 0 なら 155°」を確かめても、描画側が 0 を渡していなければ意味が無い。
+    // 描画側の配線を、スキームにバランス 0 を渡した色と突き合わせて固定する
+    const { days, population } = demoData();
+    const scale = buildScale(population.map((d) => d.w + d.r));
+    const scheme = schemeOf(DEFAULT_SCHEME);
+    const expected = gridCells(DEMO_TODAY, MAX_WEEKS).map((cell) => {
+      const minutes = days.get(cell.day) ?? { w: 0, r: 0 };
+      const total = minutes.w + minutes.r;
+      return scheme.cell({ level: levelOf(total, scale), balance: 0, total }, "light");
+    });
+
+    const grid = fills(part(await (await fetchDemo("?mode=write")).text(), "grid"));
+
+    expect(grid).toEqual(expected);
+  });
+});
+
+describe("凡例の意味 (スキームから組み立てる)", () => {
+  /** 凡例は 行 = Level 1〜4、列 = スキームのバランスの見本。マスは飽和させる (total = Infinity)。 */
+  function expectedLegend(theme: Theme): string[] {
+    const scheme = schemeOf(DEFAULT_SCHEME);
+    return ([1, 2, 3, 4] as const).flatMap((level) =>
+      scheme.legendBalances.map((balance) =>
+        scheme.cell({ level, balance, total: Number.POSITIVE_INFINITY }, theme),
+      ),
+    );
+  }
+
+  it("ライトの凡例は、既定のスキームの Level × バランスの見本の色", async () => {
     const legend = fills(part(await (await fetchDemo()).text(), "legend"));
 
-    // 凡例のマスは彩度を飽和させる (割合 1)
-    expect(legend[0]).toBe(levelColor(1, 1, hueOf(-1), "light"));
-    expect(legend[4]).toBe(levelColor(1, 1, hueOf(1), "light"));
-    expect(legend[15]).toBe(levelColor(4, 1, hueOf(-1), "light"));
-    expect(legend[19]).toBe(levelColor(4, 1, hueOf(1), "light"));
+    expect(legend).toEqual(expectedLegend("light"));
   });
 
-  it("dark の凡例は dark のランプで塗る", async () => {
+  it("ダークの凡例はダークの色", async () => {
     const legend = fills(part(await (await fetchDemo("?theme=dark")).text(), "legend"));
 
-    expect(legend[19]).toBe(levelColor(4, 1, hueOf(1), "dark"));
+    expect(legend).toEqual(expectedLegend("dark"));
   });
 });
 
