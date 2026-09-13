@@ -9,8 +9,6 @@
   },
   "include": [
     "../worker-configuration.d.ts",
-    "env.d.ts",
-    "apply-migrations.ts",
     "worker/**/*.ts",
     "shared/**/*.ts",
     "../src/worker/**/*.ts",

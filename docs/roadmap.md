@@ -47,19 +47,19 @@ tsconfig.userscript.json        src/userscript + src/shared。lib に DOM を入
 test/tsconfig.json              @cloudflare/vitest-plugin/types
 biome.json                      lineWidth 100 / space 2
 knip.json
-wrangler.jsonc                  D1 / Cron / ratelimits / secrets.required
+wrangler.jsonc                  Cron / secrets.required (D1 と ratelimits は疎通確認で外した)
 vitest.config.ts                projects を列挙する薄い root
 vitest.worker.config.ts         cloudflareTest + readD1Migrations
 vitest.userscript.config.ts     environment: jsdom
-test/apply-migrations.ts        applyD1Migrations
+test/apply-migrations.ts        applyD1Migrations (疎通確認で外した。段階 3 で戻す)
 scripts/build-userscript.mjs    esbuild の Build API
 scripts/check-pr-title.sh       Conventional Commits の 9 type を検査
-migrations/.gitkeep             **空に保つ。** applyD1Migrations は文を含まない .sql を拒否する
+migrations/.gitkeep             (疎通確認で外した。段階 3 で 0001_init.sql と一緒に戻す)
 .dev.vars.example               ローカルの秘密値のひな形 (.dev.vars は gitignore 済み)
 src/worker/index.ts             404 を返す fetch と空の scheduled
 src/shared/ids.ts               ph の桁数と検証。**両方の lib で型検査される**
 src/userscript/index.ts         esbuild の入力になる最小のエントリ
-test/env.d.ts                   テスト専用バインディングを Cloudflare.Env に併合
+test/env.d.ts                   (疎通確認で外した。テスト専用バインディングが無くなったため)
 test/shared/ids.test.ts         **両 project の include に入れて 2 回走らせる**
 test/worker/smoke.test.ts       404 / D1 接続 / secrets / DOM が無いことを workerd で
 test/userscript/smoke.test.ts   DOM があること / UserScript のエントリを jsdom で
@@ -85,7 +85,6 @@ test/userscript/smoke.test.ts   DOM があること / UserScript のエントリ
   "typegen": "wrangler types",
   "build:userscript": "node scripts/build-userscript.mjs",
   "build": "wrangler deploy --dry-run && npm run build:userscript",
-  "db:migrate:local": "wrangler d1 migrations apply cosense-grass --local",
   "check": "npm run lint && npm run typecheck && npm run knip && npm test && npm run build"
 }
 ```
@@ -142,17 +141,29 @@ Worker は wrangler 内蔵の esbuild) ので、解決規則を揃える手間�
   "account_id": "<ACCOUNT_ID>",
   "compatibility_date": "2026-09-12",
   "observability": { "enabled": true },
-  "d1_databases": [
-    { "binding": "DB", "database_name": "cosense-grass",
-      "database_id": "<UUID>", "migrations_dir": "migrations" }
-  ],
-  "ratelimits": [
-    { "name": "INGEST_LIMITER", "namespace_id": "1001", "simple": { "limit": 60, "period": 60 } },
-    { "name": "ENROLL_LIMITER", "namespace_id": "1002", "simple": { "limit": 5,  "period": 60 } }
-  ],
+  "workers_dev": true,
   "triggers": { "crons": ["17 3 * * *"] },
-  "secrets": { "required": ["WORKER_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"] }
+  "secrets": { "required": ["WORKER_SECRET"] }
 }
+```
+
+**バインディングと `secrets.required` は、使っているコードに合わせて足していく** (疎通確認で決めた)。
+本番デプロイは `--dry-run` と違ってバインディングを実アカウントと照合するので、使っていないものを
+宣言すると初回デプロイがそれで落ちうる。追加する予定は次のとおり。
+
+```jsonc
+// 段階 3 — wrangler d1 create した実 ID で
+"d1_databases": [
+  { "binding": "DB", "database_name": "cosense-grass",
+    "database_id": "<UUID>", "migrations_dir": "migrations" }
+],
+// 段階 2 で Free プランでの可否を確かめてから
+"ratelimits": [
+  { "name": "INGEST_LIMITER", "namespace_id": "1001", "simple": { "limit": 60, "period": 60 } },
+  { "name": "ENROLL_LIMITER", "namespace_id": "1002", "simple": { "limit": 5,  "period": 60 } }
+],
+// 段階 4 — Google サインインのコードと一緒に
+"secrets": { "required": ["WORKER_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"] }
 ```
 
 細かいが重要な点。
@@ -297,8 +308,9 @@ vitest の Workers project はローカルの workerd だけで走るので、AP
 
 ### 段階 0 で持ち越したもの
 
-- **`d1_databases[].database_id` はプレースホルダ。** miniflare はローカルの識別子としてしか
-  使わないので段階 0 の足場は通る。段階 3 で実 ID に差し替える
+- **D1 とレート制限のバインディングは疎通確認で外した** (上記の規則)。
+  段階 0 では D1 をプレースホルダの ID で置いていたが、本番デプロイで存在しない
+  データベースを指すことになるため
 - **`secrets.required` を宣言したので、テスト中に「Missing required secrets」の警告が出る。**
   `deploy --dry-run` は壊れない。**CI に秘密を置かない設計どおりの表示**で、失敗ではない。
   ローカルで消したいときは `.dev.vars.example` を `.dev.vars` にコピーする。
@@ -308,11 +320,9 @@ vitest の Workers project はローカルの workerd だけで走るので、AP
   見ていたが、それでは足りない。`secrets.required` を宣言しているので、**Worker が存在しない
   状態の `wrangler deploy` はアプリの secret が無いと必ず例外になる**
   (wrangler の secrets-validation をソースで確認)。トークンだけ登録した時点で main が
-  赤くなるので、**アプリの secret 3 つが揃っているかも guard で見る。**
+  赤くなるので、**`WORKER_SECRET` が揃っているかも guard で見る。**
   マイグレーションの段は別に `hashFiles('migrations/*.sql') != ''` で守っている
-- **初回デプロイの経路が未設計。** 上記の例外を通すには `--secrets-file` が必要で、
-  ADR-0014 がローカルからのデプロイを禁じている。**CI で Environment secrets から
-  ファイルを組んで渡す段**として段階 1 で設計する
+- **初回デプロイの経路は疎通確認で決めた。** CI が毎回 `--secrets-file` で渡す (ADR-0014 決定 7)
 - **dependabot が wrangler を上げると `typecheck` が必ず落ちる。** 生成される
   `worker-configuration.d.ts` の先頭に `workerd@<版> <日付>` が入り、
   `wrangler types --check` がこの行を比較するため。**bump の PR では `npm run typegen` を
@@ -324,6 +334,23 @@ vitest の Workers project はローカルの workerd だけで走るので、AP
 
 **最も不確実な部分を最小コストで潰す。** ダミーデータで `/v1/g/demo.svg` を返し、
 Cosense のページに実際に貼って表示を確認する。D1 は使わない。
+
+### 最初の切片 — 疎通確認
+
+本体に入る前に、**CI から本番へデプロイでき、Worker の SVG が Cosense で描画される**ことを
+最小のコードで確かめる。どちらかが崩れると以降が手戻りになる。経路は完了条件と同じ
+`/v1/g/demo.svg` なので、作ったものは捨てずに本体がその上に積む。
+
+- `src/worker/svg.ts` — 53 週 × 7 日の格子に**仮の固定色**を並べる。セル 11px・間隔 3px は
+  design §8 の実寸。**凡例はまだ無い** (design §8 の必須要件を満たさない。本体で入れる)
+- `src/worker/index.ts` — `/v1/g/demo.svg` だけを返し、それ以外は 404
+- CI の deploy — **毎回 `--secrets-file` で `WORKER_SECRET` を渡す** (ADR-0014 決定 7)
+
+**範囲から外したもの。** `/v1/p.gif` は段階 3 の担当で、画像ビーコンの前提は research §1 で
+実機検証済み。配色・四分位・凡例は本体。
+
+**完了条件。** main へのマージで deploy が green になり、`curl -sI` が `200` と
+`image/svg+xml; charset=utf-8` を返し、Cosense に貼った格子が表示されること。
 
 作るもの。
 
@@ -499,12 +526,12 @@ COOP のフォールバック (コードを貼る経路) も実際に試す。
 | 段階 0 | **認証プロファイルの束縛** | 使いたいアカウントで `wrangler auth create` / `activate`。`whoami` で確認 |
 | 段階 1 | **CI 用の API トークン** | account-owned token。「Edit Cloudflare Workers」+ **Account > D1 > Edit**。KV / R2 / Tail は落とす。対象アカウント 1 つに限定。TTL を設定 |
 | 段階 0 | **Environment secrets** | `production` 環境に `CLOUDFLARE_API_TOKEN` を置く。**deployment branch を main に限定。required reviewers は付けない** (自動デプロイが止まる)。`CLOUDFLARE_ACCOUNT_ID` は不要 (`account_id` が設定にある) |
-| 段階 1 | **アプリの secret 3 つ** | `WORKER_SECRET` / `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` を `production` に置く。`secrets.required` を宣言しているので**初回デプロイはこれが揃わないと必ず失敗する**。Google の 2 つは段階 4 までプレースホルダでよい (段階 4 で実値に差し替える) |
+| 疎通確認 | **`WORKER_SECRET`** | `production` の Environment secrets に置く。`openssl rand -hex 32` で作り 1Password 等に控える。**初回デプロイはこれが無いと必ず失敗する** |
 | 段階 1 | Cloudflare アカウント | 無料枠。D1 はまだ不要 |
 | 段階 1 | Cosense の確認用ページ | 自分のプロジェクトのどこかに 1 ページ |
 | 段階 3 | D1 データベース | `wrangler d1 create cosense-grass`。**ローカルから 1 回だけ打つ** |
 | 段階 4 | **独自ドメイン** | `workers.dev` では zone の WAF が効かず、レートリミットがかけられない |
-| 段階 1 | **`WORKER_SECRET` の実値** | uid の導出鍵。**一度決めたら変えられない** (変えると全利用者の識別子が変わる)。初回デプロイで入れるので段階 1 で作る。**失うと再計算できなくなるので必ずバックアップ** |
+| (同上) | **`WORKER_SECRET` は変えられない** | uid の導出鍵。**変えると全利用者の識別子が変わり、失うと再計算できない。必ずバックアップ** |
 | 段階 4 | Google Cloud の OAuth クライアント | `openid` スコープのみなら審査は不要 |
 | 段階 4 | プライバシーポリシーの公開先 | Google の同意画面の要件。`privacy.md` を Worker から配信する |
 | 段階 5 | **Cosense の配布用公開プロジェクト** | バンドルを貼る。リリースのたびに手動 |

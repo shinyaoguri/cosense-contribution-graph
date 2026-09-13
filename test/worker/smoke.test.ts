@@ -14,16 +14,6 @@ describe("Worker の骨組み", () => {
   });
 });
 
-describe("D1 の足場", () => {
-  it("ローカルの D1 に接続できる", async () => {
-    // wrangler.jsonc の database_id はプレースホルダだが、miniflare はこれを
-    // ローカルの識別子としてしか使わないので段階 0 でも通る。
-    const row = await env.DB.prepare("select 1 as ok").first<{ ok: number }>();
-
-    expect(row?.ok).toBe(1);
-  });
-});
-
 describe("secrets の足場", () => {
   it("テスト用のダミー値が env に入っている", () => {
     // secrets.required を宣言しているので値が無いと警告が出る。テストでは

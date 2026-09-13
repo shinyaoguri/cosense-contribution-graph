@@ -18,7 +18,6 @@
     "typegen": "wrangler types",
     "build:userscript": "node scripts/build-userscript.mjs",
     "build": "wrangler deploy --dry-run && npm run build:userscript",
-    "db:migrate:local": "wrangler d1 migrations apply cosense-grass --local",
     "check": "npm run lint && npm run typecheck && npm run knip && npm test && npm run build"
   },
   "devDependencies": {

@@ -1,7 +1,0 @@
-段階 3 でスキーマを入れる (docs/design.md §5)。
-
-ここを空に保つのは意図的。applyD1Migrations は**文を含まない .sql を拒否する**
-(D1_ERROR: SQL code did not contain a statement) ので、中身の無いプレースホルダの
-マイグレーションは置けない。readD1Migrations は .sql だけを拾うので、
-このファイルがあっても空のマイグレーション列として扱われる。
-git は空ディレクトリを追跡しないため、このファイルでディレクトリを残している。

@@ -78,8 +78,9 @@ rc ファイルにも `.env` にも書かない。ローカルは `wrangler auth
 
 - **`worker-configuration.d.ts` はコミットする。** `wrangler types --check` が差分を見るため。
   **wrangler を上げたら `npm run typegen` を回す** (でないと `typecheck` が落ちる)
-- **`migrations/` は空に保つ** (段階 3 まで)。`applyD1Migrations` は文を含まない `.sql` を
-  拒否するので、中身の無いプレースホルダは置けない
+- **バインディングと `secrets.required` は使うコードと一緒に足す** (ADR-0014 決定 8)。
+  本番デプロイは実アカウントと照合するので、使っていないものを宣言すると初回デプロイで落ちうる。
+  **足したら `npm run typegen`**
 - **knip の `ignoreDependencies: ["cloudflare"]` は消さない。** `cloudflare:test` という
   仮想モジュールを `cloudflare` という実パッケージだと誤認するため
 - **biome は `worker-configuration.d.ts` を見ない** (生成物で 15,000 行あるため)
