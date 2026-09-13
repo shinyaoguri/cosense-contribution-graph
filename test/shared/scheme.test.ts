@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { type ColorScheme, DEFAULT_SCHEME, SCHEMES, type Theme } from "../../src/shared/scheme.ts";
+import {
+  type ColorScheme,
+  DEFAULT_SCHEME,
+  isSchemeName,
+  SCHEMES,
+  type Theme,
+} from "../../src/shared/scheme.ts";
 
 // **全スキームの契約テスト。** 登録表 SCHEMES に配色を足すと、ここで自動的に確かめられる
 
@@ -24,6 +30,24 @@ describe("登録表", () => {
   it("スキームの名前は登録表のキーと一致する (クエリの値として使うため)", () => {
     for (const [key, scheme] of Object.entries(SCHEMES)) {
       expect(scheme.name).toBe(key);
+    }
+  });
+
+  it("登録済みの名前だけをスキーム名とみなす", () => {
+    for (const name of Object.keys(SCHEMES)) {
+      expect(isSchemeName(name), name).toBe(true);
+    }
+    // 継承したキーを通さない (`in` で見ると通る)
+    for (const value of [
+      null,
+      "",
+      "unknown",
+      "BLUE-PINK",
+      "toString",
+      "__proto__",
+      "constructor",
+    ]) {
+      expect(isSchemeName(value), String(value)).toBe(false);
     }
   });
 });
