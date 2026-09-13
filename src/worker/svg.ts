@@ -2,10 +2,12 @@
  * 草の SVG を組み立てる (design §8)。
  *
  * `<img>` 経由で描画されるので完全に非インタラクティブで、外部フォントも外部 CSS も読めない。
- * すべてインラインで自己完結させる。色は `src/shared/` で 16 進数に焼き込み済みの値を使う。
+ * すべてインラインで自己完結させる。
+ *
+ * **色はスキームに任せる** (`src/shared/scheme.ts`)。ここはバランスを計算してスキームに渡すだけで、
+ * どの色相になるかを知らない。凡例もスキームの `legendBalances` から組み立てる。
  */
-import { hueOf, type Minutes } from "../shared/balance.ts";
-import { cellColor, levelColor, type Theme } from "../shared/color.ts";
+import { balanceOf, type Minutes } from "../shared/balance.ts";
 import {
   CELL,
   DAYS,
@@ -18,6 +20,7 @@ import {
   WEEKDAY_LABELS,
 } from "../shared/graph.ts";
 import { levelOf, type Scale } from "../shared/scale.ts";
+import { type ColorScheme, DEFAULT_SCHEME, schemeOf, type Theme } from "../shared/scheme.ts";
 
 /** 疎通確認と見た目の確認のために予約した publicId。 */
 export const DEMO_PUBLIC_ID = "demo";
@@ -49,9 +52,15 @@ const FONT_FAMILY =
 // 背景は両テーマとも透明。埋め込み側がテーマを選ぶ前提で、文字色だけ変える
 const TEXT_COLOR: Record<Theme, string> = { light: "#57606a", dark: "#9198a1" };
 
-// 凡例の 5 列はバランスの見本。-1 (読) .. +1 (書)
-const LEGEND_BALANCES = [-1, -0.5, 0, 0.5, 1] as const;
 const LEGEND_LEVELS = [1, 2, 3, 4] as const;
+
+// write モードは全マスのバランスを 0 とみなすので、凡例もバランス 0 の 1 列になる
+const WRITE_MODE_BALANCES: readonly number[] = [0];
+
+/** 凡例の列ごとのバランスの見本。スキームが決める。 */
+function legendBalancesOf(params: Params, scheme: ColorScheme): readonly number[] {
+  return params.mode === "write" ? WRITE_MODE_BALANCES : scheme.legendBalances;
+}
 
 /** SVG に出す文字列をエスケープする。今出すのは固定のラベルだけだが、原則として全部通す (design §6)。 */
 function escapeXml(text: string): string {
@@ -77,31 +86,36 @@ type Block = { readonly width: number; readonly height: number };
 /**
  * 凡例の寸法。
  *
- * - `bi` は **4 行 = Level 1〜4、5 列 = バランスの見本** の 2 次元 (design §8 の「5 列 × 4 行」)
- * - `write` は色相が固定なので 2 次元にすると 5 列が同じ色になる。**1 行 × 4 (Level 1〜4)** にする
+ * - 列が 2 本以上なら **行 = Level 1〜4、列 = バランスの見本** の 2 次元 (design §8 の「5 列 × 4 行」)
+ * - 列が 1 本 (write モード) なら 2 次元にしても意味が無いので **1 行 × 4 (Level 1〜4)** を横に並べる
  */
-function legendBlock(params: Params): Block {
-  if (params.mode === "write") {
+function legendBlock(balances: readonly number[]): Block {
+  if (balances.length === 1) {
     // 「少ない ■■■■ 多い」
     return { width: LEGEND_AXIS_WIDTH + LEGEND_LEVELS.length * STEP - GAP + 24, height: CELL };
   }
   return {
-    width: LEGEND_AXIS_WIDTH + LEGEND_BALANCES.length * STEP - GAP,
+    width: LEGEND_AXIS_WIDTH + balances.length * STEP - GAP,
     height: LEGEND_AXIS_HEIGHT + LEGEND_LEVELS.length * STEP - GAP,
   };
 }
 
 function renderLegend(
-  params: Params,
+  balances: readonly number[],
+  scheme: ColorScheme,
+  theme: Theme,
   x: number,
   y: number,
 ): { readonly cells: string; readonly labels: string } {
   const cellsX = x + LEGEND_AXIS_WIDTH;
+  // 凡例のマスは total = Infinity で渡す。合計分数で彩度を変える配色でも飽和させるため
+  const swatch = (level: (typeof LEGEND_LEVELS)[number], balance: number) =>
+    scheme.cell({ level, balance, total: Number.POSITIVE_INFINITY }, theme);
 
-  if (params.mode === "write") {
-    // 凡例のマスは彩度を飽和させる (割合 1)
+  if (balances.length === 1) {
+    const balance = balances[0] ?? 0;
     const cells = LEGEND_LEVELS.map((level, i) =>
-      rect(cellsX + i * STEP, y, levelColor(level, 1, 155, params.theme)),
+      rect(cellsX + i * STEP, y, swatch(level, balance)),
     ).join("");
     const labels =
       text(cellsX - 4, y + LABEL_BASELINE, "少ない", "end") +
@@ -111,17 +125,13 @@ function renderLegend(
 
   const cellsY = y + LEGEND_AXIS_HEIGHT;
   const cells = LEGEND_LEVELS.flatMap((level, row) =>
-    LEGEND_BALANCES.map((balance, column) =>
-      rect(
-        cellsX + column * STEP,
-        cellsY + row * STEP,
-        levelColor(level, 1, hueOf(balance), params.theme),
-      ),
+    balances.map((balance, column) =>
+      rect(cellsX + column * STEP, cellsY + row * STEP, swatch(level, balance)),
     ),
   ).join("");
   const labels =
     text(cellsX, y + LABEL_BASELINE, "読む") +
-    text(cellsX + LEGEND_BALANCES.length * STEP - GAP, y + LABEL_BASELINE, "書く", "end") +
+    text(cellsX + balances.length * STEP - GAP, y + LABEL_BASELINE, "書く", "end") +
     text(cellsX - 4, cellsY + LABEL_BASELINE, "少ない", "end") +
     text(cellsX - 4, cellsY + (LEGEND_LEVELS.length - 1) * STEP + LABEL_BASELINE, "多い", "end");
   return { cells, labels };
@@ -135,11 +145,13 @@ function renderLegend(
  */
 export function renderGraph(input: GraphInput): string {
   const { params } = input;
+  const scheme = schemeOf(DEFAULT_SCHEME);
   const cells = gridCells(input.today, params.weeks);
+  const legendBalances = legendBalancesOf(params, scheme);
 
   const gridWidth = params.weeks * STEP - GAP;
   const gridHeight = DAYS * STEP - GAP;
-  const legend = legendBlock(params);
+  const legend = legendBlock(legendBalances);
   const contentWidth = Math.max(WEEKDAY_LABEL_WIDTH + gridWidth, legend.width);
 
   // width / height / viewBox の 3 つを必ず出す。欠けると Cosense でサイズが崩れる (design §8)
@@ -152,15 +164,18 @@ export function renderGraph(input: GraphInput): string {
   const gridRects = cells
     .map((cell: GridCell) => {
       const minutes = input.days.get(cell.day) ?? { w: 0, r: 0 };
-      const level = levelOf(minutes.w + minutes.r, input.scale);
-      const fill = cellColor(minutes, level, input.center, params.theme, params.mode);
+      const total = minutes.w + minutes.r;
+      const level = levelOf(total, input.scale);
+      // write モードは全マスのバランスを 0 とみなす。スキームごとの特別扱いを要らなくするため
+      const balance = params.mode === "write" ? 0 : balanceOf(minutes, input.center);
+      const fill = scheme.cell({ level, balance, total }, params.theme);
       return rect(gridX + cell.column * STEP, gridY + cell.row * STEP, fill);
     })
     .join("");
 
   const legendX = PADDING + contentWidth - legend.width;
   const legendY = gridY + gridHeight + LEGEND_GAP;
-  const legendParts = renderLegend(params, legendX, legendY);
+  const legendParts = renderLegend(legendBalances, scheme, params.theme, legendX, legendY);
 
   const labels =
     monthLabels(cells)

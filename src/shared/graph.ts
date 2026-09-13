@@ -8,7 +8,7 @@
  *
  * 両 lib で型検査され、両環境でテストされる。
  */
-import type { Mode, Theme } from "./color.ts";
+import type { Theme } from "./scheme.ts";
 
 /** 行は曜日の 7 行。日曜始まり (design §8)。 */
 export const DAYS = 7;
@@ -20,6 +20,9 @@ export const MAX_WEEKS = 53;
 export const CELL = 11;
 export const GAP = 3;
 export const STEP = CELL + GAP;
+
+/** `bi` は 2 次元 (色相がバランス)、`write` は全マスのバランスを 0 とみなす単色 (design §6)。 */
+type Mode = "bi" | "write";
 
 export type Params = {
   readonly theme: Theme;
