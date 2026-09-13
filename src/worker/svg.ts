@@ -20,7 +20,7 @@ import {
   WEEKDAY_LABELS,
 } from "../shared/graph.ts";
 import { levelOf, type Scale } from "../shared/scale.ts";
-import { type ColorScheme, DEFAULT_SCHEME, schemeOf, type Theme } from "../shared/scheme.ts";
+import { type ColorScheme, schemeOf, type Theme } from "../shared/scheme.ts";
 
 /** 疎通確認と見た目の確認のために予約した publicId。 */
 export const DEMO_PUBLIC_ID = "demo";
@@ -86,7 +86,7 @@ type Block = { readonly width: number; readonly height: number };
 /**
  * 凡例の寸法。
  *
- * - 列が 2 本以上なら **行 = Level 1〜4、列 = バランスの見本** の 2 次元 (design §8 の「5 列 × 4 行」)
+ * - 列が 2 本以上なら **行 = Level 1〜4、列 = バランスの見本** の 2 次元 (design §8)
  * - 列が 1 本 (write モード) なら 2 次元にしても意味が無いので **1 行 × 4 (Level 1〜4)** を横に並べる
  */
 function legendBlock(balances: readonly number[]): Block {
@@ -145,7 +145,7 @@ function renderLegend(
  */
 export function renderGraph(input: GraphInput): string {
   const { params } = input;
-  const scheme = schemeOf(DEFAULT_SCHEME);
+  const scheme = schemeOf(params.palette);
   const cells = gridCells(input.today, params.weeks);
   const legendBalances = legendBalancesOf(params, scheme);
 

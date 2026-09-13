@@ -1,11 +1,19 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { centerOf } from "../../src/shared/balance.ts";
+import { balanceOf, centerOf } from "../../src/shared/balance.ts";
 import { DEFAULT_PARAMS, gridCells, MAX_WEEKS } from "../../src/shared/graph.ts";
 import { buildScale, levelOf } from "../../src/shared/scale.ts";
-import { DEFAULT_SCHEME, schemeOf, type Theme } from "../../src/shared/scheme.ts";
+import {
+  DEFAULT_SCHEME,
+  SCHEMES,
+  type SchemeName,
+  schemeOf,
+  type Theme,
+} from "../../src/shared/scheme.ts";
 import { DEMO_TODAY, demoData } from "../../src/worker/demo.ts";
 import { renderGraph } from "../../src/worker/svg.ts";
+
+const SCHEME_NAMES = Object.keys(SCHEMES) as SchemeName[];
 
 const DEMO_URL = "https://example.com/v1/g/demo.svg";
 
@@ -107,10 +115,28 @@ describe("クエリ (design §6)", () => {
       "?weeks=54",
       "?weeks=10abc",
       "?weeks=-3",
+      "?palette=unknown",
+      "?palette=",
+      "?palette=toString",
+      "?palette=__proto__",
       "?unknown=1",
     ]) {
       expect((await fetchDemo(query)).headers.get("etag"), query).toBe(defaultEtag);
     }
+  });
+
+  it("既定の配色を palette で明示しても同じ画像", async () => {
+    const defaultEtag = (await fetchDemo()).headers.get("etag");
+
+    expect((await fetchDemo(`?palette=${DEFAULT_SCHEME}`)).headers.get("etag")).toBe(defaultEtag);
+  });
+
+  it("登録済みの palette はそれぞれ違う画像になる", async () => {
+    const etags = await Promise.all(
+      SCHEME_NAMES.map(async (name) => (await fetchDemo(`?palette=${name}`)).headers.get("etag")),
+    );
+
+    expect(new Set(etags).size).toBe(SCHEME_NAMES.length);
   });
 
   it("範囲内の weeks は反映する", async () => {
@@ -149,7 +175,7 @@ describe("SVG の構造", () => {
     expect(rectCount(part(svg, "legend"))).toBe(20);
   });
 
-  it("write の凡例は 1 行 × 4 マス (色相が固定なので 2 次元にしない)", async () => {
+  it("write の凡例は 1 行 × 4 マス (バランスが 0 の 1 列なので 2 次元にしない)", async () => {
     const svg = await (await fetchDemo("?mode=write")).text();
 
     expect(rectCount(part(svg, "grid"))).toBe(365);
@@ -172,29 +198,58 @@ describe("SVG の構造", () => {
   });
 });
 
-describe("write モードの格子", () => {
-  it("**全マスのバランスを 0 とみなして塗る** (描画側が 0 を渡していること)", async () => {
-    // スキームの側で「バランス 0 なら 155°」を確かめても、描画側が 0 を渡していなければ意味が無い。
-    // 描画側の配線を、スキームにバランス 0 を渡した色と突き合わせて固定する
-    const { days, population } = demoData();
-    const scale = buildScale(population.map((d) => d.w + d.r));
-    const scheme = schemeOf(DEFAULT_SCHEME);
-    const expected = gridCells(DEMO_TODAY, MAX_WEEKS).map((cell) => {
+describe.each(SCHEME_NAMES)("palette=%s の格子", (name) => {
+  const { days, population } = demoData();
+  const scale = buildScale(population.map((d) => d.w + d.r));
+  const center = centerOf(population);
+  const scheme = schemeOf(name);
+
+  /** 表示範囲のマスを、スキームにバランスを渡して塗った色。 */
+  function expectedGrid(balanceOfDay: (minutes: { w: number; r: number }) => number): string[] {
+    return gridCells(DEMO_TODAY, MAX_WEEKS).map((cell) => {
       const minutes = days.get(cell.day) ?? { w: 0, r: 0 };
       const total = minutes.w + minutes.r;
-      return scheme.cell({ level: levelOf(total, scale), balance: 0, total }, "light");
+      const level = levelOf(total, scale);
+      return scheme.cell({ level, balance: balanceOfDay(minutes), total }, "light");
     });
+  }
 
-    const grid = fills(part(await (await fetchDemo("?mode=write")).text(), "grid"));
+  it("指定した配色で塗る", async () => {
+    const grid = fills(part(await (await fetchDemo(`?palette=${name}`)).text(), "grid"));
 
-    expect(grid).toEqual(expected);
+    expect(grid).toEqual(expectedGrid((minutes) => balanceOf(minutes, center)));
+  });
+
+  it("write モードは**全マスのバランスを 0 とみなして塗る** (描画側が 0 を渡していること)", async () => {
+    // スキームの側でバランス 0 の色を確かめても、描画側が 0 を渡していなければ意味が無い。
+    // 描画側の配線を、スキームにバランス 0 を渡した色と突き合わせて固定する
+    const svg = await (await fetchDemo(`?palette=${name}&mode=write`)).text();
+
+    expect(fills(part(svg, "grid"))).toEqual(expectedGrid(() => 0));
+    expect(rectCount(part(svg, "legend"))).toBe(4);
   });
 });
 
-describe("凡例の意味 (スキームから組み立てる)", () => {
+describe("デモの草", () => {
+  it("既定の配色の列 (凡例の見本) がすべて格子に出る", async () => {
+    // 読み書きの割合が偏ると間の列が出ず、見た目の確認にならない
+    const scheme = schemeOf(DEFAULT_SCHEME);
+    const grid = fills(part(await (await fetchDemo()).text(), "grid"));
+
+    for (const balance of scheme.legendBalances) {
+      const column = new Set(
+        ([1, 2, 3, 4] as const).map((level) => scheme.cell({ level, balance, total: 99 }, "light")),
+      );
+      const days = grid.filter((fill) => column.has(fill)).length;
+      expect(days, `balance=${balance}`).toBeGreaterThanOrEqual(30);
+    }
+  });
+});
+
+describe.each(SCHEME_NAMES)("palette=%s の凡例 (スキームから組み立てる)", (name) => {
   /** 凡例は 行 = Level 1〜4、列 = スキームのバランスの見本。マスは飽和させる (total = Infinity)。 */
   function expectedLegend(theme: Theme): string[] {
-    const scheme = schemeOf(DEFAULT_SCHEME);
+    const scheme = schemeOf(name);
     return ([1, 2, 3, 4] as const).flatMap((level) =>
       scheme.legendBalances.map((balance) =>
         scheme.cell({ level, balance, total: Number.POSITIVE_INFINITY }, theme),
@@ -202,16 +257,16 @@ describe("凡例の意味 (スキームから組み立てる)", () => {
     );
   }
 
-  it("ライトの凡例は、既定のスキームの Level × バランスの見本の色", async () => {
-    const legend = fills(part(await (await fetchDemo()).text(), "legend"));
+  it("ライトの凡例は、スキームの Level × バランスの見本の色", async () => {
+    const legend = fills(part(await (await fetchDemo(`?palette=${name}`)).text(), "legend"));
 
     expect(legend).toEqual(expectedLegend("light"));
   });
 
   it("ダークの凡例はダークの色", async () => {
-    const legend = fills(part(await (await fetchDemo("?theme=dark")).text(), "legend"));
+    const svg = await (await fetchDemo(`?palette=${name}&theme=dark`)).text();
 
-    expect(legend).toEqual(expectedLegend("dark"));
+    expect(fills(part(svg, "legend"))).toEqual(expectedLegend("dark"));
   });
 });
 

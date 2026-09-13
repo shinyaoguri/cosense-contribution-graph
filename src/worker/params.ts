@@ -1,4 +1,5 @@
 import { DEFAULT_PARAMS, MAX_WEEKS, type Params } from "../shared/graph.ts";
+import { isSchemeName } from "../shared/scheme.ts";
 
 const WEEKS_PATTERN = /^\d{1,2}$/;
 
@@ -12,6 +13,8 @@ const WEEKS_PATTERN = /^\d{1,2}$/;
 export function parseParams(search: URLSearchParams): Params {
   const theme = search.get("theme") === "dark" ? "dark" : DEFAULT_PARAMS.theme;
   const mode = search.get("mode") === "write" ? "write" : DEFAULT_PARAMS.mode;
+  const rawPalette = search.get("palette");
+  const palette = isSchemeName(rawPalette) ? rawPalette : DEFAULT_PARAMS.palette;
 
   // parseInt("10abc") は 10 になるので、先に形を見る
   const raw = search.get("weeks");
@@ -23,5 +26,5 @@ export function parseParams(search: URLSearchParams): Params {
     }
   }
 
-  return { theme, weeks, mode };
+  return { theme, weeks, mode, palette };
 }

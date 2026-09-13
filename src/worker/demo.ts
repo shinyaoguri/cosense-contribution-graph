@@ -27,9 +27,13 @@ function hash32(n: number): number {
   return (t ^ (t >>> 14)) >>> 0;
 }
 
-// 読みの割合が違う 3 種類を**均等に混ぜる**。平日を一律に書き寄りにすると、中央値 (色相の中心) が
-// 平日に寄って平日が緑になり、黄色が出ない。均等なら中間が緑、読み寄りが青、書き寄りが黄になる
-const WRITE_SHARE = [0.08, 0.3, 0.75] as const;
+// 書きの割合を**幅を持たせて連続に散らす。** 既定の配色は読み寄りから書き寄りまでを 5 列に分けるので、
+// 数種類の割合だけだと間の列がほとんど出ない (3 種類では藍 18 日、赤紫 7 日だった)。
+// 3〜85% なら 3 分以上の日が 5 列に 45〜69 日ずつ入る。
+// 平日を一律に書き寄りにするような偏りは入れない。中央値 (バランスの中心) が偏りに寄って、
+// 端の列が出なくなる
+const WRITE_SHARE_MIN = 0.03;
+const WRITE_SHARE_MAX = 0.85;
 
 function demoDay(epochDay: number, minTotal: number, spread: number): Minutes | undefined {
   const h = hash32(epochDay);
@@ -43,7 +47,9 @@ function demoDay(epochDay: number, minTotal: number, spread: number): Minutes | 
     return { w: 0, r: total };
   }
   const total = minTotal + ((h >>> 8) % spread);
-  const w = Math.round(total * (WRITE_SHARE[(h >>> 4) % 3] ?? 0.3));
+  // 割合は合計と別のハッシュから取る。同じ h のビットを使うと合計と割合が相関する
+  const share = WRITE_SHARE_MIN + (hash32(h) / 2 ** 32) * (WRITE_SHARE_MAX - WRITE_SHARE_MIN);
+  const w = Math.round(total * share);
   return { w, r: total - w };
 }
 

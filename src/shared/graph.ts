@@ -8,7 +8,7 @@
  *
  * 両 lib で型検査され、両環境でテストされる。
  */
-import type { Theme } from "./scheme.ts";
+import { DEFAULT_SCHEME, type SchemeName, type Theme } from "./scheme.ts";
 
 /** 行は曜日の 7 行。日曜始まり (design §8)。 */
 export const DAYS = 7;
@@ -28,9 +28,16 @@ export type Params = {
   readonly theme: Theme;
   readonly weeks: number;
   readonly mode: Mode;
+  /** 配色 (design §6)。四分位のスケールには効かないので、どの配色でも Level は同じ。 */
+  readonly palette: SchemeName;
 };
 
-export const DEFAULT_PARAMS: Params = { theme: "light", weeks: MAX_WEEKS, mode: "bi" };
+export const DEFAULT_PARAMS: Params = {
+  theme: "light",
+  weeks: MAX_WEEKS,
+  mode: "bi",
+  palette: DEFAULT_SCHEME,
+};
 
 const MS_PER_DAY = 86_400_000;
 const DAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
