@@ -1,13 +1,17 @@
 import { centerOf } from "../shared/balance.ts";
+import { sha256Hex } from "../shared/hash.ts";
+import { PROBE_PATH } from "../shared/probe.ts";
 import { buildScale } from "../shared/scale.ts";
 import { DEMO_TODAY, demoData } from "./demo.ts";
 import { parseParams } from "./params.ts";
+import { handleProbe } from "./probe.ts";
 import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
 
 /**
  * Worker のエントリ。
  *
- * 経路は今 `/v1/g/{publicId}.svg` だけで、実データが無いので `demo` 以外は 404。
+ * 経路は今 `/v1/g/{publicId}.svg` と `/v1/probe.gif` (送信の疎通確認) だけ。
+ * 実データが無いので、グラフは `demo` 以外 404。
  * 段階 3 で `/v1/p.gif` (記録の受け口) を足す (docs/roadmap.md)。
  */
 
@@ -15,6 +19,9 @@ import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
 const GRAPH_PATH = /^\/v1\/g\/([^/]+)\.svg$/;
 
 const CACHE_CONTROL = "public, max-age=900";
+
+/** ETag は本文の SHA-256 の先頭 32 桁。 */
+const ETAG_LENGTH = 32;
 
 export default {
   async fetch(request): Promise<Response> {
@@ -24,6 +31,10 @@ export default {
     }
 
     const url = new URL(request.url);
+    if (url.pathname === PROBE_PATH) {
+      return handleProbe(request, url);
+    }
+
     const match = GRAPH_PATH.exec(url.pathname);
     if (match?.[1] === DEMO_PUBLIC_ID) {
       return svgResponse(request, renderDemo(url.searchParams));
@@ -55,7 +66,7 @@ function renderDemo(search: URLSearchParams): string {
  * 描画が変わったときだけ変わり、常に正しい。
  */
 async function svgResponse(request: Request, body: string): Promise<Response> {
-  const etag = `"${await sha256Hex(body)}"`;
+  const etag = `"${await sha256Hex(body, ETAG_LENGTH)}"`;
 
   if (ifNoneMatch(request.headers.get("if-none-match"), etag)) {
     // 304 にも ETag と Cache-Control を付ける (RFC 9110)
@@ -76,14 +87,6 @@ async function svgResponse(request: Request, body: string): Promise<Response> {
       etag,
     },
   });
-}
-
-async function sha256Hex(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("")
-    .slice(0, 32);
 }
 
 /**
