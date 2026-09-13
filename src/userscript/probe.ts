@@ -83,11 +83,13 @@ export async function runProbe(length: number, options: SendOptions = {}): Promi
 export function describeResult(result: ProbeResult): string {
   switch (result.kind) {
     case "loaded": {
-      const { intact, referer, notImageDest } = result.flags;
+      const { intact, referer, notImageDest, refererPath } = result.flags;
       return [
         "届いた",
         intact ? "中身一致" : "★中身が違う",
-        referer ? "★Referer あり" : "Referer なし",
+        referer
+          ? `★Referer あり (${refererPath ? "パスまで含む" : "オリジンだけ"})`
+          : "Referer なし",
         notImageDest ? "★Sec-Fetch-Dest が image 以外" : "Sec-Fetch-Dest: image",
       ].join(" / ");
     }

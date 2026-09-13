@@ -82,6 +82,32 @@ CSP は時間とともに変わる。2023-09 に OpenAI、2024 年に AWS Bedroc
   ([Workers Limits](https://developers.cloudflare.com/workers/platform/limits/))。
   ブラウザ側は Chrome 2MB、Safari 約 80,000 文字、Firefox 約 65,536 文字 (後者2つは二次情報)
 
+### Cosense の Service Worker が画像リクエストを作り直す (2026-09-14)
+
+**上の `no-referrer` は Cosense のページでは効かない。** UserScript から `/v1/probe.gif` へ送った実測と、
+Service Worker のコードの両方で確かめた (Issue #31)。
+
+実測。公開プロジェクトの自分のページに UserScript を置き、Chrome で送った (2026-09-14 0:20 JST)。
+
+| 送ったもの | 届いたか | 中身 | Referer | `Sec-Fetch-Dest` |
+|---|---|---|---|---|
+| 240 / 8,000 / 15,000 文字 | 届いた | 一致 | **あり** | **`image` 以外** |
+| タブを隠したときの 240 文字 | 届いた | 一致 | **あり** | **`image` 以外** |
+
+原因。`https://scrapbox.io/serviceworker.js` の画像の経路 (`respondImageNetworkFirst`) は
+**`fetch(request, { mode: request.mode, credentials: request.credentials })`** で送り直している。
+
+- [Fetch 仕様の `new Request(input, init)`](https://fetch.spec.whatwg.org/#dom-request) は、init が空でないとき
+  request の referrer を `"client"` に、referrer policy を空に戻す。**ページで付けた `no-referrer` はここで捨てられる**
+- 新しい request は destination を引き継がないので空になり、`Sec-Fetch-Dest: empty` で届く
+- referrer は Service Worker 自身の URL になる。`serviceworker.js` の応答に `Referrer-Policy` ヘッダが無いので
+  既定の `strict-origin-when-cross-origin` が効き、**仕様どおりならオリジンだけ (`https://scrapbox.io/`) が届く**。
+  アプリのページは `referrer-policy: no-referrer` を返しているが、Service Worker の fetch には効かない
+- 画像の応答は URL をキーに Cache Storage へ保存される (ADR-0001 の 2026-09-12 の改訂に既出)
+
+**Referer がオリジンだけかは、まだ測っていない。** 受け口にパスの有無を返すビットを足した (design §6)。
+公開・非公開の両方のプロジェクトで測ってから、ADR-0001 の `no-referrer` の記述を改訂する。
+
 ### 検討して却下した他の出口
 
 - `storage.googleapis.com` が `connect-src` にあるが、GCS への書き込みには署名が必要で、

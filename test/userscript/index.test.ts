@@ -11,7 +11,7 @@ import type { ProbeResult } from "../../src/userscript/probe.ts";
 
 const LOADED: ProbeResult = {
   kind: "loaded",
-  flags: { intact: true, referer: false, notImageDest: false },
+  flags: { intact: true, referer: false, notImageDest: false, refererPath: false },
 };
 
 /** 偽の Cosense と依存。送った大きさ・alert・localStorage・イベントを記録する。 */

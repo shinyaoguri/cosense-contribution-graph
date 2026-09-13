@@ -414,7 +414,7 @@ GET /v1/delete.gif?v=1&u=<uid>&d=<kid>&confirm=1&t=&sig=        全レコード�
 ```
 
 **記録しない接続テスト** (2026-09-13 追加、Issue #31)。D1 も認証も使わず、届いたリクエストを観測して
-**GIF の幅で返す。** 画像の本文は JS から読めないが `naturalWidth` は読める。幅は 16 + ビットの和 (16〜23)。
+**GIF の幅で返す。** 画像の本文は JS から読めないが `naturalWidth` は読める。幅は 16 + ビットの和 (16〜31)。
 16 から始めるのは、途中の何かが返した 1×1 の画像を「届いた」と取り違えないため。
 
 | ビット | 意味 |
@@ -422,11 +422,15 @@ GET /v1/delete.gif?v=1&u=<uid>&d=<kid>&confirm=1&t=&sig=        全レコード�
 | 1 | `h` が `d` の SHA-256 と一致した (中身が壊れずに届いた) |
 | 2 | `Referer` ヘッダが届いた |
 | 4 | `Sec-Fetch-Dest` が `image` でない (Cosense の Service Worker が作り直した印になりうる) |
+| 8 | `Referer` にオリジンより後ろ (パス・クエリ・フラグメント) が含まれる。URL として読めない値も含むとみなす (2026-09-14 追加) |
+
+**Referer の値そのものは返さない。** 公開プロジェクトでの実測で Referer が届いた (research §1) ので、
+そこにプロジェクト名やページ名が載っているかを、運営者が値を見ずに確かめるためにビット 8 を足した。
 
 - クエリの形が不正なら **400 と text/plain**。画像でないのでクライアントは `onerror` になる。
   `d` は base64url の文字だけで 16,384 文字まで (Cloudflare の URL の上限に合わせる)
 - `Cache-Control: no-store`。`d` が乱数なので URL は毎回変わる
-- ログは `{"event":"probe","bytes","flags"}` の 1 行だけ。**IP・UA・中身は出さない**
+- ログは `{"event":"probe","bytes","flags"}` の 1 行だけ。**IP・UA・中身・Referer の値は出さない**
 - GIF は幅 w × 高さ 1 の透過 GIF をコードで組み立てる。LZW は画素ごとにクリアコードを挟む非圧縮形式で、
   幅 1 のときは広く使われている 43 バイトの透過 GIF と同じバイト列になる。`/v1/p.gif` もこれを返す
 - **段階 3 以降も残す。** 段階 8 の設定画面の「接続テスト」に使う。Bot Fight Mode のように画像ビーコンを
@@ -728,7 +732,8 @@ IndexedDB も同様なので、同じブラウザなら鍵は 1 つで足りる�
 
 上限に達した後の活動は翌日のロード時か日付変更時に送られる。OR なので失われない。
 
-- `img.referrerPolicy = "no-referrer"` を `src` より前に設定する
+- `img.referrerPolicy = "no-referrer"` を `src` より前に設定する。**ただし Cosense の Service Worker が
+  作り直すので Referer は届く** (research §1、Issue #31 で値の形を測っている)
 - URL が 8KB を超えるなら日を分割して複数回送る
 - 複数タブの重複は localStorage のロックで 10 秒抑制する程度でよい。OR なので重複送信は無害
 - 送信前に鍵で署名する。鍵が読めなければサインインを促す
