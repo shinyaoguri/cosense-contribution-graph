@@ -88,7 +88,7 @@ describe("画像 GET で送る", () => {
 
     expect(await pending).toEqual({
       kind: "loaded",
-      flags: { intact: true, referer: false, notImageDest: false },
+      flags: { intact: true, referer: false, notImageDest: false, refererPath: false },
     });
   });
 
@@ -126,12 +126,25 @@ describe("画像 GET で送る", () => {
 describe("結果の表示", () => {
   it.each<[ProbeResult, string]>([
     [
-      { kind: "loaded", flags: { intact: true, referer: false, notImageDest: false } },
+      {
+        kind: "loaded",
+        flags: { intact: true, referer: false, notImageDest: false, refererPath: false },
+      },
       "届いた / 中身一致 / Referer なし / Sec-Fetch-Dest: image",
     ],
     [
-      { kind: "loaded", flags: { intact: false, referer: true, notImageDest: true } },
-      "届いた / ★中身が違う / ★Referer あり / ★Sec-Fetch-Dest が image 以外",
+      {
+        kind: "loaded",
+        flags: { intact: true, referer: true, notImageDest: true, refererPath: false },
+      },
+      "届いた / 中身一致 / ★Referer あり (オリジンだけ) / ★Sec-Fetch-Dest が image 以外",
+    ],
+    [
+      {
+        kind: "loaded",
+        flags: { intact: false, referer: true, notImageDest: true, refererPath: true },
+      },
+      "届いた / ★中身が違う / ★Referer あり (パスまで含む) / ★Sec-Fetch-Dest が image 以外",
     ],
     [{ kind: "unexpected", width: 1 }, "★画像は読めたが幅が想定外 (1)"],
     [{ kind: "error" }, "★届かなかった (画像として読めない)"],

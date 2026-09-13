@@ -48,13 +48,24 @@ describe("GET /v1/probe.gif — 届いたリクエストを GIF の幅で返す"
     expect(await gifWidth(res)).toBe(16);
   });
 
-  it("Referer が届けば +2", async () => {
-    const res = await probeRequest(await validQuery("abc"), {
-      "sec-fetch-dest": "image",
-      referer: "https://scrapbox.io/project/page",
-    });
+  async function widthWithReferer(referer: string): Promise<number> {
+    return gifWidth(
+      await probeRequest(await validQuery("abc"), { "sec-fetch-dest": "image", referer }),
+    );
+  }
 
-    expect(await gifWidth(res)).toBe(19);
+  it("Referer がオリジンだけなら +2", async () => {
+    expect(await widthWithReferer("https://scrapbox.io/")).toBe(19);
+  });
+
+  it("**Referer にパスが含まれれば、さらに +8** (プロジェクト名やページ名が載っている)", async () => {
+    expect(await widthWithReferer("https://scrapbox.io/project/page")).toBe(27);
+    expect(await widthWithReferer("https://scrapbox.io/?q=1")).toBe(27);
+    expect(await widthWithReferer("https://scrapbox.io/#x")).toBe(27);
+  });
+
+  it("URL として読めない Referer はパスを含むとみなす (安全側)", async () => {
+    expect(await widthWithReferer("not a url")).toBe(27);
   });
 
   it("Sec-Fetch-Dest が image 以外 (無い場合も) なら +4", async () => {
@@ -70,16 +81,20 @@ describe("GET /v1/probe.gif — 届いたリクエストを GIF の幅で返す"
     expect(await gifWidth(await probeRequest(await validQuery(payload)))).toBe(17);
   });
 
-  it("ログに中身を出さない", async () => {
+  it("ログに中身も Referer の値も出さない", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     const payload = "secretlike_payload-123";
 
-    await probeRequest(await validQuery(payload));
+    await probeRequest(await validQuery(payload), {
+      "sec-fetch-dest": "image",
+      referer: "https://scrapbox.io/private-project/page",
+    });
 
     expect(log).toHaveBeenCalledTimes(1);
     const line = String(log.mock.calls[0]?.[0]);
-    expect(JSON.parse(line)).toEqual({ event: "probe", bytes: payload.length, flags: 17 });
+    expect(JSON.parse(line)).toEqual({ event: "probe", bytes: payload.length, flags: 27 });
     expect(line).not.toContain(payload);
+    expect(line).not.toContain("private-project");
   });
 });
 

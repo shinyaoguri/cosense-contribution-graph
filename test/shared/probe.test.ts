@@ -38,29 +38,34 @@ describe("疎通確認の取り決め", () => {
     expect(await probeDigest("abc")).toBe("ba7816bf8f01cfea414140de5dae2223");
   });
 
-  const ALL_FLAGS: ProbeFlags[] = [false, true].flatMap((intact) =>
-    [false, true].flatMap((referer) =>
-      [false, true].map((notImageDest) => ({ intact, referer, notImageDest })),
+  const BOOLS = [false, true];
+  const ALL_FLAGS: ProbeFlags[] = BOOLS.flatMap((intact) =>
+    BOOLS.flatMap((referer) =>
+      BOOLS.flatMap((notImageDest) =>
+        BOOLS.map((refererPath) => ({ intact, referer, notImageDest, refererPath })),
+      ),
     ),
   );
 
-  it("8 通りのビットが幅 16〜23 に別々に対応し、読み戻せる", () => {
+  it("16 通りのビットが幅 16〜31 に別々に対応し、読み戻せる", () => {
     const widths = ALL_FLAGS.map(probeWidth);
 
-    expect(new Set(widths).size).toBe(8);
+    expect(new Set(widths).size).toBe(16);
     expect(Math.min(...widths)).toBe(PROBE_WIDTH_BASE);
-    expect(Math.max(...widths)).toBe(PROBE_WIDTH_BASE + 7);
+    expect(Math.max(...widths)).toBe(PROBE_WIDTH_BASE + 15);
     for (const flags of ALL_FLAGS) {
       expect(readProbeWidth(probeWidth(flags))).toEqual(flags);
     }
   });
 
   it("すべて正常なら幅 17 (中身一致だけが立つ)", () => {
-    expect(probeWidth({ intact: true, referer: false, notImageDest: false })).toBe(17);
+    expect(
+      probeWidth({ intact: true, referer: false, notImageDest: false, refererPath: false }),
+    ).toBe(17);
   });
 
   it("取り決めの外の幅は読まない (1×1 の画像を届いたと取り違えない)", () => {
-    for (const width of [0, 1, 15, 24, 16.5, Number.NaN]) {
+    for (const width of [0, 1, 15, 32, 16.5, Number.NaN]) {
       expect(readProbeWidth(width), String(width)).toBeUndefined();
     }
   });

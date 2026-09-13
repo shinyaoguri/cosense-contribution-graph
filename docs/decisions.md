@@ -29,6 +29,10 @@ Worker は 43 バイトの透過 GIF を 200 で返す。クライアントは `
 `img.referrerPolicy = "no-referrer"` を `src` より前に設定する。既定でもクロスオリジンには
 origin しか送られないが、origin も出さない。
 
+**(2026-09-14 注記) Cosense のページではこれが効かない。** Cosense の Service Worker が画像リクエストを
+作り直すので、Referer が届く (research §1)。オリジンだけかどうかを測っている途中 (Issue #31) で、
+結果が出たらこの決定を改訂する。
+
 ### 帰結
 
 - データは URL に載る。Cloudflare の上限 16KB が実効の制約。8KB を超えるなら分割送信する

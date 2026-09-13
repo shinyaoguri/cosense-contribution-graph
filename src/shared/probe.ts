@@ -28,7 +28,7 @@ export const PROBE_DIGEST_LENGTH = 32;
 export const PROBE_PAYLOAD_MAX = 16_384;
 
 /**
- * 応答の GIF の幅 = これ + ビットの和 (16〜23)。
+ * 応答の GIF の幅 = これ + ビットの和 (16〜31)。
  * 16 から始めるのは、途中の何かが返した 1×1 の画像を「届いた」と取り違えないため。
  */
 export const PROBE_WIDTH_BASE = 16;
@@ -39,12 +39,17 @@ export type ProbeFlags = {
   readonly intact: boolean;
   /** `Referer` ヘッダが届いた */
   readonly referer: boolean;
+  /**
+   * `Referer` にオリジンより後ろ (パス・クエリ・フラグメント) が含まれる。URL として読めない値も含むとみなす。
+   * **値そのものは返さない。** プロジェクト名やページ名が載っているかを、運営者が見ずに確かめるため
+   */
+  readonly refererPath: boolean;
   /** `Sec-Fetch-Dest` が `image` でない (Service Worker が作り直した、または画像以外から送った) */
   readonly notImageDest: boolean;
 };
 
-const BIT = { intact: 1, referer: 2, notImageDest: 4 } as const;
-const BIT_MASK = BIT.intact | BIT.referer | BIT.notImageDest;
+const BIT = { intact: 1, referer: 2, notImageDest: 4, refererPath: 8 } as const;
+const BIT_MASK = BIT.intact | BIT.referer | BIT.notImageDest | BIT.refererPath;
 
 export function probeDigest(payload: string): Promise<string> {
   return sha256Hex(payload, PROBE_DIGEST_LENGTH);
@@ -55,11 +60,12 @@ export function probeWidth(flags: ProbeFlags): number {
     PROBE_WIDTH_BASE +
     (flags.intact ? BIT.intact : 0) +
     (flags.referer ? BIT.referer : 0) +
-    (flags.notImageDest ? BIT.notImageDest : 0)
+    (flags.notImageDest ? BIT.notImageDest : 0) +
+    (flags.refererPath ? BIT.refererPath : 0)
   );
 }
 
-/** 幅からビットを読む。取り決めの範囲 (16〜23) の外なら `undefined`。 */
+/** 幅からビットを読む。取り決めの範囲 (16〜31) の外なら `undefined`。 */
 export function readProbeWidth(width: number): ProbeFlags | undefined {
   const bits = width - PROBE_WIDTH_BASE;
   if (!Number.isInteger(bits) || bits < 0 || bits > BIT_MASK) {
@@ -69,5 +75,6 @@ export function readProbeWidth(width: number): ProbeFlags | undefined {
     intact: (bits & BIT.intact) !== 0,
     referer: (bits & BIT.referer) !== 0,
     notImageDest: (bits & BIT.notImageDest) !== 0,
+    refererPath: (bits & BIT.refererPath) !== 0,
   };
 }

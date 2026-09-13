@@ -42,14 +42,16 @@ export async function handleProbe(request: Request, url: URL): Promise<Response>
     });
   }
 
+  const referer = request.headers.get("referer");
   const flags: ProbeFlags = {
     intact: (await probeDigest(payload)) === digest,
-    referer: request.headers.has("referer"),
+    referer: referer !== null,
     notImageDest: request.headers.get("sec-fetch-dest") !== "image",
+    refererPath: referer !== null && !isOriginOnly(referer),
   };
   const width = probeWidth(flags);
 
-  // Workers Logs に 1 行。**IP・UA・中身は出さない**
+  // Workers Logs に 1 行。**IP・UA・中身・Referer の値は出さない**
   console.log(JSON.stringify({ event: "probe", bytes: payload.length, flags: width }));
 
   return new Response(transparentGif(width), {
@@ -61,6 +63,20 @@ export async function handleProbe(request: Request, url: URL): Promise<Response>
       "x-content-type-options": "nosniff",
     },
   });
+}
+
+/**
+ * `https://scrapbox.io/` のようにオリジンだけか。
+ *
+ * Cosense の Service Worker が画像を作り直すと、Referer は Service Worker のオリジンだけになるはず (Issue #31)。
+ * パスが載っていればプロジェクト名とページ名が運営者に流れるので、そこを区別する。
+ */
+function isOriginOnly(referer: string): boolean {
+  if (!URL.canParse(referer)) {
+    return false;
+  }
+  const url = new URL(referer);
+  return url.pathname === "/" && url.search === "" && url.hash === "";
 }
 
 // LZW の最小コードサイズ 2 のときのクリアコードと終了コード。コードは 3 bit
