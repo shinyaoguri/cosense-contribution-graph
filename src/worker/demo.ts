@@ -1,0 +1,78 @@
+/**
+ * 疎通確認と見た目の確認に使うデモの草 (publicId = `demo`)。実データを持たない。
+ *
+ * **決定論的に作る。** 乱数を使うと ETag もテストの期待値も毎回変わる。
+ */
+import type { Minutes } from "../shared/balance.ts";
+import { DAYS, fromEpochDay, MAX_WEEKS, toEpochDay } from "../shared/graph.ts";
+
+/**
+ * デモの「今日」。**週の途中 (水曜) に固定する。** 日曜や土曜だと左右の列が欠けず、
+ * 欠け方の回帰が見えなくなる。
+ */
+export const DEMO_TODAY = "2026-09-09";
+
+export type DemoData = {
+  /** 表示範囲 (直近 53 週) の日ごとの分数。活動の無い日は入れない。 */
+  readonly days: ReadonlyMap<string, Minutes>;
+  /** 四分位と中心を取る母集団。**表示範囲より古い 1 年ぶんも含む。** */
+  readonly population: readonly Minutes[];
+};
+
+/** 整数から 32 bit の擬似乱数を作る (mulberry32 の 1 段)。同じ入力には同じ値を返す。 */
+function hash32(n: number): number {
+  let t = (n + 0x6d2b79f5) | 0;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return (t ^ (t >>> 14)) >>> 0;
+}
+
+// 読みの割合が違う 3 種類を**均等に混ぜる**。平日を一律に書き寄りにすると、中央値 (色相の中心) が
+// 平日に寄って平日が緑になり、黄色が出ない。均等なら中間が緑、読み寄りが青、書き寄りが黄になる
+const WRITE_SHARE = [0.08, 0.3, 0.75] as const;
+
+function demoDay(epochDay: number, minTotal: number, spread: number): Minutes | undefined {
+  const h = hash32(epochDay);
+  const bucket = h % 100;
+  if (bucket < 12) {
+    return undefined;
+  }
+  if (bucket < 17) {
+    // デッドゾーン未満の日 (1〜2 分)。Level 0 で塗られ、母集団からも外れる
+    const total = 1 + ((h >>> 3) % 2);
+    return { w: 0, r: total };
+  }
+  const total = minTotal + ((h >>> 8) % spread);
+  const w = Math.round(total * (WRITE_SHARE[(h >>> 4) % 3] ?? 0.3));
+  return { w, r: total - w };
+}
+
+export function demoData(): DemoData {
+  const today = toEpochDay(DEMO_TODAY);
+  const displayStart = today - DAYS * (MAX_WEEKS - 1);
+
+  const days = new Map<string, Minutes>();
+  const population: Minutes[] = [];
+
+  for (let day = displayStart; day <= today; day++) {
+    const minutes = demoDay(day, 5, 85);
+    if (minutes) {
+      days.set(fromEpochDay(day), minutes);
+      population.push(minutes);
+    }
+  }
+
+  // **表示範囲より古い日を、分布を変えて母集団だけに入れる。** 描画が表示範囲だけから四分位を
+  // 取るバグがあると色が変わるので、テストで検出できる。
+  //
+  // 差は小さく保つ。古い日を大きくしすぎると四分位が引き上げられ、表示範囲に Level 4 が出ない
+  // (60〜179 分にしたら 0 マスだった)。10〜99 分なら表示範囲の Level 1〜4 が 87/79/81/51 マスになる
+  for (let day = displayStart - 365; day < displayStart; day++) {
+    const minutes = demoDay(day, 10, 90);
+    if (minutes) {
+      population.push(minutes);
+    }
+  }
+
+  return { days, population };
+}

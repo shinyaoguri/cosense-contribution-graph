@@ -3,7 +3,7 @@
 Cosense (旧 Scrapbox) の活動を草として可視化する。成果物は **UserScript** (センサー兼ビューア) と
 **Cloudflare Worker + D1** (記録と SVG 配信) の 2 つ。Worker は作者が 1 つホストして公開提供する。
 
-**現在は設計段階で、実装が 1 行もない。** `docs/` が唯一の正本。
+**段階 1 (草の SVG 生成と配色) を実装中。** 本番にデモの草 `/v1/g/demo.svg` がある。設計の正本は `docs/`。
 
 ## docs の読み方
 
@@ -12,7 +12,7 @@ Cosense (旧 Scrapbox) の活動を草として可視化する。成果物は **
 | `docs/decisions.md` | ADR。**最初に読む。** 送信経路と身元の紐づけが素朴な設計と違う理由がここにある |
 | `docs/design.md` | 設計。指標・スキーマ・API・配色・脅威モデル |
 | `docs/research.md` | 実測事実。**基準日と出典が付いている。推測で上書きしない** |
-| `docs/roadmap.md` | 実装順と段階ごとの完了条件。次の作業は段階 0 |
+| `docs/roadmap.md` | 実装順と段階ごとの完了条件。どこまで進んだかもここにある |
 | `docs/privacy.md` | プライバシーポリシーの草案 |
 
 設計判断を変えるときは ADR を足すか、既存 ADR に改訂を書く。**ADR が 20 件を超えたら
@@ -27,19 +27,14 @@ npm run dev                  # wrangler dev。/__scheduled で Cron を叩ける
 ./scripts/check-links.sh     # Markdown の相対リンクが実在するか
 ```
 
-**CI も `npm run check` を呼ぶ**ので、ローカルと CI が乖離しない。
-**Cloudflare の認証情報なしで green になることが不変条件。** Workers のテストは
-ローカルの workerd だけで走る。
+**CI も `npm run check` を呼ぶ**ので乖離しない。**Cloudflare の認証情報なしで green になることが
+不変条件** (Workers のテストはローカルの workerd だけで走る)。
 
-**`check-links.sh` は外部 URL を見ない。意図的。** docs は Cosense と Cloudflare の一次情報への
-出典を大量に持つので、到達性を CI で見ると先方の都合で赤くなる。出典の鮮度は `research.md` の
-基準日付きの記述で人間が管理する。
+**`check-links.sh` は外部 URL を見ない。意図的。** 一次情報への出典を大量に持つので、到達性を CI で
+見ると先方の都合で赤くなる。出典の鮮度は `research.md` の基準日付きの記述で人間が管理する。
 
-### テスト中に出る警告は設計どおり
-
-`wrangler.jsonc` に `secrets.required` を宣言しているので、値が無いと
-「Missing required secrets」が出る。**CI に秘密を置かないので消えない。失敗ではない。**
-ローカルで消したいときは `.dev.vars.example` を `.dev.vars` にコピーする。
+テスト中の「Missing required secrets」は**設計どおりで失敗ではない** (`secrets.required` を宣言していて、
+CI に秘密を置かない)。ローカルで消したいときは `.dev.vars.example` を `.dev.vars` にコピーする。
 
 ## 触るときの注意
 
