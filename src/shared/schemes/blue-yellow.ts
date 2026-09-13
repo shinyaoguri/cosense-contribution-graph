@@ -56,7 +56,7 @@ export const blueYellow: ColorScheme = {
   name: "blue-yellow",
   legendBalances: [-1, -0.5, 0, 0.5, 1],
   // 彩度は合計分数に比例して SATURATION_MINUTES で飽和する。凡例は total = Infinity で飽和する。
-  // write モード (バランス 0) では色相が 155° になり、design §7 の「色相を 155° に固定」と一致する
+  // write モード (バランス 0) では色相が 155° になる (design §7)
   cell({ level, balance, total }: CellInput, theme: Theme): string {
     return levelColor(level, total / SATURATION_MINUTES, hueOf(balance), theme);
   },

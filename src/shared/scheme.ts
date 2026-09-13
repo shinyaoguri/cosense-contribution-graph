@@ -5,13 +5,14 @@
  * 描画側 (Worker の SVG、段階 8 の DOM 注入) はスキームの中身を知らない。
  *
  * 配色を足すときは次の 2 通りのどちらかで作り、下の `SCHEMES` に 1 行足す。
- * - **色を変えたいだけ** なら、表で色を指定する形にする
+ * - **色を変えたいだけ** なら、`bandScheme()` に 16 進の表を渡す (`blue-pink` がこれ)
  * - **規則で色を計算したい** なら、`ColorScheme` を直接実装する (`blue-yellow` がこれ)
  *
  * 足したスキームは `test/shared/scheme.test.ts` の契約テストに自動で通される。
  * 両 lib で型検査され、両環境でテストされる。
  */
 import type { Level } from "./scale.ts";
+import { bluePink } from "./schemes/blue-pink.ts";
 import { blueYellow } from "./schemes/blue-yellow.ts";
 
 export type Theme = "light" | "dark";
@@ -33,12 +34,22 @@ export interface ColorScheme {
 }
 
 export const SCHEMES = {
+  "blue-pink": bluePink,
   "blue-yellow": blueYellow,
 } as const satisfies Record<string, ColorScheme>;
 
 export type SchemeName = keyof typeof SCHEMES;
 
-export const DEFAULT_SCHEME: SchemeName = "blue-yellow";
+export const DEFAULT_SCHEME: SchemeName = "blue-pink";
+
+/**
+ * クエリの値が登録済みのスキーム名か。
+ *
+ * **`Object.hasOwn` で見る。** `in` だと `toString` や `__proto__` のような継承したキーも通る。
+ */
+export function isSchemeName(value: string | null): value is SchemeName {
+  return value !== null && Object.hasOwn(SCHEMES, value);
+}
 
 export function schemeOf(name: SchemeName): ColorScheme {
   return SCHEMES[name];
