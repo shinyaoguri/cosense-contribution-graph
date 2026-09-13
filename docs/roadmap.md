@@ -360,9 +360,9 @@ Gyazo の証跡付きで確かめる (Issue #20)。
 作るもの。
 
 - `src/shared/scale.ts` 四分位スケール
-- `src/shared/balance.ts` 色相バランス
+- `src/shared/balance.ts` 読み書きのバランス
 - `src/shared/oklch.ts` OKLCH から sRGB。彩度を二分探索でガモットに詰める
-- `src/shared/color.ts` セルの色
+- `src/shared/scheme.ts` と `src/shared/schemes/` 配色の差し替え口と配色 (ADR-0016)
 - `src/shared/graph.ts` 53 週グリッドのレイアウト
 - `src/worker/svg.ts` SVG の生成。凡例込み
 - `src/worker/index.ts` ルーティング
