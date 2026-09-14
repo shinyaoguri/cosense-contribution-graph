@@ -63,11 +63,12 @@ Cosense の自分のユーザーページに 1 行書く。
 
 ```
 code:script.js
- import "/api/code/<配布project>/<page>/script.js"
+ import "/api/code/cosense-grass/v1/script.js"
 ```
 
 外部ドメインからの import は Cosense の UserScript の仕組み上成立しないので、配布は Cosense の
-公開プロジェクト経由になる。詳細は ADR-0005。
+公開プロジェクト [cosense-grass](https://scrapbox.io/cosense-grass/) 経由になる。詳細は ADR-0005。
+**`v1` はまだ無い** (リリース版はセンサーと設定 UI がそろってから出す)。`dev` は開発版なので import しないこと。
 
 そのあとページメニューの「草の設定」から **Google でサインイン**する。Cosense で使っているのと
 同じ Google アカウントを選ぶ。これで誰の草かが決まる。
@@ -118,6 +119,7 @@ code:script.js
 
 **破壊的変更のときは配布ページを分ける。** 同一パスの中身を差し替えるのは、他人のブラウザで動く
 コードを勝手に入れ替えることになる。同じページを更新してよいのはバグ修正に限る。
+配布ページは `/cosense-grass/v1`、`/cosense-grass/v2` と番号を上げていく (ADR-0005 の改訂)。
 
 Worker の API も同様に `/v1/` を固定し、破壊的変更では `/v2/` へ上げる。
 

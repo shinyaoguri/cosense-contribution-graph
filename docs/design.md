@@ -762,10 +762,11 @@ Worker 側で 16 進数に焼き込む。
 
 ```
 code:script.js
- import "/api/code/<配布project>/<page>/script.js"
+ import "/api/code/cosense-grass/v1/script.js"
 ```
 
-外部ドメインからの import は成立しない (ADR-0005)。バンドルは Cosense の公開プロジェクトに置く。
+外部ドメインからの import は成立しない (ADR-0005)。バンドルは Cosense の公開プロジェクト `/cosense-grass` に置く。
+ページは版ごとに分け、リリース版は `v1`、`v2`…、開発版は `dev` (ADR-0005 の 2026-09-14 の改訂)。
 
 **複数プロジェクトで使うなら、各プロジェクトの自分のページに同じ 1 行を書く。**
 サインインは 1 回で済み、どのプロジェクトから使っても同じ草になる。
