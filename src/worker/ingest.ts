@@ -22,7 +22,7 @@ import { verify } from "../shared/sign.ts";
 import { acceptsDay } from "./days.ts";
 import type { ResolveKey } from "./keys.ts";
 import { type DailyValues, mergeEntry, type StoredBits } from "./merge.ts";
-import { transparentGif } from "./probe.ts";
+import { gifResponse, plainResponse } from "./responses.ts";
 
 /** 署名した時刻 `t` とサーバ時刻のずれの上限 (design §3)。 */
 export const REPLAY_WINDOW_SECONDS = 300;
@@ -88,14 +88,7 @@ export async function handleIngest(url: URL, deps: IngestDeps): Promise<Response
 
   const written = changed > 0;
   log(200, written ? "written" : "unchanged", entries, changed);
-  return new Response(transparentGif(ingestWidth({ written })), {
-    status: 200,
-    headers: {
-      "content-type": "image/gif",
-      "cache-control": "no-store",
-      "x-content-type-options": "nosniff",
-    },
-  });
+  return gifResponse(ingestWidth({ written }));
 }
 
 const entryKey = (ph: string, day: string) => `${ph} ${day}`;
@@ -260,17 +253,7 @@ function bitmapFrom(value: unknown): Bitmap {
 
 function reject(status: 400 | 403 | 500, reason: Reason, entries?: number): Response {
   log(status, reason, entries, 0);
-  return new Response(
-    status === 500 ? "Internal Server Error" : status === 403 ? "Forbidden" : "Bad Request",
-    {
-      status,
-      headers: {
-        "content-type": "text/plain; charset=utf-8",
-        "cache-control": "no-store",
-        "x-content-type-options": "nosniff",
-      },
-    },
-  );
+  return plainResponse(status);
 }
 
 /** Workers Logs に 1 行。**uid・ph・kid・日付・IP は出さない** (ADR-0013 決定 1)。 */

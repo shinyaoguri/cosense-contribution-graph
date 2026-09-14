@@ -1,7 +1,8 @@
 import { SELF } from "cloudflare:test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sha256Hex } from "../../src/shared/hash.ts";
-import { handleProbe, transparentGif } from "../../src/worker/probe.ts";
+import { handleProbe } from "../../src/worker/probe.ts";
+import { transparentGif } from "../../src/worker/responses.ts";
 
 const ORIGIN = "https://example.com";
 
