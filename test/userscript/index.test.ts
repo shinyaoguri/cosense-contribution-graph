@@ -15,7 +15,7 @@ const LOADED: ProbeResult = {
 };
 
 /** 偽の Cosense と依存。送った大きさ・alert・localStorage・イベントを記録する。 */
-function setup(projectName = "project-a") {
+function setup(projectName = "project-a", controlled = true) {
   const sizes: number[] = [];
   const alerts: string[] = [];
   const items: { title: string; onClick: () => void }[] = [];
@@ -24,6 +24,7 @@ function setup(projectName = "project-a") {
   const doc = { visibilityState: "visible" as DocumentVisibilityState };
 
   const project = { name: projectName };
+  const state = { controlled };
   const cosense: Cosense = {
     Project: project,
     PageMenu: { addItem: (item) => items.push(item) },
@@ -49,6 +50,7 @@ function setup(projectName = "project-a") {
       },
     } as Dependencies["document"],
     now: () => new Date("2026-09-13T06:00:00Z"),
+    serviceWorkerControlled: () => state.controlled,
   };
 
   /** 表示状態を変えてイベントを発火する。送信の完了まで待つ。 */
@@ -69,7 +71,7 @@ function setup(projectName = "project-a") {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
 
-  return { cosense, deps, sizes, alerts, items, store, project, setVisibility, clickMenu };
+  return { cosense, deps, sizes, alerts, items, store, project, state, setVisibility, clickMenu };
 }
 
 describe("ページメニュー", () => {
@@ -97,6 +99,19 @@ describe("ページメニュー", () => {
     }
     expect(text).toContain("タブを隠したとき: まだ無い");
   });
+
+  it("**押した時点でページが Service Worker の制御下かを出す** (Referer が届くかを左右する)", async () => {
+    const controlled = setup("project-a", true);
+    start(controlled.cosense, controlled.deps);
+    await controlled.clickMenu();
+
+    const uncontrolled = setup("project-a", false);
+    start(uncontrolled.cosense, uncontrolled.deps);
+    await uncontrolled.clickMenu();
+
+    expect(controlled.alerts[0]).toContain("Service Worker: 制御下");
+    expect(uncontrolled.alerts[0]).toContain("Service Worker: 制御外");
+  });
 });
 
 describe("タブを隠したときの送信", () => {
@@ -110,6 +125,7 @@ describe("タブを隠したときの送信", () => {
     expect(JSON.parse(t.store.get(HIDDEN_PROBE_KEY) ?? "null")).toEqual({
       project: "project-a",
       at: "2026-09-13T06:00:00.000Z",
+      controlled: true,
       result: LOADED,
     });
   });
@@ -140,10 +156,28 @@ describe("タブを隠したときの送信", () => {
     await t.setVisibility("hidden");
 
     t.project.name = "project-b";
+    t.state.controlled = false;
     await t.clickMenu();
 
     const text = t.alerts[0] ?? "";
     expect(text).toContain("(project-b,");
-    expect(text).toMatch(/タブを隠したとき: 届いた \/ 中身一致 .*\(project-a, /);
+    expect(text).toContain("Service Worker: 制御外");
+    // 隠したときの制御状態は、送ったときの値を出す
+    expect(text).toMatch(
+      /タブを隠したとき: 届いた \/ 中身一致 .*\(project-a, .*, Service Worker: 制御下\)/,
+    );
+  });
+
+  it("古い版が残した記録 (制御状態が無い) は「不明」と出す", async () => {
+    const t = setup();
+    t.store.set(
+      HIDDEN_PROBE_KEY,
+      JSON.stringify({ project: "project-a", at: "2026-09-13T06:00:00.000Z", result: LOADED }),
+    );
+    start(t.cosense, t.deps);
+
+    await t.clickMenu();
+
+    expect(t.alerts[0]).toMatch(/タブを隠したとき: .*Service Worker: 不明\)/);
   });
 });
