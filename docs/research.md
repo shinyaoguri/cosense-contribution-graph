@@ -819,6 +819,12 @@ const workers_dev = config_workers_dev ?? defaultWorkersDev;
 `routes` を足した瞬間に workers.dev が既定で無効になる。独自ドメインへ移る前後で動作確認の場を
 残したいなら明示する。
 
+**`routes` が空なら、`wrangler deploy` はルートにもカスタムドメインにも触らない** (2026-09-14、wrangler 4.131.1 の
+`triggersDeploy`)。ルートを反映する `publishRoutes` (`PUT .../routes`、既存を消して置き換える) と、カスタムドメインを反映する
+`publishCustomDomains` (`.../domains/changeset?replace_state=true`) は、宣言に該当する要素があるときだけ呼ばれる。
+**ダッシュボードで付けたカスタムドメインは、`routes` を書かない限り CI のデプロイで消えない。**
+逆に 1 つでも `custom_domain` を宣言すると `replace_state=true` になり、宣言に無いカスタムドメインは外れる。
+
 **バインディングを実アカウントと照合する検査は wrangler 側に無い。** 存在しない D1 の ID や、
 プランで使えないバインディングの扱いは Cloudflare の API 側の判定で、ソースからは確かめられない。
 `--dry-run` はアカウントを参照しない (`requireAuth` を通らない) ので、**`--dry-run` が通っても

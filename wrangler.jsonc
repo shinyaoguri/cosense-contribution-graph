@@ -17,8 +17,11 @@
   "observability": { "enabled": true, "logs": { "invocation_logs": false } },
 
   // 既定でも有効 (routes が空なら workers.dev が有効になる) だが明示する。
-  // 段階 4 で独自ドメインの routes を足した瞬間に既定が無効へ変わり、
-  // 切り替え前に動作を確かめる場が消えるため。
+  // routes を足した瞬間に既定が無効へ変わり、すでに貼られた workers.dev の URL が壊れるため。
+  //
+  // **独自ドメイン grass.soui.dev はダッシュボードの Custom Domain で付けていて、ここに routes を書かない**
+  // (ADR-0014 決定 10)。routes が空なら wrangler deploy はルートにもカスタムドメインにも触らない (research §5)。
+  // 書くと CI 用トークンにゾーンの権限が要り、replace_state で宣言に無いドメインを外す。
   "workers_dev": true,
 
   // **バインディングは使っているコードに合わせて足していく** (secrets.required と同じ規則)。
