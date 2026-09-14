@@ -12,12 +12,7 @@ import {
   readProbeWidth,
 } from "../shared/probe.ts";
 import { type ImageOptions, requestImage } from "./image.ts";
-
-/**
- * 本番の Worker。**独自ドメイン** (ADR-0014 決定 10)。
- * `cosense-grass.soui.workers.dev` も有効のまま残しているが、UserScript からは使わない。
- */
-export const WORKER_ORIGIN = "https://grass.soui.dev";
+import { WORKER_ORIGIN } from "./worker-origin.ts";
 
 const BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
