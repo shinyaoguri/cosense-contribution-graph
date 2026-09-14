@@ -797,6 +797,15 @@ Bluesky が 2025 年 3 月に実際に壊れた。scrapbox.io 側がプロジェ
 - D1 が漏洩しても Google アカウントは特定できない。`sub` を保存しないため
 - ADR-0001 で OAuth を却下した判断を覆すことになる。理由の変化は ADR-0001 に追記した
 
+### 2026-09-14 の改訂 — cookie を `__Host-` にし、ポップアップはコードを送る
+
+`/auth/start` と `/auth/callback` を実装して 2 つを変えた (design §3、Issue #61)。
+
+- **cookie を `__Host-grass-auth` (`Path=/`) にした。** 当初の `Path=/auth` の cookie は `Domain` を付けられるので、
+  `soui.dev` の別のサブドメインから攻撃者の正規の cookie を差し込まれると、被害者の端末が攻撃者の uid に登録される (ログイン CSRF)。
+  署名だけでは防げない。HMAC の鍵は `WORKER_SECRET` から用途を分けて導く
+- **postMessage の中身を `{uid, token}` から 48 文字のコードに変えた。** 手で貼る経路と読み取りを 1 本にし、失敗 (取り消し) も送る
+
 ### 2026-09-14 の改訂 — HMAC の鍵は `WORKER_SECRET` の文字列の UTF-8
 
 `HMAC-SHA256(WORKER_SECRET, ...)` の「鍵」をどのバイト列にするかが書かれていなかった。`openssl rand -hex 32` で作る値なので、
@@ -1098,6 +1107,11 @@ wrangler のソースからは確かめられなかった。
 
 `WORKER_SECRET` だけは残す。初回デプロイから存在すべきで一度決めたら変えられず、1 つでも宣言が
 残っていれば `wrangler types` が `.dev.vars` を無視する性質 (ローカルと CI で型がずれない) が保たれる。
+
+**2026-09-14 の改訂 — Google のうち secret だけを `secrets.required` に足した** (Issue #61)。「Google の secret 2 つ」と書いていたが、
+**クライアント ID は秘密ではないので `vars` に置く。** `GOOGLE_CLIENT_SECRET` は `/auth/callback` と一緒に `secrets.required` に足し、
+`ci.yml` の guard と secrets ファイルにも足した (名前の配列で持ち、`secrets.required` と同じ並びにする)。
+`vars` はデプロイのたびに置き換わり、`--secrets-file` を渡すと secret は残る (research §5)。
 
 ### 決定 9 — D1 は CI の deploy ジョブが無ければ作る (2026-09-14 追加)
 

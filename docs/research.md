@@ -823,6 +823,12 @@ const workers_dev = config_workers_dev ?? defaultWorkersDev;
 `triggersDeploy`)。ルートを反映する `publishRoutes` (`PUT .../routes`、既存を消して置き換える) と、カスタムドメインを反映する
 `publishCustomDomains` (`.../domains/changeset?replace_state=true`) は、宣言に該当する要素があるときだけ呼ばれる。
 **ダッシュボードで付けたカスタムドメインは、`routes` を書かない限り CI のデプロイで消えない。**
+
+**`vars` はデプロイのたびに `wrangler.jsonc` の内容に置き換わる** (2026-09-14、wrangler 4.131.1)。`keep_vars` の既定は false で、
+そのとき plain_text / json のバインディングは残されない。**`--secrets-file` を渡すと secret は残る** (`keepSecrets: keepVars || !!secretsFile`)。
+`secrets.required` にあってファイルに無い secret は inherit になり、一度も入れていなければ API が拒否してデプロイが落ちる。
+`.dev.vars` は `secrets.required` を宣言していても vars を上書きできる (`getVarsForDev`) ので、`PUBLIC_ORIGIN` をローカルで差し替えられる。
+vitest も `.dev.vars` を読むが、`vitest.worker.config.ts` の `miniflare.bindings` が後から上書きする。
 逆に 1 つでも `custom_domain` を宣言すると `replace_state=true` になり、宣言に無いカスタムドメインは外れる。
 
 **バインディングを実アカウントと照合する検査は wrangler 側に無い。** 存在しない D1 の ID や、
@@ -1010,6 +1016,10 @@ miss しうる。OAuth の往復はまさにその時間スケール。
 
 PKCE は Google が `S256` に対応している。Worker は client secret を持てるので必須ではないが、
 認可コード横取り対策として付ける。
+
+**実装では `__Host-grass-auth` にして `Path=/` にした** (2026-09-14、design §3、Issue #61)。`__Host-` は `Path=/` が必須で、
+`Domain` を付けられないので同じ登録可能ドメインの別のサブドメインからの差し込みを防げる。`SameSite=Lax` なので、
+scrapbox.io から来るクロスサイトの画像リクエスト (`/v1/*`) には付かない。
 
 ### クエリ文字列の正規化
 

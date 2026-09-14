@@ -6,7 +6,7 @@ Cosense (旧 Scrapbox) の活動を草として可視化する。成果物は **
 **段階 3 (D1 と記録の受け口) まで実装し、段階 5 (センサー) を段階 4 より先に入れている** (#49。段階 1 の本体は #23 が開いたまま)。
 センサーは localStorage に記録するだけで、まだ送らない。受け口は `keys` テーブルの鍵で検証するが、
 登録 (段階 4) がまだ無いので本番の記録は全部 403 になる (#54)。段階 4 は OAuth クライアントを待たずに書ける部分から入れている
-(#61。ID トークンの検証・uid の導出・`/v1/enroll.gif` はあるが、登録トークンを発行する `/auth/callback` がまだ無いので本番では登録できない)。
+(#61。`/auth/start`・`/auth/callback`・`/v1/enroll.gif` がある。ブラウザでサインインするとコードが出るが、それを使う UserScript はまだ無い)。
 本番は `https://grass.soui.dev` (独自ドメイン。`cosense-grass.soui.workers.dev` も有効) で、デモの草 `/v1/g/demo.svg` がある。設計の正本は `docs/`。
 
 ## docs の読み方
@@ -84,6 +84,8 @@ rc ファイルにも `.env` にも書かない。ローカルは `wrangler auth
 - **knip の `ignoreDependencies: ["cloudflare"]` は消さない。** `cloudflare:test` という
   仮想モジュールを `cloudflare` という実パッケージだと誤認するため
 - **biome は `worker-configuration.d.ts` を見ない** (生成物で 15,000 行あるため)
+- **`vars` は `wrangler.jsonc` が正本。** ダッシュボードで足してもデプロイのたびに消える。
+  **`secrets.required` に足したら `.github/workflows/ci.yml` の guard と `names` も足す** (でないとデプロイが落ちる)
 - **`wrangler.jsonc` に `routes` を書かない。** 独自ドメインはダッシュボードの Custom Domain で付けている。
   1 つでも宣言するとデプロイが宣言に無いカスタムドメインを外し、CI 用トークンにもゾーンの権限が要る (ADR-0014 決定 10)
 - **`npx wrangler deploy --dry-run` を直接打たない。** `.claude/settings.json` の deny が

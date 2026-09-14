@@ -27,6 +27,10 @@ export default defineConfig({
           // **テスト用のダミー。実際の値は絶対に置かない** (ローカルは .dev.vars、
           // 本番は GitHub Actions から wrangler deploy --secrets-file で投入する)。
           WORKER_SECRET: "test-worker-secret",
+          GOOGLE_CLIENT_SECRET: "test-google-client-secret",
+          // ローカルの .dev.vars に PUBLIC_ORIGIN があってもテストが変わらないように固定する
+          // (vitest も .dev.vars を読み、ここの値が後から上書きする)
+          PUBLIC_ORIGIN: "https://grass.soui.dev",
           // Node 側で読んだマイグレーションを workerd に渡す (research §5)
           TEST_MIGRATIONS: await readD1Migrations("migrations"),
         },

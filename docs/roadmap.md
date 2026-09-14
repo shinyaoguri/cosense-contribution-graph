@@ -624,7 +624,8 @@ Cosense のページに貼ったときの見た目だけ、まだ確かめてい
 
 ## 段階 4 — Google サインインとデバイス登録
 
-- `src/worker/auth.ts` `/auth/start` と `/auth/callback`
+- `src/worker/auth.ts` `/auth/start` と `/auth/callback`。**入れた** (2026-09-14、Issue #61)。ブラウザで `https://grass.soui.dev/auth/start` を
+  開けば 48 文字のコードが表示される。cookie は `auth-cookie.ts`、ポップアップの HTML は `auth-page.ts`、コードは `src/shared/auth.ts`
 - `src/worker/idtoken.ts` ID トークンの検証と JWKS の保持、`src/worker/uid.ts` sub から uid を導く。
   **OAuth クライアントを待たずに先に入れた** (2026-09-14、Issue #61)。使う経路 (callback) はまだ無い
 - `src/worker/enroll.ts` デバイスの登録と失効。**登録 (`/v1/enroll.gif`) と登録トークンの発行を先に入れた** (2026-09-14、Issue #61)。
@@ -764,7 +765,7 @@ PR の順。
 | 段階 3 | D1 データベース | **CI の deploy ジョブが無ければ作る** (ADR-0014 決定 9)。CI 用トークンに **Account > D1 > Edit** が要る。作った後に `database_id` を `wrangler.jsonc` に固定する |
 | 段階 4 | **独自ドメイン** | **用意済み (2026-09-14、`grass.soui.dev`)。** ダッシュボードの Custom Domain で付け、`wrangler.jsonc` に `routes` を書かない (ADR-0014 決定 10)。`workers.dev` では zone の WAF が効かず、レートリミットがかけられない |
 | (同上) | **`WORKER_SECRET` は変えられない** | uid の導出鍵。**変えると全利用者の識別子が変わり、失うと再計算できない。必ずバックアップ** |
-| 段階 4 | Google Cloud の OAuth クライアント | `openid` スコープのみなら審査は不要 |
+| 段階 4 | Google Cloud の OAuth クライアント | **用意済み (2026-09-14)。** ID は `wrangler.jsonc` の `vars`、secret は `production` の Environment secrets (`GOOGLE_CLIENT_SECRET`)。リダイレクト URI は `https://grass.soui.dev/auth/callback`。**同意画面はテスト中で、ブランディングは未設定** (プライバシーポリシーの配信と一緒に対応する)。テスト中はテストユーザーに入れたアカウントだけがサインインできる。`openid` スコープのみなら審査は不要 |
 | 段階 4 | プライバシーポリシーの公開先 | Google の同意画面の要件。`privacy.md` を Worker から配信する |
 | 段階 5 | **Cosense の配布用公開プロジェクト** | **用意済み (2026-09-14、[`/cosense-grass`](https://scrapbox.io/cosense-grass/))。** ページは `dev` (開発版) と `v1`… (リリース版)。バンドルはリリースのたびに手動で貼る。メンバーは持ち主だけ |
 | 公開時 | Bot Fight Mode を OFF | JS 実行を要求するチャレンジは画像ビーコンを静かに壊す |

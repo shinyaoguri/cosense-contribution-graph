@@ -71,6 +71,7 @@ src/shared/                 Worker と UserScript の両方から import する
   sign.ts                   署名対象の正規化と ECDSA P-256 の署名・検証
   beacon.ts                 GET /v1/p.gif のクエリの組み立てと厳密な読み取り、応答の幅
   enroll.ts                 GET /v1/enroll.gif のクエリの組み立てと厳密な読み取り、応答の幅
+  auth.ts                   サインインのコード (uid と登録トークンの 48 文字) の組み立てと読み取り
   scale.ts                  四分位スケール
   balance.ts                読み書きのバランス (配色に依らない)
   oklch.ts                  OKLCH → sRGB。彩度を二分探索でガモットに詰める
@@ -80,6 +81,8 @@ src/shared/                 Worker と UserScript の両方から import する
 src/worker/
   index.ts                  ルーティング
   auth.ts                   /auth/start と /auth/callback
+  auth-cookie.ts            サインインの往復のあいだ state・nonce・code_verifier を持つ署名付き cookie
+  auth-page.ts              callback がポップアップに返す HTML (postMessage とコードの表示)
   idtoken.ts                Google の ID トークンの検証と JWKS の保持
   uid.ts                    sub から uid を導く (HMAC)
   enroll.ts                 デバイスの登録 (GET /v1/enroll.gif) と登録トークンの発行。失効
@@ -179,6 +182,23 @@ COOP は `unsafe-none` なので opener が切れない (`research.md` §7)。
 2 台目も同じフロー。**同じ Google アカウントでサインインすれば同じ uid になり、自動的に同じ草へ
 合流する。** 全端末を失っても同じなので、復旧コードは要らない。
 
+**Worker 側 (手順 2〜5) を実装した** (2026-09-14、`src/worker/auth.ts`、Issue #61)。上の手順から変えた・決めたところ。
+
+- **cookie は `__Host-grass-auth=…; Max-Age=600; Path=/; Secure; HttpOnly; SameSite=Lax`。** 当初の `Path=/auth` から変えた。
+  `__Host-` は `Domain` を付けられないので、`soui.dev` の別のサブドメインから cookie を差し込めない。署名付きでも、
+  攻撃者が自分で `/auth/start` を開いて得た正規の cookie を被害者に持たせれば、被害者の端末を攻撃者の uid に登録させられる (ログイン CSRF)
+- cookie の中身は `ver | issuedAt | state(16) | nonce(16) | code_verifier(32)` の 69 バイトと HMAC。**HMAC の鍵は
+  `HMAC(WORKER_SECRET, "cosense-grass:auth-cookie:v1")` で、uid の導出と用途を分ける。** 暗号化はしない (乱数だけで、
+  code_verifier が読めてもトークンの交換には client secret が要る)。期限はサーバでも見る
+- start は `prompt=select_account` を付ける (違うアカウントの草に合流すると戻しにくい)。**302 に `Referrer-Policy: no-referrer`**
+  (scrapbox.io のページの URL を Google に渡さない)。戻り先のパラメータは持たない
+- **redirect_uri は `PUBLIC_ORIGIN` (`https://grass.soui.dev`) から作る。** 別のホストの start は `PUBLIC_ORIGIN` の start へ 302、
+  別のホストの callback は 404 (postMessage の送り元を 1 つに揃える)
+- **手順 5 のメッセージは `{type: "cosense-grass:auth", v: 1, code}`** (失敗は `{type, v: 1, error: "cancelled" | "expired" | "failed"}`)。
+  `{uid, token}` から変えた。postMessage の値と手で貼られたコードを `src/shared/auth.ts` の `parseAuthCode` 1 本で読むため。
+  失敗も送るので、取り消したときに親がタイムアウトまで待たない
+- UserScript 側 (手順 1・6) はまだ
+
 ### COOP が enforced になったときのフォールバック
 
 Google のサインイン画面の COOP は現在 report-only だが、`report-to` が設定されているのは
@@ -189,7 +209,8 @@ Bluesky が 2025 年 3 月に実際に壊れた。scrapbox.io 側がプロジェ
 代替手段が乏しいので最初から備える。
 
 - ポップアップは postMessage を送ったうえで**コードも画面に表示する**。
-  `<uid>:<登録トークン>` を base64url にした **48 文字** (uid 20 バイト + トークン 16 バイト。2026-09-14、Issue #61)
+  `<uid>:<登録トークン>` を base64url にした **48 文字** (uid 20 バイト + トークン 16 バイト。2026-09-14、Issue #61)。
+  組み立てと読み取りは `src/shared/auth.ts`。読むときは前後の空白を落とす
 - 親は**タイムアウト付きで postMessage を待つ**。来なければ「ポップアップのコードを貼ってください」
   と案内する
 - **`popup.closed` のポーリングに依存しない。** COOP 下では `closed` が常に `true` を返して嘘をつく
@@ -443,6 +464,34 @@ pages' = max(pages_old, pages_new)、created も同じ
 
 §3 のフロー。`/auth/callback` は HTML を返し、`postMessage` を送ってコードを表示する。
 
+**実装した** (2026-09-14、`src/worker/auth.ts`、Issue #61)。どちらも **GET だけ** (HEAD・POST は 404。code を交換させない)。
+
+callback の手順。**cookie と state が通るまで Google に fetch しない。**
+
+1. オリジンが `PUBLIC_ORIGIN` でなければ 404
+2. cookie の署名・期限 (400、署名違いは 403)
+3. `state` がちょうど 1 つで cookie と一致 (定数時間比較。403)
+4. `error` (利用者の取り消しは `access_denied`。400)。`error_description` は画面にもログにも出さない
+5. `code` (400) → トークンエンドポイントに form POST (client_secret_post、code_verifier)
+6. ID トークンを検証 (`idtoken.ts`、nonce は cookie から) → `uidOf` → `issueEnrollToken` → 200 の HTML
+
+**応答は成功でも失敗でも cookie を消す** (`Max-Age=0`)。開き直しても Google に行かずに止まる。
+
+| | 状態 | 画面の `data-error` |
+|---|---|---|
+| 登録トークンを発行した | 200 | (コードを表示) |
+| cookie が無い・形・期限切れ・重複 | 400 | `expired` |
+| cookie の署名・state が違う | 403 | `expired` |
+| 取り消し / それ以外の `error` | 400 | `cancelled` / `failed` |
+| `code` が無い・512 文字超、トークンエンドポイントが 4xx | 400 | `failed` |
+| トークンエンドポイントが 5xx・通信失敗・応答が壊れている、JWKS が取れない | 502 | `failed` |
+| ID トークンの検証で拒否 | 403 | `failed` |
+| D1 の throw | 500 | `failed` |
+| 設定 (vars・secret) が欠けている | 500 | (text/plain) |
+
+ログは `{"event":"auth","step","status","reason","detail"}` の 1 行だけ。`detail` は ID トークンの拒否理由 (`nonce`・`aud` など) だけで、
+**code・state・cookie・ID トークン・sub・uid・トークン・例外のメッセージは出さない。**
+
 ### `GET /v1/enroll.gif` — デバイスの登録
 
 ```
@@ -625,6 +674,20 @@ SVG と JSON のレスポンスに付ける。
 Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'
 X-Content-Type-Options: nosniff
 ```
+
+**`/auth/callback` の HTML** (2026-09-14、`src/worker/auth-page.ts`、Issue #61)。
+
+```
+Content-Security-Policy: default-src 'none'; script-src 'sha256-…'; style-src 'sha256-…'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+Cache-Control: no-store
+Referrer-Policy: no-referrer
+X-Content-Type-Options: nosniff
+```
+
+- **値をスクリプトに埋め込まない。** スクリプトとスタイルは固定の文字列で、コードは `data-code` 属性から読む。CSP をハッシュで書け、値で CSP が変わらない。
+  ハッシュは標準の base64 (パディングあり) で、テストが HTML の中身と突き合わせる
+- **COOP を付けない。** `same-origin` を付けると opener が切れて postMessage が壊れる (research §6)
+- スクリプトは `postMessage` を `https://scrapbox.io` だけに送り、`history.replaceState` でアドレスバーと履歴から code と state を消す
 
 ラベルをサーバに置かないので SVG に出る動的な文字列は日付と数値だけだが、
 **原則として全て XML エスケープする**。
@@ -980,6 +1043,8 @@ IndexedDB も同様なので、同じブラウザなら鍵は 1 つで足りる�
 | プロジェクト別の共有 URL から全体や他を見る | 一方向導出 |
 | 誰がいつ何を読んだかが漏れる | read イベントにページ識別子を一切載せない |
 | 未来の草を生やす | `day` が未来なら拒否する |
+| **被害者の端末を攻撃者の uid に登録させる** (ログイン CSRF) | state を署名付き cookie と結び付け、cookie を `__Host-` にして別のサブドメインから差し込ませない |
+| 認可コードの横取り | PKCE (S256) と client secret。redirect_uri は設定値に固定 |
 
 ### 守らないもの
 
@@ -995,6 +1060,11 @@ IndexedDB も同様なので、同じブラウザなら鍵は 1 つで足りる�
 - `publicId` を知る人に日別活動量が見える。共有するかはユーザーの選択
 - デバイスの IndexedDB を読める攻撃者 (物理アクセスや深刻な XSS) は、そのデバイスから署名できる。
   ただし鍵を取り出して持ち出すことはできない
+- **表示したコードを騙し取るフィッシング。** 攻撃者のサイトが `/auth/start` をポップアップで開き、表示されたコードを貼らせれば、
+  攻撃者が被害者の uid に鍵を登録できる。コードを表示する経路 (COOP のフォールバック) に付きまとう。
+  画面に「Cosense の草の設定にだけ貼る」と書き、5 分・1 回で使えなくなることで狭める
+- **scrapbox.io の同じオリジンで動くスクリプト** (利用者が入れた他人の UserScript など) は postMessage を受け取れる。
+  それらはどのみち IndexedDB の鍵も使えるので、新しく増える露出は無い
 
 ### DoS 対策
 
@@ -1146,6 +1216,11 @@ Cron で日次の要約をログに出す。UserScript 側のエラーは送ら�
   拒否すること (JWKS を取りに行かないこと)、`nonce` の不一致を拒否すること、未知の `kid` で JWKS を 1 回だけ再取得すること。
   外部への fetch はモックせず、**取得関数を注入して** Google と同じ形の JWKS を返す
 - `worker/uid.ts` 既知の答えと一致すること (HMAC の鍵の取り決めを固定する)
+- `worker/auth.ts` **cookie と state が通るまで Google に fetch しないこと**、state の不一致・cookie の改ざんと期限、
+  別のホストの callback が 404 であること、成功でも失敗でも cookie を消すこと、`error_description` を反射しないこと、
+  CSP のハッシュが HTML の中身と一致し COOP が無いこと、postMessage の送り先が `https://scrapbox.io` であること、
+  **表示したコードで `/v1/enroll.gif` が通ること**、ログに値が出ないこと
+- `worker/auth-cookie.ts` `__Host-` の属性、改ざん・別の secret・**`WORKER_SECRET` をそのまま鍵にした MAC では通らないこと**
 - `worker/ingest.ts` 同じビーコンを 2 回送って値が変わらない。未来と 30 日超の過去を拒否する。
   `r & ~w` の排他。`daybits` がない日に古いビーコンが来ても `daily.w` が減らない。
   **2 つのプロジェクトで同じ分に活動したとき `*` 行の `w` が 2 にならず 1 になること**。
