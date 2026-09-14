@@ -1,5 +1,6 @@
 /**
- * センサー (design §9、段階 5)。Cosense での活動を分単位で数え、`store.ts` に記録する。送信はしない (段階 6)。
+ * センサー (design §9、段階 5)。Cosense での活動を分単位で数え、`store.ts` に記録する。
+ * 送るのは `sender.ts` (段階 6)。センサーは日付が変わったことを `onDayChange` で知らせるだけ。
  *
  * - **読み。** 20 秒ごとに、見えていて・フォーカスがあり・直近 3 分以内に操作があれば、今の分に r を立てる。
  *   `document.hasFocus()` が無いと、開きっぱなしのタブを全部数えてブラウザの起動時間になる
@@ -62,6 +63,8 @@ export type SensorDependencies = {
    */
   readonly fetchText: (path: string) => Promise<string | undefined>;
   readonly warn: (message: string) => void;
+  /** 動いている間にローカルの日付が変わった (起動直後は呼ばない)。前日分を送るきっかけ */
+  readonly onDayChange?: (today: string) => void;
 };
 
 /** 今のプロジェクトを数えているか。 */
@@ -135,8 +138,12 @@ export function startSensor(cosense: SensorCosense, deps: SensorDependencies): S
       const now = deps.now();
       const day = localDay(now);
       if (day !== lastDay) {
+        const changed = lastDay !== undefined;
         lastDay = day;
         deps.store.fold(day);
+        if (changed) {
+          deps.onDayChange?.(day);
+        }
       }
       if (
         deps.document.visibilityState !== "visible" ||
