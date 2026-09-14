@@ -495,6 +495,13 @@ will make use of the Indexed Database API」。ただし Firefox に読み出し
 ([bug 1348279](https://bugzilla.mozilla.org/show_bug.cgi?id=1348279)) があり、
 プライベートブラウジングや storage eviction 下の挙動は未検証。
 
+**2026-09-14 に本番で往復が成立した (Chrome、#36)。** Cosense のページで動く UserScript が `generateKey` (`extractable: false`) で
+鍵を作り、`CryptoKey` のまま IndexedDB に保存した。6 分後と 8 分後に IndexedDB を開き直して読み出し、`sign` した r‖s の 64 バイトを、
+workerd が `importKey("raw", 65 バイト, ..., ["verify"])` した公開鍵で `verify` して通った。
+- 公開鍵は `exportKey("raw")` で 65 バイト (先頭 0x04) が取れた。`extractable: false` でも公開鍵は書き出せる
+- ページの再読み込みを挟んだかは記録していない
+- Firefox では確かめていない
+
 ### Rate Limiting と DoS 対策 (Free 枠)
 
 **Workers の Rate Limiting binding は 2025-09-19 に GA。**
@@ -733,7 +740,10 @@ cloudflareTest(async () => ({
 **ローカルの D1 で通った構文**【実行】。`WHERE uid = ? AND (ph, day) IN (VALUES (?, ?), ...)` (行値の IN)、
 `ON CONFLICT (...) DO UPDATE SET r = max(daily.w + daily.r, excluded.w + excluded.r) - max(daily.w, excluded.w)`
 (右辺の `daily.*` は更新前の値)、BLOB 同士の等値比較による条件つき UPDATE。条件に合わない UPDATE と
-`ON CONFLICT DO NOTHING` の衝突は `meta.changes` が 0 になる。本番の D1 でも同じかは段階 3 のデプロイ後に確かめる。
+`ON CONFLICT DO NOTHING` の衝突は `meta.changes` が 0 になる。
+
+**本番の D1 でも、行値の IN を含む読みの batch と、graphs の INSERT・daybits の INSERT・daily の UPSERT を含む書きの batch が通った**
+(2026-09-14、#36 の記録の疎通確認で幅 17 が返った)。条件つき UPDATE の衝突 (`meta.changes` が 0) は本番では起こしていない。
 
 **`.claude/settings.json` の deny は `wrangler d1 migrations apply` を `--local` でも止める**。ローカルでスキーマを当てるときは
 `wrangler d1 execute cosense-grass --local --file migrations/0001_init.sql` を使った。
@@ -904,9 +914,7 @@ Microsoft は `openid profile` のみなら publisher verification は不要と�
 
 実装の前に潰すもの。どれも設計の前提になっている。
 
-- **ECDSA P-256 のラウンドトリップ。** ブラウザで sign して Workers で verify できるか。
-  仕様・MDN・workerd 実装の 3 点が一致しているので通る見込みは高いが、
-  `importKey("raw", ..., ["verify"])` の usage 制約を含めて 1 回確認する
+- **ECDSA P-256 のラウンドトリップ。** 2026-09-14 に Chrome で成立した (§5 の WebCrypto の節、#36)。Chrome 以外は未確認
 - **`importKey("jwk", ...)` に Google の JWK をそのまま渡して通るか。** `alg` / `use` / `key_ops` の
   整合でエラーになる可能性がある
 - **ポップアップから `window.opener.postMessage` が scrapbox.io のプロジェクトページに届くか。**
@@ -916,7 +924,8 @@ Microsoft は `openid profile` のみなら publisher verification は不要と�
 - **Rate Limiting binding が Free プランで使えるか。** 公式に plan gate の記述がない
 - **no-op な UPDATE が rows written にカウントされるか。** `meta.rows_written` と翌日の
   アカウント集計値の両方を突き合わせる
-- **`extractable: false` の `CryptoKey` を IndexedDB から読み戻せるか。** Firefox に報告がある
+- **`extractable: false` の `CryptoKey` を IndexedDB から読み戻せるか。** **Chrome では読み戻して署名できた** (2026-09-14、#36)。
+  Firefox に読み出し失敗の報告があり、そちらは未確認
 
 設計に影響しないが残っているもの。
 
