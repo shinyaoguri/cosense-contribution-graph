@@ -36,7 +36,13 @@ export const HIDDEN_PROBE_KEY = "cosense-grass:probe:hidden";
 
 const HIDDEN_PROBE_SIZE = 240;
 
-type HiddenRecord = { readonly project: string; readonly at: string; readonly result: ProbeResult };
+type HiddenRecord = {
+  readonly project: string;
+  readonly at: string;
+  /** 送ったときにページが Service Worker の制御下だったか */
+  readonly controlled: boolean;
+  readonly result: ProbeResult;
+};
 
 export type Dependencies = {
   readonly runProbe: (length: number) => Promise<ProbeResult>;
@@ -44,6 +50,11 @@ export type Dependencies = {
   readonly storage: Pick<Storage, "getItem" | "setItem">;
   readonly document: Pick<Document, "addEventListener" | "visibilityState">;
   readonly now: () => Date;
+  /**
+   * ページが Service Worker の制御下か。**制御下だと Cosense の Service Worker が画像を作り直すので、
+   * Referer が届く** (research §1)。強制再読み込みで開いたページは制御下にならない
+   */
+  readonly serviceWorkerControlled: () => boolean;
 };
 
 export function start(cosense: Cosense, deps: Dependencies): void {
@@ -61,14 +72,16 @@ export function start(cosense: Cosense, deps: Dependencies): void {
     hiddenSent = true;
     const project = cosense.Project.name;
     const at = deps.now().toISOString();
+    const controlled = deps.serviceWorkerControlled();
     void deps.runProbe(HIDDEN_PROBE_SIZE).then((result) => {
-      const record: HiddenRecord = { project, at, result };
+      const record: HiddenRecord = { project, at, controlled, result };
       deps.storage.setItem(HIDDEN_PROBE_KEY, JSON.stringify(record));
     });
   });
 }
 
 async function runMenu(cosense: Cosense, deps: Dependencies): Promise<void> {
+  const controlled = deps.serviceWorkerControlled();
   const rows: { size: string; result: string }[] = [];
   // 大きい URL を同時に飛ばさないよう、順に送る
   for (const size of PROBE_SIZES) {
@@ -79,7 +92,7 @@ async function runMenu(cosense: Cosense, deps: Dependencies): Promise<void> {
   rows.push({
     size: "タブを隠したとき",
     result: hidden
-      ? `${describeResult(hidden.result)} (${hidden.project}, ${formatTime(hidden.at)})`
+      ? `${describeResult(hidden.result)} (${hidden.project}, ${formatTime(hidden.at)}, ${describeController(hidden.controlled)})`
       : "まだ無い (タブを一度隠して戻ってから押す)",
   });
 
@@ -87,6 +100,7 @@ async function runMenu(cosense: Cosense, deps: Dependencies): Promise<void> {
   deps.alert(
     [
       `${PROBE_MENU_TITLE} (${cosense.Project.name}, ${formatTime(deps.now().toISOString())})`,
+      describeController(controlled),
       "",
       ...rows.map((row) => `${row.size}: ${row.result}`),
     ].join("\n"),
@@ -103,6 +117,14 @@ function readHidden(storage: Pick<Storage, "getItem">): HiddenRecord | undefined
   } catch {
     return undefined;
   }
+}
+
+function describeController(controlled: boolean | undefined): string {
+  // 古い版が残した記録には無い
+  if (controlled === undefined) {
+    return "Service Worker: 不明";
+  }
+  return controlled ? "Service Worker: 制御下" : "Service Worker: 制御外";
 }
 
 function formatTime(iso: string): string {
@@ -123,5 +145,6 @@ if (typeof window !== "undefined" && window.scrapbox) {
     storage: window.localStorage,
     document: window.document,
     now: () => new Date(),
+    serviceWorkerControlled: () => Boolean(window.navigator.serviceWorker?.controller),
   });
 }
