@@ -1,10 +1,12 @@
 import { centerOf } from "../shared/balance.ts";
 import { INGEST_PATH } from "../shared/beacon.ts";
 import { sha256Hex } from "../shared/hash.ts";
+import { isValidPublicId } from "../shared/ids.ts";
 import { PROBE_PATH } from "../shared/probe.ts";
 import { buildScale } from "../shared/scale.ts";
 import { deleteOldDaybits } from "./cron.ts";
 import { DEMO_TODAY, demoData } from "./demo.ts";
+import { renderStoredGraph } from "./graph-data.ts";
 import { handleIngest } from "./ingest.ts";
 import { trialKeyResolver } from "./keys.ts";
 import { parseParams } from "./params.ts";
@@ -15,7 +17,7 @@ import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
  * Worker のエントリ。
  *
  * 経路は `/v1/p.gif` (記録の受け口)、`/v1/g/{publicId}.svg`、`/v1/probe.gif` (送信の疎通確認)。
- * グラフはまだ D1 から描いていないので、`demo` 以外 404 (docs/roadmap.md 段階 3)。
+ * グラフは `demo` ならデモを、それ以外は D1 の記録から描く。
  */
 
 /** `publicId` は URL で決まる。どのプロジェクトを描くかをクエリで指定しない (design §6)。 */
@@ -49,9 +51,22 @@ export default {
       return handleProbe(request, url);
     }
 
-    const match = GRAPH_PATH.exec(url.pathname);
-    if (match?.[1] === DEMO_PUBLIC_ID) {
+    const publicId = GRAPH_PATH.exec(url.pathname)?.[1];
+    if (publicId === DEMO_PUBLIC_ID) {
       return svgResponse(request, renderDemo(url.searchParams));
+    }
+    // 形の違う publicId は D1 を引かずに 404
+    if (publicId !== undefined && isValidPublicId(publicId)) {
+      let body: string | undefined;
+      try {
+        body = await renderStoredGraph(env.DB, publicId, parseParams(url.searchParams), Date.now());
+      } catch {
+        console.log(JSON.stringify({ event: "graph", status: 503 }));
+        return unavailable();
+      }
+      if (body !== undefined) {
+        return svgResponse(request, body);
+      }
     }
 
     // **存在しない publicId は 404** (design §6)。Cosense では画像が壊れて表示されるので、
@@ -118,6 +133,18 @@ function ifNoneMatch(header: string | null, etag: string): boolean {
   }
   const opaque = (tag: string) => tag.trim().replace(/^W\//, "");
   return header.split(",").some((tag) => opaque(tag) === opaque(etag));
+}
+
+/** D1 が読めないとき。**キャッシュさせない** (壊れた画像が 15 分残らないように)。 */
+function unavailable(): Response {
+  return new Response("Service Unavailable", {
+    status: 503,
+    headers: {
+      "content-type": "text/plain; charset=utf-8",
+      "cache-control": "no-store",
+      "x-content-type-options": "nosniff",
+    },
+  });
 }
 
 function notFound(): Response {

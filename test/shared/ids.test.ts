@@ -4,6 +4,7 @@ import { sha256Hex } from "../../src/shared/hash.ts";
 import {
   isValidKid,
   isValidPh,
+  isValidPublicId,
   isValidUid,
   KID_LENGTH,
   kidOf,
@@ -85,6 +86,13 @@ describe("publicId", () => {
     expect(PUBLIC_ID_LENGTH).toBe(32);
     expect(await publicIdOf(UID, PH_ALL)).toBe(await sha256Hex(`${UID}:*`, 32));
     expect(await publicIdOf(UID, ph)).toBe(await sha256Hex(`${UID}:${ph}`, 32));
+  });
+
+  it("32 桁の小文字 16 進数だけを publicId の形とみなす", async () => {
+    expect(isValidPublicId(await publicIdOf(UID, PH_ALL))).toBe(true);
+    expect(isValidPublicId("0".repeat(31))).toBe(false);
+    expect(isValidPublicId("A".repeat(32))).toBe(false);
+    expect(isValidPublicId("demo")).toBe(false);
   });
 
   it("**プロジェクト用と全体用は別の値で、ph をそのまま含まない** (一方向の導出。ADR-0007 決定 3)", async () => {

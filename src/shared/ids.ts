@@ -58,6 +58,13 @@ export function isValidUid(value: string): boolean {
   return decodeBase64url(value)?.length === UID_BYTES;
 }
 
+const PUBLIC_ID_PATTERN = new RegExp(`^[0-9a-f]{${PUBLIC_ID_LENGTH}}$`);
+
+/** 共有 URL の `publicId` の形か (32 桁の小文字 16 進数)。形が違えば D1 を引かずに 404 にする。 */
+export function isValidPublicId(value: string): boolean {
+  return PUBLIC_ID_PATTERN.test(value);
+}
+
 export function isValidKid(value: string): boolean {
   return KID_PATTERN.test(value);
 }
