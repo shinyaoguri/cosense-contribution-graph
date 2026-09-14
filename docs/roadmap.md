@@ -624,7 +624,9 @@ Cosense のページに貼ったときの見た目だけ、まだ確かめてい
 
 ## 段階 4 — Google サインインとデバイス登録
 
-- `src/worker/auth.ts` `/auth/start` と `/auth/callback`。ID トークンの検証
+- `src/worker/auth.ts` `/auth/start` と `/auth/callback`
+- `src/worker/idtoken.ts` ID トークンの検証と JWKS の保持、`src/worker/uid.ts` sub から uid を導く。
+  **OAuth クライアントを待たずに先に入れた** (2026-09-14、Issue #61)。使う経路 (callback) はまだ無い
 - `src/worker/enroll.ts` デバイスの登録と失効
 - `src/userscript/keys.ts` 鍵ペアの生成と IndexedDB への保存
   - **記録の疎通確認が IndexedDB の DB `cosense-grass` (バージョン 1) と store `keys` を使っていた。** 同じ名前を使うなら、store の中の
@@ -642,7 +644,9 @@ Cosense のページに貼ったときの見た目だけ、まだ確かめてい
 - 未知の `kid` で JWKS を 1 回だけ再取得すること
 - 登録トークンが 1 回使い捨てで 5 分で切れること
 
-外部への fetch のモックは `@msw/cloudflare` を使う。`fetchMock` は現行ではない。
+~~外部への fetch のモックは `@msw/cloudflare` を使う。~~ **msw は入れない** (2026-09-14、Issue #61)。
+JWKS の取得関数を注入し、テストでは Google と同じ形の応答を返す関数を渡す。依存を増やさずに取得の回数まで数えられる。
+`fetchMock` は現行ではない。
 
 ### 完了条件
 

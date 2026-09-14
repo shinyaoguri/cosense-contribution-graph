@@ -1035,7 +1035,9 @@ Microsoft は `openid profile` のみなら publisher verification は不要と�
 
 - **ECDSA P-256 のラウンドトリップ。** 2026-09-14 に Chrome で成立した (§5 の WebCrypto の節、#36)。Chrome 以外は未確認
 - **`importKey("jwk", ...)` に Google の JWK をそのまま渡して通るか。** `alg` / `use` / `key_ops` の
-  整合でエラーになる可能性がある
+  整合でエラーになる可能性がある。**実装は `{kty, n, e}` だけを渡す形にした** (2026-09-14、Issue #61)。
+  WebCrypto で作った RSA 鍵を Google と同じ形の JWK にして、workerd で読み込めることはテストで確かめた。
+  **Google が実際に配る JWKS ではまだ試していない** (callback の実装で確かめる)
 - **ポップアップから `window.opener.postMessage` が scrapbox.io のプロジェクトページに届くか。**
   COOP の実測値からは通るはずだが、設計の根幹なので確認する
 - **ポリシー URL 未設定のまま non-sensitive スコープのアプリを publish できるか。**
