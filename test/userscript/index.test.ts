@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AUTO_RECORD_KEY,
   type Cosense,
   type Dependencies,
   HIDDEN_PROBE_KEY,
@@ -32,7 +33,9 @@ function setup(projectName = "project-a", controlled = true) {
   const alerts: string[] = [];
   const logs: string[] = [];
   const recorded: string[] = [];
-  const recordState: { report: RecordReport | Error } = { report: REPORT };
+  const recordState: { report: RecordReport | Error; gate?: Promise<void> } = { report: REPORT };
+  // 送信の途中で進められる時計 (所要時間を確かめる)
+  const clock = { ms: Date.parse("2026-09-13T06:00:00Z") };
   const items: { title: string; onClick: () => void }[] = [];
   const store = new Map<string, string>();
   const listeners: (() => void)[] = [];
@@ -51,6 +54,7 @@ function setup(projectName = "project-a", controlled = true) {
     },
     runRecord: async (projectName) => {
       recorded.push(projectName);
+      await recordState.gate;
       if (recordState.report instanceof Error) {
         throw recordState.report;
       }
@@ -72,7 +76,7 @@ function setup(projectName = "project-a", controlled = true) {
         }
       },
     } as Dependencies["document"],
-    now: () => new Date("2026-09-13T06:00:00Z"),
+    now: () => new Date(clock.ms),
     serviceWorkerControlled: () => state.controlled,
   };
 
@@ -102,6 +106,7 @@ function setup(projectName = "project-a", controlled = true) {
     logs,
     recorded,
     recordState,
+    clock,
     items,
     store,
     project,
@@ -226,7 +231,8 @@ describe("記録の疎通確認のメニュー", () => {
 
     await t.clickMenu(RECORD_MENU_TITLE);
 
-    expect(t.recorded).toEqual(["project-a"]);
+    // 読み込み時の自動送信と、メニューの 2 回
+    expect(t.recorded).toEqual(["project-a", "project-a"]);
     expect(t.alerts).toHaveLength(1);
     const text = t.alerts[0] ?? "";
     expect(text).toContain("草: 記録の疎通確認 (project-a,");
@@ -260,5 +266,185 @@ describe("記録の疎通確認のメニュー", () => {
     await t.clickMenu(RECORD_MENU_TITLE);
 
     expect(t.alerts[0]).toContain("★送る前に失敗した: Error: IndexedDB が無い");
+  });
+});
+
+/** 自動送信の記録を読む。 */
+function autoRecords(store: Map<string, string>) {
+  return JSON.parse(store.get(AUTO_RECORD_KEY) ?? "{}");
+}
+
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+describe("記録の自動送信 (クリック無し)", () => {
+  it("**読み込んだとき (start) に 1 回送り、結果をプロジェクト名・時刻・制御状態つきで残す**", async () => {
+    const t = setup("project-a", true);
+
+    start(t.cosense, t.deps);
+    await flush();
+
+    expect(t.recorded).toEqual(["project-a"]);
+    expect(autoRecords(t.store)).toEqual({
+      load: {
+        project: "project-a",
+        at: "2026-09-13T06:00:00.000Z",
+        controlled: true,
+        elapsedMs: 0,
+        result: { kind: "written" },
+      },
+    });
+  });
+
+  it("**タブを隠したとき、読み込みごとに 1 回だけ送る。** 見えるようになっただけでは送らない", async () => {
+    const t = setup();
+    start(t.cosense, t.deps);
+    await flush();
+
+    await t.setVisibility("visible");
+    expect(t.recorded).toHaveLength(1);
+
+    await t.setVisibility("hidden");
+    await t.setVisibility("visible");
+    await t.setVisibility("hidden");
+    await flush();
+
+    expect(t.recorded).toHaveLength(2);
+    expect(Object.keys(autoRecords(t.store)).sort()).toEqual(["hidden", "load"]);
+  });
+
+  it("**送信は 1 本の列に並ぶ。** 前の送信が終わるまで、次の送信を始めない", async () => {
+    const t = setup();
+    let release = () => {};
+    t.recordState.gate = new Promise((resolve) => {
+      release = resolve;
+    });
+
+    start(t.cosense, t.deps);
+    await t.setVisibility("hidden");
+    await t.clickMenu(RECORD_MENU_TITLE);
+    await flush();
+
+    // 読み込み時の送信が止まっている間は、hidden とメニューの送信が始まっていない
+    expect(t.recorded).toHaveLength(1);
+
+    release();
+    await flush();
+    await flush();
+    expect(t.recorded).toHaveLength(3);
+  });
+
+  it("前の送信が失敗しても、次の送信は走る", async () => {
+    const t = setup();
+    t.recordState.report = new Error("IndexedDB が無い");
+    start(t.cosense, t.deps);
+    await flush();
+
+    t.recordState.report = REPORT;
+    await t.setVisibility("hidden");
+    await flush();
+
+    expect(t.recorded).toHaveLength(2);
+    expect(autoRecords(t.store).hidden.result).toEqual({ kind: "written" });
+  });
+
+  it("**結果を localStorage に書けなくても (容量超過など)、次の送信は走る**", async () => {
+    const t = setup();
+    const setItem = t.deps.storage.setItem;
+    let failures = 1;
+    const deps: Dependencies = {
+      ...t.deps,
+      storage: {
+        getItem: t.deps.storage.getItem,
+        setItem: (key, value) => {
+          if (key === AUTO_RECORD_KEY && failures-- > 0) {
+            throw new Error("QuotaExceededError");
+          }
+          setItem(key, value);
+        },
+      },
+    };
+
+    start(t.cosense, deps);
+    await flush();
+    await t.setVisibility("hidden");
+    await flush();
+
+    expect(t.recorded).toHaveLength(2);
+    expect(Object.keys(autoRecords(t.store))).toEqual(["hidden"]);
+  });
+
+  it("**送る前に失敗したら、理由を残す**", async () => {
+    const t = setup();
+    t.recordState.report = new Error("IndexedDB が無い");
+
+    start(t.cosense, t.deps);
+    await flush();
+
+    expect(autoRecords(t.store).load).toMatchObject({ error: "Error: IndexedDB が無い" });
+    expect(autoRecords(t.store).load.result).toBeUndefined();
+  });
+
+  it("**きっかけから結果までの時間を残す。** 制御状態とプロジェクトはきっかけの時点で読む", async () => {
+    const t = setup("project-a", true);
+    let release = () => {};
+    t.recordState.gate = new Promise((resolve) => {
+      release = resolve;
+    });
+
+    start(t.cosense, t.deps);
+    await flush();
+    t.clock.ms += 1_250;
+    t.state.controlled = false;
+    t.project.name = "project-b";
+    release();
+    await flush();
+
+    expect(autoRecords(t.store).load).toMatchObject({
+      project: "project-a",
+      controlled: true,
+      elapsedMs: 1_250,
+    });
+  });
+
+  it("前のきっかけの結果を消さずに、きっかけごとの最新を上書きする", async () => {
+    const t = setup();
+    t.store.set(
+      AUTO_RECORD_KEY,
+      JSON.stringify({ hidden: { project: "old", at: "x", controlled: false, elapsedMs: 1 } }),
+    );
+
+    start(t.cosense, t.deps);
+    await flush();
+
+    expect(autoRecords(t.store).hidden.project).toBe("old");
+    expect(autoRecords(t.store).load.project).toBe("project-a");
+  });
+
+  it("**メニューのダイアログに自動送信の 2 行を出す。** まだ無いほうは「まだ無い」", async () => {
+    const t = setup("project-a", true);
+    t.recordState.report = { ...REPORT, result: { kind: "unchanged" } };
+    start(t.cosense, t.deps);
+    await flush();
+
+    await t.clickMenu(RECORD_MENU_TITLE);
+
+    const text = t.alerts[0] ?? "";
+    expect(text).toMatch(
+      /自動送信 \(読み込み時\): 変化なし \(幅 16。.*\) \(project-a, .*, Service Worker: 制御下, 0\.0 秒\)/,
+    );
+    expect(text).toContain("自動送信 (タブを隠したとき): まだ無い (タブを一度隠して戻る)");
+  });
+
+  it("メニューで送る前に失敗したときも、自動送信の結果を出す", async () => {
+    const t = setup();
+    start(t.cosense, t.deps);
+    await flush();
+
+    t.recordState.report = new Error("IndexedDB が無い");
+    await t.clickMenu(RECORD_MENU_TITLE);
+
+    const text = t.alerts[0] ?? "";
+    expect(text).toContain("★送る前に失敗した: Error: IndexedDB が無い");
+    expect(text).toContain("自動送信 (読み込み時): 書いた (幅 17)");
   });
 });
