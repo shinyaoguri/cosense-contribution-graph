@@ -1041,13 +1041,13 @@ Cron で日次の要約をログに出す。UserScript 側のエラーは送ら�
 
 どれも設計の前提になる。段階 2 で潰す。
 
-- ECDSA P-256 のラウンドトリップ (ブラウザで sign、Workers で verify)
+- ECDSA P-256 のラウンドトリップ (ブラウザで sign、Workers で verify)。**2026-09-14 に Chrome で成立** (research §5)
 - `importKey("jwk", ...)` に Google の JWK をそのまま渡して通るか
 - **ポップアップから `window.opener.postMessage` が scrapbox.io のプロジェクトページに届くか**
 - ポリシー URL 未設定のまま non-sensitive スコープのアプリを publish できるか
 - Rate Limiting binding が Free プランで使えるか
 - no-op な UPDATE が rows written にカウントされるか
-- `extractable: false` の `CryptoKey` を IndexedDB から読み戻せるか (Firefox に報告あり)
+- `extractable: false` の `CryptoKey` を IndexedDB から読み戻せるか (Firefox に報告あり)。**Chrome では読み戻せた** (2026-09-14)
 
 ## 15. 未決パラメータ
 
