@@ -732,8 +732,9 @@ IndexedDB も同様なので、同じブラウザなら鍵は 1 つで足りる�
 
 上限に達した後の活動は翌日のロード時か日付変更時に送られる。OR なので失われない。
 
-- `img.referrerPolicy = "no-referrer"` を `src` より前に設定する。**ただし Cosense の Service Worker が
-  作り直すので Referer は届く** (research §1、Issue #31 で値の形を測っている)
+- `img.referrerPolicy = "no-referrer"` を `src` より前に設定する。**ただし Cosense の Service Worker がページを
+  制御していると作り直されるので、Referer にオリジンだけ (`https://scrapbox.io/`) が届く** (ADR-0001 の 2026-09-14 の改訂)
+- Worker は Referer でも `Sec-Fetch-Dest` でも判定しない。Service Worker の制御の有無で値が変わる
 - URL が 8KB を超えるなら日を分割して複数回送る
 - 複数タブの重複は localStorage のロックで 10 秒抑制する程度でよい。OR なので重複送信は無害
 - 送信前に鍵で署名する。鍵が読めなければサインインを促す

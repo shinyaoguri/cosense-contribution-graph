@@ -29,9 +29,19 @@ Worker は 43 バイトの透過 GIF を 200 で返す。クライアントは `
 `img.referrerPolicy = "no-referrer"` を `src` より前に設定する。既定でもクロスオリジンには
 origin しか送られないが、origin も出さない。
 
-**(2026-09-14 注記) Cosense のページではこれが効かない。** Cosense の Service Worker が画像リクエストを
-作り直すので、Referer が届く (research §1)。オリジンだけかどうかを測っている途中 (Issue #31) で、
-結果が出たらこの決定を改訂する。
+### 2026-09-14 の改訂 — Service Worker の制御下では Referer にオリジンだけが届く
+
+**上の「origin も出さない」は、Cosense の Service Worker がページを制御しているときは成り立たない**
+(research §1、Issue #31)。Service Worker が画像リクエストを init つきの `fetch` で作り直すので、
+ページで付けた `no-referrer` が捨てられ、**`Referer: https://scrapbox.io/` が届く。**
+
+**これを受け入れる。** 届くのはオリジンだけで、プロジェクト名もページ名も含まない (非公開プロジェクトで実測)。
+運営者にとって「Cosense のページから送られた」ことは Referer が無くても自明なので、失うものは無い。
+
+- `no-referrer` の設定は残す。強制再読み込みで開いたページのように、制御外のときは効く
+- Service Worker を避ける手段 (`media-src *` の `<video>` / `<audio>`) は、上の却下理由のとおり発火が不確実なので採らない
+- **Worker は Referer でも `Sec-Fetch-Dest` でも判定しない。** 制御下では `Sec-Fetch-Dest` が `empty` になり、
+  制御の有無で値が変わるため
 
 ### 帰結
 
