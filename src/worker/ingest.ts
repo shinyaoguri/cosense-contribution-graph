@@ -3,7 +3,7 @@
  *
  * 1. **形を見る (400)。** `parseIngestQuery` が厳密に読む。署名が 64 バイトでないもの (DER) もここで落ちる
  * 2. **日付の窓を見る (400)。** 未来の日と 30 日より古い日
- * 3. **時刻の窓・鍵・署名を見る (403)。** ここまで D1 に触らない (無効な署名で書き込みに近づかせない)
+ * 3. **時刻の窓・鍵・署名を見る (403)。** 鍵は D1 の `keys` から読むが、署名が通るまで書き込みには近づかせない
  * 4. D1 を 1 回の batch で読み、Worker でマージし、**変化したエントリだけ**を 1 回の batch で書く
  * 5. 200 と幅 16 (変化なし) / 17 (書いた) の透過 GIF を返す
  *
@@ -61,7 +61,13 @@ export async function handleIngest(url: URL, deps: IngestDeps): Promise<Response
   if (Math.abs(nowMs / 1000 - beacon.time) > REPLAY_WINDOW_SECONDS) {
     return reject(403, "time-window", entries);
   }
-  const key = await deps.resolveKey(beacon.uid, beacon.kid);
+  let key: CryptoKey | undefined;
+  try {
+    key = await deps.resolveKey(beacon.uid, beacon.kid);
+  } catch {
+    // 鍵は D1 から引く。読めなければ書き込みと同じく 500 にして再送させる
+    return reject(500, "d1", entries);
+  }
   if (!key) {
     return reject(403, "unknown-key", entries);
   }

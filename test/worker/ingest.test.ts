@@ -265,6 +265,20 @@ describe("GET /v1/p.gif — 同時に送られたとき", () => {
     expect(res.headers.get("content-type")).toBe("text/plain; charset=utf-8");
     expect(res.headers.get("cache-control")).toBe("no-store");
   });
+
+  it("**鍵を引く段で D1 が throw しても 500** で、書き込みに進まない", async () => {
+    const batch = vi.fn();
+    const db = { batch } as unknown as D1Database;
+    const res = await send(await signer.url(randomUid(), [entry({ wbits: bitmapOf([1]) })]), {
+      db,
+      resolveKey: async () => {
+        throw new Error("D1_ERROR: network connection lost");
+      },
+    });
+
+    expect(res.status).toBe(500);
+    expect(batch).not.toHaveBeenCalled();
+  });
 });
 
 describe("GET /v1/p.gif — 拒否する", () => {
@@ -419,16 +433,29 @@ describe("GET /v1/p.gif — ログ", () => {
 });
 
 describe("経路", () => {
-  it("**設定の試験用の公開鍵と違う鍵で署名したら、署名が正しくても 403**", async () => {
-    // 経路を通すので時刻は本物。日付と署名の時刻を今に合わせる
+  /** 経路を通すので時刻は本物。日付と署名の時刻を今に合わせる */
+  async function liveUrl(uid: string) {
     const today = new Date().toISOString().slice(0, 10);
-    const url = await signer.url(
-      randomUid(),
-      [entry({ day: today })],
-      Math.floor(Date.now() / 1000),
-    );
+    return signer.url(uid, [entry({ day: today })], Math.floor(Date.now() / 1000));
+  }
 
-    const res = await SELF.fetch(url.href);
+  it("**keys に登録した (uid, kid) の鍵なら 200**", async () => {
+    const uid = randomUid();
+    await env.DB.prepare("INSERT INTO keys (uid, kid, pubkey, created) VALUES (?, ?, ?, 0)")
+      .bind(uid, signer.kid, signer.publicKey)
+      .run();
+
+    const res = await SELF.fetch((await liveUrl(uid)).href);
+    expect(res.status).toBe(200);
+  });
+
+  it("**登録していない鍵は、署名が正しくても 403。** 別の uid に登録した鍵も使えない", async () => {
+    const other = randomUid();
+    await env.DB.prepare("INSERT INTO keys (uid, kid, pubkey, created) VALUES (?, ?, ?, 0)")
+      .bind(other, signer.kid, signer.publicKey)
+      .run();
+
+    const res = await SELF.fetch((await liveUrl(randomUid())).href);
     expect(res.status).toBe(403);
   });
 

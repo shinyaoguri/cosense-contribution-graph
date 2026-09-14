@@ -83,7 +83,7 @@ src/worker/
   ingest.ts                 GET /v1/p.gif
   merge.ts                  受け取ったエントリと保存済みの値のマージ (純関数)
   days.ts                   記録を受け付ける日付の窓と、ビットマップの保持日数
-  keys.ts                   署名の検証に使う公開鍵を引く (段階 4 までは試験用の 1 本)
+  keys.ts                   署名の検証に使う公開鍵を keys テーブルから引く
   svg.ts                    GET /v1/g/{publicId}.svg
   json.ts                   GET /v1/g/{publicId}.json
   admin.ts                  全削除
@@ -284,8 +284,12 @@ Ed25519 はブラウザ普及率 88% なので単独採用しない。
 ## 5. D1 スキーマ
 
 **段階 3 で作ったのは `graphs` / `daily` / `daybits` だけ** (2026-09-14、`migrations/0001_init.sql`、Issue #36)。
-`users` と `keys` は段階 4 で作る。`keys` の形はデバイス登録と一緒に決まり、`users.last_seen` は送信のたびの
-書き込みになるのに §11 の予算に入っていないため。**`users.ver` は作るときに落とす。** 「ETag 兼用」だったが、
+**`keys` は段階 4 より先に作った** (2026-09-14、`migrations/0002_keys.sql`、Issue #54)。記録の疎通確認の試験用の公開鍵
+(どの uid にも書けた) を消すため、受け口が `keys` を引くようにした。行を入れるデバイス登録は段階 4 なので、それまでは空で記録は全部 403 になる。
+**`keys.last_seen` はまだ作っていない。**
+
+`users` は段階 4 で作る。`users.last_seen` と `keys.last_seen` は送信のたびの書き込みになるのに §11 の予算に入っていないので、
+デバイス登録と一緒に要否を決める。**`users.ver` は作るときに落とす。** 「ETag 兼用」だったが、
 ETag を本文の SHA-256 にした (ADR-0015 決定 2) ので使い道が無い。
 
 ```sql
@@ -297,14 +301,14 @@ CREATE TABLE users (
   last_seen INTEGER NOT NULL
 ) WITHOUT ROWID;
 
--- デバイスごとの公開鍵
+-- デバイスごとの公開鍵。行は約 120 バイトと小さいので WITHOUT ROWID
 CREATE TABLE keys (
   uid TEXT, kid TEXT,
   pubkey BLOB NOT NULL,          -- 65 バイトの非圧縮 SEC1
   created INTEGER NOT NULL,
-  last_seen INTEGER NOT NULL,
+  last_seen INTEGER NOT NULL,    -- まだ作っていない (段階 4 で要否を決める)
   PRIMARY KEY (uid, kid)
-);
+) WITHOUT ROWID;
 
 -- 共有 URL の解決表。全体用とプロジェクト別が混在する
 CREATE TABLE graphs (
@@ -423,7 +427,7 @@ pages' = max(pages_old, pages_new)、created も同じ
 
 1. **形を見る (400)。** `src/shared/beacon.ts` の `parseIngestQuery` が厳密に読む
 2. **`day` の窓を見る (400)**
-3. **`t` の窓、鍵、署名を見る (403)。** ここまで D1 に触らない。無効な署名は書き込みに近づかせない
+3. **`t` の窓、鍵、署名を見る (403)。** 鍵は `keys` から読むが、ここまで書き込まない。無効な署名は書き込みに近づかせない
 4. `graphs`・`daybits`・`daily` を 1 回の batch でまとめて SELECT する (`(ph, day) IN (VALUES ...)`)
 5. Worker 内で OR してから popcount。`r_effective = r & ~w`。`daily` は w と合計を max で守る (§5)
 6. **変化したエントリだけを書く。** 無い `graphs` の INSERT、楽観的な `daybits` の書き込み (§5)、`daily` の UPSERT を 1 回の batch で送る。
@@ -439,7 +443,8 @@ pages' = max(pages_old, pages_new)、created も同じ
 - **応答の幅で「書いた」を返す。** 持ち主は本番の D1 を覗けない (リモート操作は CI だけ。ADR-0014) ので、
   同じ中身を 2 回送って 2 回目が 16 になることを利用者の側で確かめる手段にする。16 から始めるのは、途中の何かが返した
   1×1 の画像を「届いた」と取り違えないため (`/v1/probe.gif` と同じ)。段階 5 の送信済みの判定は「幅が 16 か 17」で読める
-- **鍵は段階 4 まで `wrangler.jsonc` の `TRIAL_PUBLIC_KEY` 1 本** (試験用。空なら全部 403)。段階 4 で `keys` を引く
+- **鍵は `keys` テーブルを (uid, kid) で引く** (2026-09-14、Issue #54)。記録の疎通確認 (#36) では `wrangler.jsonc` の `TRIAL_PUBLIC_KEY` 1 本で、
+  kid が合えばどの uid にも書けた。**鍵を引く段で D1 が失敗したら 500** (書き込みの失敗と同じく再送させる)
 
 バリデーション。
 
@@ -462,7 +467,7 @@ pages' = max(pages_old, pages_new)、created も同じ
 | 書いた / 変化なし | 200 | 幅 17 / 16 の透過 GIF。`Cache-Control: no-store` |
 | 形・日付の窓 | 400 | text/plain |
 | 時刻の窓・鍵・署名 | 403 | text/plain |
-| D1 の throw・楽観的な書き込みの衝突 | 500 | text/plain |
+| D1 の throw (鍵の読み取りを含む)・楽観的な書き込みの衝突 | 500 | text/plain |
 
 **D1 の書き込みが throw したら 500 を返す。** 画像が返らないのでクライアントは `onerror` で
 失敗を知り、送信済みフラグを立てない。D1 のエラーには数値コードがないので、エラー種別に
