@@ -78,6 +78,8 @@ export function startSensor(cosense: SensorCosense, deps: SensorDependencies): S
   // 読み込む前の操作は見えない。最初の操作から数える
   let lastInteraction = Number.NEGATIVE_INFINITY;
   let lastDay: string | undefined;
+  // 直前に記録できた活動。`lines:changed` はキー入力のたびに出るので、同じ分・同じページなら localStorage を読み直さない
+  let lastRecorded: string | undefined;
 
   const guard = (run: () => void) => {
     // Cosense のイベントの中で例外を投げると、同じイベントの他のリスナーまで止まる
@@ -115,9 +117,17 @@ export function startSensor(cosense: SensorCosense, deps: SensorDependencies): S
   /** 今のプロジェクトを数えているときだけ記録する。 */
   function record(build: (project: string) => Activity): void {
     const project = cosense.Project.name;
-    if (statusOf(project) === "counting") {
-      deps.store.record(build(project));
+    if (statusOf(project) !== "counting") {
+      return;
     }
+    const activity = build(project);
+    const key = JSON.stringify(activity);
+    if (key === lastRecorded) {
+      return;
+    }
+    const outcome = deps.store.record(activity);
+    // 書けなかったとき (容量超過・知らない版) は、次の活動で試し直す
+    lastRecorded = outcome === "written" || outcome === "unchanged" ? key : undefined;
   }
 
   const tick = () =>

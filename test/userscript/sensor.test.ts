@@ -196,9 +196,9 @@ describe("読み", () => {
     t.tick(at(0, 0, 15, 14));
     t.tick(at(0, 0, 35, 14));
 
+    // 0:00:35 は 0:00:15 と同じ分なので記録しない
     expect(t.recorded.map((a) => [a.day, "minute" in a ? a.minute : undefined])).toEqual([
       ["2026-09-13", 1439],
-      ["2026-09-14", 0],
       ["2026-09-14", 0],
     ]);
     // 起動時と、日が変わったときの 2 回
@@ -229,6 +229,47 @@ describe("書き", () => {
       expect(t.recorded).toEqual([]);
     },
   );
+
+  it("**同じ分・同じページの編集が続いても、store を呼ぶのは 1 回** (キー入力のたびに localStorage を読み直さない)", () => {
+    const t = setup();
+    startSensor(t.cosense, t.deps);
+
+    t.emitLines("edit");
+    t.emitLines("edit");
+    t.cosense.Page.id = "fedcba9876543210fedcba98";
+    t.emitLines("edit");
+    t.clock.ms = at(9, 1, 0);
+    t.emitLines("edit");
+
+    expect(t.recorded.map((a) => (a.kind === "write" ? [a.minute, a.pageId] : []))).toEqual([
+      [540, PAGE_ID],
+      [540, "fedcba9876543210fedcba98"],
+      [541, "fedcba9876543210fedcba98"],
+    ]);
+  });
+
+  it("書けなかったときは、同じ活動でも次に試し直す", () => {
+    const t = setup();
+    const outcomes = ["failed", "written"] as const;
+    const calls: Activity[] = [];
+    t.deps = {
+      ...t.deps,
+      store: {
+        ...t.deps.store,
+        record: (activity) => {
+          calls.push(activity);
+          return outcomes[calls.length - 1] ?? "unchanged";
+        },
+      },
+    };
+    startSensor(t.cosense, t.deps);
+
+    t.emitLines("edit");
+    t.emitLines("edit");
+    t.emitLines("edit");
+
+    expect(calls).toHaveLength(2);
+  });
 
   it("ページ ID が無い (page 以外のレイアウト) ときは、分だけ立てる", () => {
     const t = setup();
