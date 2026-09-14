@@ -419,7 +419,7 @@ describe("GET /v1/p.gif — ログ", () => {
 });
 
 describe("経路", () => {
-  it("本番の設定 (試験用の公開鍵が空) では、署名が正しくても 403", async () => {
+  it("**設定の試験用の公開鍵と違う鍵で署名したら、署名が正しくても 403**", async () => {
     // 経路を通すので時刻は本物。日付と署名の時刻を今に合わせる
     const today = new Date().toISOString().slice(0, 10);
     const url = await signer.url(

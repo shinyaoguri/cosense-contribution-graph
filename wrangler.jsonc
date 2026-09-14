@@ -28,23 +28,25 @@
   // - ratelimits — Free プランで使えるかが段階 2 の実機検証項目。検証してから足す
   //                (INGEST_LIMITER 60/60s、ENROLL_LIMITER 5/60s の予定。design §6)
 
-  // **database_id はまだ書かない。** データベースは CI の deploy ジョブが無ければ作る
-  // (`wrangler d1 create cosense-grass --location apac`)。初回のデプロイ後に Actions のログから ID を取り、
-  // ここに固定する (Issue #36)。固定するまでは wrangler が名前でデータベースを探す。
-  // 固定した後は、データベースが消えるとマイグレーションの段で落ちて気付ける
+  // データベースは CI の deploy ジョブが無ければ作る (`wrangler d1 create cosense-grass --location apac`。
+  // ADR-0014 決定 9)。**ID は初回に作ったときの Actions のログから取って固定した** (2026-09-14、APAC、Issue #36)。
+  // ID を書かないと wrangler は名前でデータベースを探し、消えていれば黙って空のものを作り直しうる。
+  // 固定しておけば、消えたときにマイグレーションの段で落ちて気付ける。ID は秘密ではない
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "cosense-grass",
+      "database_id": "87006345-0057-4f0d-92ab-6ef303719c79",
       "migrations_dir": "migrations"
     }
   ],
 
   "vars": {
     // 記録の疎通確認 (Issue #36) で /v1/p.gif の署名を検証する公開鍵。65 バイトの非圧縮 SEC1 を
-    // base64url にした 87 文字。**空のうちは記録を全部 403 にする。** 公開鍵なので秘密ではない。
-    // 段階 4 でデバイスごとの鍵 (keys テーブル) に置き換えて消す
-    "TRIAL_PUBLIC_KEY": ""
+    // base64url にした 87 文字。**空にすると記録を全部 403 にする。** 公開鍵なので秘密ではない。
+    // 持ち主のブラウザ (Cosense の UserScript) が IndexedDB に作った鍵で、kid は 2039144416f25f35。
+    // **この鍵はどの uid にも書ける。** 段階 4 でデバイスごとの鍵 (keys テーブル) に置き換えて消す
+    "TRIAL_PUBLIC_KEY": "BIqSPBASxwsCAFvNdCpcHTavsdDwl6oY_WwqFo8tndMmpx4jBEN--yIRG5_uVOYvXxF4HzvE90_DOsUUuWRGo8E"
   },
 
   // UTC。デプロイのたびに内容で置き換わるので、空配列にすると全削除される。
