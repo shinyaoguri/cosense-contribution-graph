@@ -99,6 +99,20 @@ describe("runRecord", () => {
     }
   });
 
+  it("**送る日はローカルの日付** (日本時間の朝 8:30 は UTC ではまだ前日)", async () => {
+    const t = setup();
+    // テストを走らせるマシンのタイムゾーンに依らず、UTC+9 のローカル時刻を再現する
+    const morningInTokyo = Object.assign(new Date("2026-09-13T23:30:00Z"), {
+      getFullYear: () => 2026,
+      getMonth: () => 8,
+      getDate: () => 14,
+    });
+    const report = await runRecord(PROJECT, { ...t.deps, now: () => morningInTokyo });
+
+    expect(report.day).toBe("2026-09-14");
+    expect(new URL(t.urls[0] ?? "").searchParams.get("p")).toContain("|2026-09-14|");
+  });
+
   it("**URL にプロジェクト名を載せない** (送るのは uid でソルトした ph だけ)", async () => {
     const t = setup();
     await runRecord(PROJECT, t.deps);

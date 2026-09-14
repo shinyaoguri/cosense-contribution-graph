@@ -26,8 +26,8 @@ export const TRIAL_UID_KEY = "cosense-grass:trial:uid";
  * 同じ分の読みは書きに数えるので、書き 5 分・読み 10 分の合計 15 分 (デッドゾーン 3 分を超えて色が付く)。
  * 0:00 からにするのは、いつ押しても過去の分になるため。
  */
-export const TRIAL_WRITE_MINUTES = [0, 1, 2, 3, 4] as const;
-export const TRIAL_READ_MINUTES = Array.from({ length: 15 }, (_, i) => i);
+const TRIAL_WRITE_MINUTES = [0, 1, 2, 3, 4] as const;
+const TRIAL_READ_MINUTES = Array.from({ length: 15 }, (_, i) => i);
 
 /** 鍵ペアの置き場。本物は IndexedDB (`indexedDbKeyStore`)、テストは Map。 */
 export type KeyStore = {
