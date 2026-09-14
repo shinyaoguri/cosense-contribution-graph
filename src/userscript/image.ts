@@ -7,7 +7,7 @@
 
 const TIMEOUT_MS = 15_000;
 
-export type ImageLike = Pick<HTMLImageElement, "referrerPolicy" | "src" | "naturalWidth"> & {
+type ImageLike = Pick<HTMLImageElement, "referrerPolicy" | "src" | "naturalWidth"> & {
   onload: (() => void) | null;
   onerror: (() => void) | null;
 };
