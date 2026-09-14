@@ -360,6 +360,13 @@ get id() { return p.Layout.get() !== "page" ? null : p.Page.id; },
 
 ---
 
+### ページメニューの項目は、クリックの処理中に `onClick` を呼ぶ (2026-09-14、本体のバンドルから読んだ)
+
+`scrapbox.PageMenu.addItem` の項目は、本体の `chunk-ZEIOSPH4.js` で `<a onClick=…>` (`ActionLink`) として描かれる。
+React の合成イベントなので、**ネイティブの click の処理中に `onClick` が呼ばれ、transient activation が残る**。
+キーボードは `onKeyUp` の Enter / Space で同じ `onClick` を呼ぶ。サインインのポップアップを `onClick` の同期区間で開けるのはこのため
+(Issue #61)。**コードから読んだだけで、実機ではサインインのメニューを押して確かめる。**
+
 ## 3. 画像としての SVG 表示
 
 ### 判定は拡張子 (確定)
@@ -1052,11 +1059,14 @@ Microsoft は `openid profile` のみなら publisher verification は不要と�
 
 実装の前に潰すもの。どれも設計の前提になっている。
 
-- **ECDSA P-256 のラウンドトリップ。** 2026-09-14 に Chrome で成立した (§5 の WebCrypto の節、#36)。Chrome 以外は未確認
+- **ECDSA P-256 のラウンドトリップ。** 2026-09-14 に Chrome で成立した (§5 の WebCrypto の節、#36)。Chrome 以外は未確認。
+  `extractable: false` の秘密鍵を IndexedDB に保存して読み戻し、署名できることは Chromium (Claude Code の内蔵ブラウザ) でも確かめた
+  (2026-09-15、`src/userscript/keys.ts`、Issue #61)
 - **`importKey("jwk", ...)` に Google の JWK をそのまま渡して通るか。** `alg` / `use` / `key_ops` の
   整合でエラーになる可能性がある。**実装は `{kty, n, e}` だけを渡す形にした** (2026-09-14、Issue #61)。
   WebCrypto で作った RSA 鍵を Google と同じ形の JWK にして、workerd で読み込めることはテストで確かめた。
-  **Google が実際に配る JWKS ではまだ試していない** (callback の実装で確かめる)
+  **本物の JWKS でも成立した** (2026-09-14、持ち主がブラウザで `https://grass.soui.dev/auth/start` を開き、コードが表示された。
+  コードは callback が ID トークンの署名とクレームを検証した後にだけ出る)
 - **ポップアップから `window.opener.postMessage` が scrapbox.io のプロジェクトページに届くか。**
   COOP の実測値からは通るはずだが、設計の根幹なので確認する
 - **ポリシー URL 未設定のまま non-sensitive スコープのアプリを publish できるか。**

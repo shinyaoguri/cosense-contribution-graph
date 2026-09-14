@@ -4,9 +4,9 @@ Cosense (旧 Scrapbox) の活動を草として可視化する。成果物は **
 **Cloudflare Worker + D1** (記録と SVG 配信) の 2 つ。Worker は作者が 1 つホストして公開提供する。
 
 **段階 3 (D1 と記録の受け口) まで実装し、段階 5 (センサー) を段階 4 より先に入れている** (#49。段階 1 の本体は #23 が開いたまま)。
-センサーは localStorage に記録するだけで、まだ送らない。受け口は `keys` テーブルの鍵で検証するが、
-登録 (段階 4) がまだ無いので本番の記録は全部 403 になる (#54)。段階 4 は OAuth クライアントを待たずに書ける部分から入れている
-(#61。`/auth/start`・`/auth/callback`・`/v1/enroll.gif` がある。ブラウザでサインインするとコードが出るが、それを使う UserScript はまだ無い)。
+センサーは localStorage に記録するだけで、まだ送らない。受け口は `keys` テーブルの鍵で検証する (#54)。
+段階 4 (#61) は Worker の `/auth/*`・`/v1/enroll.gif` と、UserScript の「草: サインインしてこの端末を登録」まで入れた。
+**登録はできるが、登録した鍵で送る処理 (段階 6) はまだ。**
 本番は `https://grass.soui.dev` (独自ドメイン。`cosense-grass.soui.workers.dev` も有効) で、デモの草 `/v1/g/demo.svg` がある。設計の正本は `docs/`。
 
 ## docs の読み方

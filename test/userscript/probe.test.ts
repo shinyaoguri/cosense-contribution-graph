@@ -7,8 +7,8 @@ import {
   randomPayload,
   type SendOptions,
   sendProbe,
-  WORKER_ORIGIN,
 } from "../../src/userscript/probe.ts";
+import { WORKER_ORIGIN } from "../../src/userscript/worker-origin.ts";
 
 type FakeImage = NonNullable<ReturnType<NonNullable<SendOptions["createImage"]>>> & {
   readonly writes: string[];
