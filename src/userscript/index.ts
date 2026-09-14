@@ -4,15 +4,15 @@
  *
  * **センサー** (段階 5、Issue #49) が活動を数えて localStorage に記録し、**登録した鍵で署名して送る** (段階 6、Issue #67)。
  * 送るのは読み込み時・日付の変更・タブを隠したとき・登録の成功のとき (`sender.ts`)。
- * **サインインしてこの端末の鍵を登録する**メニュー (段階 4、Issue #61) を載せている。
+ * **サインインしてこの端末の鍵を登録する**メニュー (段階 4、Issue #61) と、**合算とプロジェクト別の草を見る**メニュー (段階 8、Issue #73) を載せている。
  * ほかに、手で再確認するための**送信の疎通確認** (Issue #31) のメニューを載せている。
  * タブを隠したときに疎通確認を自動で送るのは、本物の送信が入ったので消した (Issue #67)。
  * **記録の疎通確認** (Issue #36) のメニューは、試験用の公開鍵を消したときに一緒に消した (Issue #54)。
- * DOM 注入と設定 UI は段階 8。
+ * 「草の設定」は段階 8 の残り。
  */
-import { PH_ALL } from "../shared/ids.ts";
 import { generateSigningKeyPair } from "../shared/sign.ts";
 import { AUTH_POPUP_FEATURES, AUTH_POPUP_NAME, createSignIn, SIGN_IN_MENU_TITLE } from "./auth.ts";
+import { createGraphDialog, type GraphDialog } from "./graph-dialog.ts";
 import { requestImage } from "./image.ts";
 import { createIndexedDbDeviceStore } from "./keys.ts";
 import { describeResult, type ProbeResult, runProbe } from "./probe.ts";
@@ -21,6 +21,7 @@ import { createSender, type Sender } from "./sender.ts";
 import { type Sensor, type SensorCosense, startExclusive, startSensor } from "./sensor.ts";
 import { createDialogView } from "./sign-in-dialog.ts";
 import { createStore, type Store } from "./store.ts";
+import { describeView, VIEW_MENU_TITLE, type ViewModel } from "./viewer.ts";
 
 /**
  * 配布バンドルの版。
@@ -29,9 +30,6 @@ import { createStore, type Store } from "./store.ts";
  * 同一パスの中身を差し替えてよいのはバグ修正だけ。
  */
 export const USERSCRIPT_VERSION = "0.0.0";
-
-/** 合算の草を指す識別子。段階 8 の表示で使う。 */
-export const AGGREGATE_PH = PH_ALL;
 
 /** UserScript から使う `window.scrapbox` のうち、ここで触る部分だけ (research §2)。 */
 export type Cosense = SensorCosense & {
@@ -54,6 +52,7 @@ export type Dependencies = {
    */
   readonly signIn: () => Promise<string>;
   readonly sender: Pick<Sender, "trigger" | "status">;
+  readonly graphDialog: Pick<GraphDialog, "open">;
   /** センサーを始める。同じタブで動いている前のセンサーは止める */
   readonly startSensor: () => Sensor;
   readonly store: Pick<Store, "readDay">;
@@ -72,6 +71,10 @@ export type Dependencies = {
 export function start(cosense: Cosense, deps: Dependencies): void {
   const sensor = deps.startSensor();
 
+  cosense.PageMenu.addItem({
+    title: VIEW_MENU_TITLE,
+    onClick: () => void runViewMenu(cosense, deps),
+  });
   cosense.PageMenu.addItem({
     title: SENSOR_MENU_TITLE,
     onClick: () => void runSensorMenu(cosense, deps, sensor),
@@ -99,6 +102,20 @@ export function start(cosense: Cosense, deps: Dependencies): void {
       void deps.sender.trigger("hidden");
     }
   });
+}
+
+/** 押すたびに鍵と送信の記録を読み直す (別のタブで登録・送信したものを拾う) */
+async function runViewMenu(cosense: Cosense, deps: Dependencies): Promise<void> {
+  let model: ViewModel;
+  try {
+    model = describeView(await deps.sender.status(), cosense.Project.name);
+  } catch {
+    model = {
+      kind: "message",
+      lines: ["草の一覧を作れませんでした。ページを開き直して、もう一度押してください。"],
+    };
+  }
+  deps.graphDialog.open(model);
 }
 
 async function runSensorMenu(cosense: Cosense, deps: Dependencies, sensor: Sensor): Promise<void> {
@@ -167,6 +184,12 @@ if (typeof window !== "undefined" && window.scrapbox) {
   });
   start(cosense, {
     sender,
+    graphDialog: createGraphDialog(window.document, {
+      writeText: (text) =>
+        window.navigator.clipboard
+          ? window.navigator.clipboard.writeText(text)
+          : Promise.reject(new Error("clipboard が無い")),
+    }),
     signIn: createSignIn({
       openPopup: (url) => window.open(url, AUTH_POPUP_NAME, AUTH_POPUP_FEATURES),
       messages: window,

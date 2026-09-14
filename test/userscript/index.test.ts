@@ -9,9 +9,11 @@ import {
   start,
 } from "../../src/userscript/index.ts";
 import type { ProbeResult } from "../../src/userscript/probe.ts";
+import type { SendStatus } from "../../src/userscript/sender.ts";
 import type { CountingStatus } from "../../src/userscript/sensor.ts";
 import { createStore } from "../../src/userscript/store.ts";
 import { localDay } from "../../src/userscript/time.ts";
+import { VIEW_MENU_TITLE, type ViewModel } from "../../src/userscript/viewer.ts";
 
 const LOADED: ProbeResult = {
   kind: "loaded",
@@ -46,6 +48,11 @@ function setup(projectName = "project-a", controlled = true) {
   };
   const signIns = { count: 0, outcome: "added" };
   const triggers: string[] = [];
+  const views: ViewModel[] = [];
+  const sending = {
+    count: 0,
+    status: async (): Promise<SendStatus> => ({ kind: "not-enrolled" }),
+  };
   const deps: Dependencies = {
     signIn: () => {
       signIns.count++;
@@ -56,8 +63,12 @@ function setup(projectName = "project-a", controlled = true) {
         triggers.push(kind);
         return "nothing";
       },
-      status: async () => ({ kind: "not-enrolled" }),
+      status: () => {
+        sending.count++;
+        return sending.status();
+      },
     },
+    graphDialog: { open: (model) => views.push(model) },
     startSensor: () => {
       sensor.started++;
       return { stop: () => undefined, status: () => sensor.status };
@@ -118,16 +129,19 @@ function setup(projectName = "project-a", controlled = true) {
     clickMenu,
     signIns,
     triggers,
+    views,
+    sending,
   };
 }
 
 describe("ページメニュー", () => {
-  it("「草: センサーの記録」と、送信の疎通確認と、サインインを足す", () => {
+  it("「草を見る」と、「草: センサーの記録」と、送信の疎通確認と、サインインを足す", () => {
     const t = setup();
 
     start(t.cosense, t.deps);
 
     expect(t.items.map((i) => i.title)).toEqual([
+      VIEW_MENU_TITLE,
       SENSOR_MENU_TITLE,
       PROBE_MENU_TITLE,
       SIGN_IN_MENU_TITLE,
@@ -170,6 +184,52 @@ describe("ページメニュー", () => {
 
     expect(controlled.alerts[0]).toContain("Service Worker: 制御下");
     expect(uncontrolled.alerts[0]).toContain("Service Worker: 制御外");
+  });
+});
+
+describe("草を見る", () => {
+  it("**押すたびに送信の状況を読み直し**、今のプロジェクトを先頭にしてダイアログを開く", async () => {
+    const t = setup("b");
+    t.sending.status = async () => ({
+      kind: "enrolled",
+      kid: "0123456789abcdef",
+      graphUrl: "https://grass.soui.dev/v1/g/total.svg",
+      projects: [
+        { name: "a", graphUrl: "https://grass.soui.dev/v1/g/a.svg", sent: true },
+        { name: "b", graphUrl: "https://grass.soui.dev/v1/g/b.svg", sent: false },
+      ],
+      todaySends: 0,
+      pendingDays: 0,
+    });
+    start(t.cosense, t.deps);
+
+    await t.clickMenu(VIEW_MENU_TITLE);
+    await t.clickMenu(VIEW_MENU_TITLE);
+
+    expect(t.sending.count).toBe(2);
+    expect(t.views).toHaveLength(2);
+    const view = t.views[0];
+    expect(view?.kind === "graphs" && view.projects.map((p) => p.url)).toEqual([
+      "https://grass.soui.dev/v1/g/b.svg",
+      "https://grass.soui.dev/v1/g/a.svg",
+    ]);
+    // 送信はしない (読み込み時の 1 回だけ)
+    expect(t.triggers).toEqual(["load"]);
+  });
+
+  it("**状況を読めなくてもダイアログは開き、そう書く**", async () => {
+    const t = setup();
+    t.sending.status = () => Promise.reject(new Error("digest"));
+    start(t.cosense, t.deps);
+
+    await t.clickMenu(VIEW_MENU_TITLE);
+
+    expect(t.views).toEqual([
+      {
+        kind: "message",
+        lines: ["草の一覧を作れませんでした。ページを開き直して、もう一度押してください。"],
+      },
+    ]);
   });
 });
 
