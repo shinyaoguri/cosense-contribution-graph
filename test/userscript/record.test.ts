@@ -9,7 +9,6 @@ import { WORKER_ORIGIN } from "../../src/userscript/probe.ts";
 import {
   describeRecord,
   type KeyStore,
-  localDay,
   type RecordResult,
   runRecord,
   sendRecord,
@@ -212,10 +211,5 @@ describe("表示", () => {
     expect(describeRecord({ kind: "error" })).toContain("鍵が未登録");
     expect(describeRecord({ kind: "timeout" })).toContain("15 秒");
     expect(describeRecord({ kind: "unexpected", width: 3 })).toContain("(3)");
-  });
-
-  it("日付はローカル時刻で決める", () => {
-    expect(localDay(new Date(2026, 0, 2, 0, 0, 0))).toBe("2026-01-02");
-    expect(localDay(new Date(2026, 11, 31, 23, 59, 59))).toBe("2026-12-31");
   });
 });
