@@ -762,7 +762,7 @@ PR の順。
 | 段階 1 | Cloudflare アカウント | 無料枠。D1 はまだ不要 |
 | 段階 1 | Cosense の確認用ページ | 自分のプロジェクトのどこかに 1 ページ |
 | 段階 3 | D1 データベース | **CI の deploy ジョブが無ければ作る** (ADR-0014 決定 9)。CI 用トークンに **Account > D1 > Edit** が要る。作った後に `database_id` を `wrangler.jsonc` に固定する |
-| 段階 4 | **独自ドメイン** | `workers.dev` では zone の WAF が効かず、レートリミットがかけられない |
+| 段階 4 | **独自ドメイン** | **用意済み (2026-09-14、`grass.soui.dev`)。** ダッシュボードの Custom Domain で付け、`wrangler.jsonc` に `routes` を書かない (ADR-0014 決定 10)。`workers.dev` では zone の WAF が効かず、レートリミットがかけられない |
 | (同上) | **`WORKER_SECRET` は変えられない** | uid の導出鍵。**変えると全利用者の識別子が変わり、失うと再計算できない。必ずバックアップ** |
 | 段階 4 | Google Cloud の OAuth クライアント | `openid` スコープのみなら審査は不要 |
 | 段階 4 | プライバシーポリシーの公開先 | Google の同意画面の要件。`privacy.md` を Worker から配信する |

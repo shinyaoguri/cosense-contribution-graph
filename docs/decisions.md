@@ -1116,6 +1116,22 @@ CI だけ) と食い違っていた。**deploy ジョブのマイグレーショ
 - ID は Actions のログに出る。アカウント ID と同じく秘密ではない
 - 決定 2 の「ワンショットの環境変数で `d1 create`」の例は、D1 については使わない
 
+### 決定 10 — 独自ドメインはダッシュボードで付け、`wrangler.jsonc` に `routes` を書かない (2026-09-14 追加)
+
+**Worker を `grass.soui.dev` に載せた** (Issue #61)。持ち主のドメイン `soui.dev` は同じ Cloudflare アカウントのゾーンで、
+サブドメインをダッシュボードの Custom Domain で付けた。
+
+- **独自ドメインにした理由。** Worker の URL は配布する UserScript、利用者が Cosense に貼る共有 SVG、Google のリダイレクト URI に
+  書き込まれ、公開後は変えられない。利用者がいない今なら変えるコストがほぼ無い。`workers.dev` にはゾーンの WAF が効かず
+  レート制限を置けない (design §10)。Cloudflare から移ってもドメインは持ち出せる
+- **`routes` を書かない理由。** 宣言すると CI 用トークンにゾーンの権限 (Workers Routes など) を足す必要があり、決定 5 の
+  「アカウント 1 つに限定した最小の権限」から広がる。`routes` が空なら `wrangler deploy` はダッシュボードのカスタムドメインに
+  触らない (research §5 で wrangler のソースを確認)。ドメインは一度付ければ変えないので、コードで管理する利点が小さい
+- **`workers_dev: true` は残す。** デモの草など、すでに貼られた `cosense-grass.soui.workers.dev` の URL を壊さない。
+  UserScript と docs の新しい記述は `grass.soui.dev` を使う
+- **`soui.dev` の更新を切らさない。** 失効すると UserScript も貼られた草も止まる
+- **WAF のレート制限ルールはまだ置いていない。** 公開提供の前に置く (design §10)
+
 ### 帰結
 
 - **ローカルでアカウント認証が必要なのは初回セットアップだけになる。**

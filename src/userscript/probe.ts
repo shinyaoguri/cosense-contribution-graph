@@ -13,8 +13,11 @@ import {
 } from "../shared/probe.ts";
 import { type ImageOptions, requestImage } from "./image.ts";
 
-/** 本番の Worker。独自ドメインに載せたら差し替える (design §11)。 */
-export const WORKER_ORIGIN = "https://cosense-grass.soui.workers.dev";
+/**
+ * 本番の Worker。**独自ドメイン** (ADR-0014 決定 10)。
+ * `cosense-grass.soui.workers.dev` も有効のまま残しているが、UserScript からは使わない。
+ */
+export const WORKER_ORIGIN = "https://grass.soui.dev";
 
 const BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
