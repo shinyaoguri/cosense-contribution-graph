@@ -78,6 +78,7 @@ src/shared/                 Worker と UserScript の両方から import する
   scheme.ts                 配色の差し替え口と登録表 (§7)
   schemes/                  配色。表で指定する blue-pink (既定) と、計算で作る blue-yellow
   graph.ts                  53 週グリッドのレイアウト計算
+  graph-layout.ts           草の寸法・色・ラベルの位置。SVG の文字列にも DOM にもしない (Worker と UserScript で共有)
 src/worker/
   index.ts                  ルーティング
   auth.ts                   /auth/start と /auth/callback
@@ -91,7 +92,7 @@ src/worker/
   merge.ts                  受け取ったエントリと保存済みの値のマージ (純関数)
   days.ts                   記録を受け付ける日付の窓と、ビットマップの保持日数
   keys.ts                   署名の検証に使う公開鍵を keys テーブルから引く
-  svg.ts                    GET /v1/g/{publicId}.svg
+  svg.ts                    GET /v1/g/{publicId}.svg。shared/graph-layout.ts のレイアウトを文字列にする
   json.ts                   GET /v1/g/{publicId}.json
   admin.ts                  全削除
   cron.ts                   古いビットマップの削除
@@ -875,6 +876,9 @@ Worker 側で 16 進数に焼き込む。
 
 ## 8. SVG 出力
 
+**寸法・色・ラベルの位置は `src/shared/graph-layout.ts` の `layoutGraph` が決め、`src/worker/svg.ts` はそれを文字列にするだけ** (2026-09-15、Issue #73)。
+UserScript の「このブラウザの記録」も同じレイアウトから描くので、共有 SVG と見た目が食い違わない。
+
 - 列が週 (日曜始まり)、行が曜日の 7 行、直近 53 週分。左端と右端の列は欠ける
   - 開始日は `today − 7 × (weeks − 1)`。**マス数は曜日によらず 7 × (weeks − 1) + 1** (53 週で 365)。
     今日の列が右端で、今日より後と開始日より前のマスは描かない
@@ -1272,6 +1276,9 @@ Cron で日次の要約をログに出す。UserScript 側のエラーは送ら�
   **署名が 64 バイトでなければ拒否すること** (DER を渡されたときに静かに通らないこと)。
   リプレイ窓の外を拒否すること。不正な `ph` を拒否すること
 - `worker/svg.ts` スナップショットで構造の回帰を見る。`viewBox` と凡例があること
+- `worker/svg-golden.test.ts` **本文の SHA-256 を既知の答えで固定する** (2026-09-15、Issue #73)。デモのライト・ダーク・`mode=write`・`weeks=10`・`weeks=1`・
+  `blue-yellow` のダーク、母集団が空、今日が日曜・土曜。デモの 6 通りは本番の ETag と一致することを確かめてある。
+  **描画を意図して変える PR は答えを更新し、見た目の証跡を付ける**
 
 バグ修正は失敗する再現テストを先に書く。新しいテストは検証対象の振る舞いを一時的に壊して
 赤くなるのを見てから仕上げる。
