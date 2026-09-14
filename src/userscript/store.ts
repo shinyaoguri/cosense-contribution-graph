@@ -49,7 +49,7 @@ export const DAILY_DAYS = 371;
 export type StoreStorage = Pick<Storage, "getItem" | "setItem">;
 
 /** 1 日の集計値 (design §4)。`r` は書きと重なる分を除いた読み。 */
-type Counts = {
+export type Counts = {
   readonly w: number;
   readonly r: number;
   readonly pages: number;
