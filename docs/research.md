@@ -143,6 +143,10 @@ fetch のハンドラは、https・GET・destination が image・Gyazo のアッ
 [公式ヘルプ](https://scrapbox.io/help-jp/UserScript) と、Cosense 本体のバンドル
 (`https://scrapbox.io/assets/chunks/chunk-B4OOUBCQ.js` 内の `UserScript` ストア) を読んで確定した。
 
+**2026-09-14 に読み直した** (段階 5 のセンサーの前提、Issue #49)。そのときの本体は `https://scrapbox.io/assets/index.js` が読む
+`chunks/chunk-ZEIOSPH4.js` で、`chunk-B4OOUBCQ.js` はもう無い。ページ・行・保存処理・UserScript のストアはすべてこの chunk にある。
+**chunk の名前は配信のたびに変わる**ので、読み直すときは `index.js` の import から辿る。
+
 ### 評価方法
 
 ```js
@@ -232,6 +236,22 @@ let r = () => {
 
 DOM に挿した要素は遷移で消えるので、`page:changed` / `layout:changed` で再マウントと後片付けが必要。
 
+#### 配布モジュールは 1 ドキュメントで 1 回しか評価されない (2026-09-14、実装と仕様から。実機で未確認)
+
+再注入は、古い `#user-script` タグを外し、`src` に `?{Date.now()}` を付けた新しいタグを足す (`removeUserScriptTag` と
+`renderUserScriptTag`)。**自分のページの `script.js` は URL が毎回違うので、プロジェクトを移るたびに評価し直される。**
+
+一方、その中の `import "/api/code/cosense-grass/v1/script.js"` は固定の URL。モジュールマップは URL で引かれるので
+([HTML Standard の module map](https://html.spec.whatwg.org/multipage/webappapis.html#module-map))、
+**2 回目以降の import はキャッシュされたモジュールを返し、本体を評価しない。** タグを外しても、評価済みのモジュールが
+登録したタイマーやリスナーは残る。
+
+- **最初に読み込んだプロジェクトで 1 回だけ評価され、アプリ内でどのプロジェクトへ移っても動き続ける**
+- 移った先の自分のページに import の 1 行が無くても、UserScript が無効でも、メンバーでなくても止まらない。
+  **「1 行書かなければ記録されない」(ADR-0007 決定 5) は、モジュールの側で今のプロジェクトを確かめないと成り立たない**
+- 別の URL (`dev` と `v1`) を別々のプロジェクトで import すると、それぞれ 1 回ずつ評価される
+- 移った先で評価し直されないので、`Project.name` を読み込み時に 1 回だけ読むと古い値を使い続ける
+
 ### `window.scrapbox` API
 
 `window.scrapbox` は `window.cosense` のエイリアスで、実体は `events` の EventEmitter。
@@ -259,6 +279,55 @@ DOM に挿した要素は遷移で消えるので、`page:changed` / `layout:cha
 イベント名の union だけで、型定義がランタイムに追いついていない。
 
 各行のプロパティ (`BaseLine`) には `userId` / `created` / `updated` がある。
+
+#### 2026-09-14 に読み直して分かったこと
+
+**`by` は上の 4 つだけではない。** 行ストアの変更通知の `event?.by` をそのまま渡しているので、`event` を付けずに
+通知する経路では **`undefined`** になる。
+
+| 経路 | `by` |
+|---|---|
+| 元に戻す / やり直し (`p.Line.emitChange()`) | `undefined`。自分の編集で、実際に送信される |
+| 元に戻せず衝突したときの `setLines` | `undefined` |
+| キー入力のほか、URL の `?body=` による挿入、ユーザーページの雛形、ページのコピー、アップロードや AI の挿入 | `edit` |
+| ページ履歴のスナップショットの表示 | `navigation` |
+| 受信したコミットの適用 (socket 経由と、再接続時の取り直し) | `remote`。**別のタブや端末での自分の編集もここに入るはず** (推測) |
+
+- 1 回の操作で `edit` が複数回出ることがある (最終行より後への入力で空行を足す分、ブロックの左右移動は行ごと)
+- **ページの保存が完了したときには `lines:changed` も `page:changed` も出ない**
+
+**`scrapbox.Page` のゲッターは、Layout が `page` 以外だとすべて `null` を返す。**
+
+```js
+get id() { return p.Layout.get() !== "page" ? null : p.Page.id; },
+```
+
+- ゲッターは `created` / `updated` / `lines` / `title` / `id` / `metadata` / `cursor` / `selection`
+- `id` はページを読み込んだ API の応答から付く。保存のコミットは `pageId: p.Page.id` で作るので、
+  **まだ保存されていないページ (プレースホルダー) にも ID があり、保存しても変わらない** (実機で未確認)
+- `created` / `updated` は読み込み時の応答のままで、その後のコミットでは更新されない
+- `lines` はまだ保存していない手元の編集も含む
+
+**ページが保存済み (`persistent`) かを知る公開 API は無い。** ストアは chunk のローカル変数で、window に出ていない。
+保存が完了すると内部の `Page.persistent` が `true` になるが、イベント名の無い通知なので UserScript には届かない。
+間接的に知る手段は次のとおり。
+
+| 手段 | 弱点 |
+|---|---|
+| 同一オリジンの REST `/api/pages/v2/:project/:title` の `persistent` (`connect-src 'self'` なので通る) | 1 回ごとにリクエストが要る |
+| DOM の `main.page.not-persistent` クラス | 非公開の実装 |
+| `scrapbox.Project.pages` の `exists` | 読むたびに検索候補を全件複製する |
+
+**その他。**
+
+- `scrapbox.on` / `once` / `off` がある (`off` は `removeListener` の別名)。1 イベントに 10 本を超えると警告が出る
+- `scrapbox.User` は `name` / `email` / `uiLanguage` だけで **id が無い**。id は `/api/users/me` で取る
+- `Layout` は `page` / `list` / `stream` のほか、`settings-*-page` や `project-settings-*-page` など 30 以上の値を取る
+- `page:changed` はプロジェクト内のページ遷移で出るが、**出ない場合がある。** ページ A → 一覧 → ページ A と戻ったとき、
+  リネームや `/new` でタイトルが確定したとき、別プロジェクトの同名ページへ移ったとき。UserScript は非同期で注入されるので、
+  読み込み時のページの `page:changed` はもう過ぎている
+- 行の `userId` は**最終更新者** (作成者ではない)。`created` は行を挿入した時刻、`updated` は本文を最後に更新した時刻 (秒)
+- 型定義は main (2026-07-14 に本体と同期) にあり、JSR の最新版 0.11.7 (2025-09-30) には `User` や `Page.created` が無い
 
 ---
 
@@ -947,6 +1016,11 @@ Microsoft は `openid profile` のみなら publisher verification は不要と�
   アカウント集計値の両方を突き合わせる
 - **`extractable: false` の `CryptoKey` を IndexedDB から読み戻せるか。** **Chrome では読み戻して署名できた** (2026-09-14、#36)。
   Firefox に読み出し失敗の報告があり、そちらは未確認
+- **配布モジュールが 1 ドキュメントで 1 回しか評価されないか** (§2 の常駐)。import の 1 行が無いプロジェクトへアプリ内で移ったとき、
+  センサーが止まらずに動き続けることで確かめる (段階 5、#49)
+- **プレースホルダーの `scrapbox.Page.id` が保存の前後で変わらないか。** REST の `/api/pages/v2/:project/:title` の `user` が
+  作成者で、`created` が初回保存の時刻か。新規作成の数え方 (段階 5) の前提
+- **元に戻す / やり直しで `by` が `undefined` になるか。別のタブでの自分の編集が `remote` で届くか** (§2 の `window.scrapbox` API)
 
 設計に影響しないが残っているもの。
 
