@@ -41,14 +41,6 @@
     }
   ],
 
-  "vars": {
-    // 記録の疎通確認 (Issue #36) で /v1/p.gif の署名を検証する公開鍵。65 バイトの非圧縮 SEC1 を
-    // base64url にした 87 文字。**空にすると記録を全部 403 にする。** 公開鍵なので秘密ではない。
-    // 持ち主のブラウザ (Cosense の UserScript) が IndexedDB に作った鍵で、kid は 2039144416f25f35。
-    // **この鍵はどの uid にも書ける。** 段階 4 でデバイスごとの鍵 (keys テーブル) に置き換えて消す
-    "TRIAL_PUBLIC_KEY": "BIqSPBASxwsCAFvNdCpcHTavsdDwl6oY_WwqFo8tndMmpx4jBEN--yIRG5_uVOYvXxF4HzvE90_DOsUUuWRGo8E"
-  },
-
   // UTC。デプロイのたびに内容で置き換わるので、空配列にすると全削除される。
   "triggers": { "crons": ["17 3 * * *"] },
 

@@ -8,7 +8,7 @@ import { deleteOldDaybits } from "./cron.ts";
 import { DEMO_TODAY, demoData } from "./demo.ts";
 import { renderStoredGraph } from "./graph-data.ts";
 import { handleIngest } from "./ingest.ts";
-import { trialKeyResolver } from "./keys.ts";
+import { d1KeyResolver } from "./keys.ts";
 import { parseParams } from "./params.ts";
 import { handleProbe } from "./probe.ts";
 import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
@@ -43,7 +43,7 @@ export default {
       }
       return handleIngest(url, {
         db: env.DB,
-        resolveKey: trialKeyResolver(env.TRIAL_PUBLIC_KEY),
+        resolveKey: d1KeyResolver(env.DB),
         now: () => Date.now(),
       });
     }
