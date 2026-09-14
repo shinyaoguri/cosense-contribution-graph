@@ -608,6 +608,18 @@ Cosense のページに貼ったときの見た目だけ、まだ確かめてい
   - Chrome 以外のブラウザ
   - 段階 6 (実データで 1 週間) で見る
 
+**メニューの撤去 (2026-09-14、Issue #54)。** Worker が試験用の公開鍵を受け付けなくなった (#56) ので、「草: 記録の疎通確認」と
+`src/userscript/record.ts` (試験用の uid と IndexedDB の鍵) を消した。送信の疎通確認 (#31) のメニューは残す。
+
+持ち主のブラウザに残ったものは UserScript では消さず、手で消す (残っても Worker が受け付けないので無害)。
+
+| 置き場 | 消すもの |
+|---|---|
+| localStorage | `cosense-grass:trial:uid` (試験用の uid)、`cosense-grass:record:auto` (自動送信の結果。#49 から更新されない) |
+| IndexedDB | `cosense-grass` (DB ごと。段階 4 の前なので本物の鍵はまだ無い) |
+
+`cosense-grass:probe:hidden` は送信の疎通確認が使い続けるので残す。
+
 ---
 
 ## 段階 4 — Google サインインとデバイス登録
@@ -615,6 +627,10 @@ Cosense のページに貼ったときの見た目だけ、まだ確かめてい
 - `src/worker/auth.ts` `/auth/start` と `/auth/callback`。ID トークンの検証
 - `src/worker/enroll.ts` デバイスの登録と失効
 - `src/userscript/keys.ts` 鍵ペアの生成と IndexedDB への保存
+  - **記録の疎通確認が IndexedDB の DB `cosense-grass` (バージョン 1) と store `keys` を使っていた。** 同じ名前を使うなら、store の中の
+    キー `trial` は避ける (持ち主が消し忘れても本物の鍵と取り違えない)。保存と読み戻しの実装は、消す前の `src/userscript/record.ts`
+    (main の `3836a07` にある) から起こせる
+- 受け口 (`src/worker/keys.ts`) は `keys` テーブルを引く形にしてある (#56)。**enroll が `keys` に行を入れれば記録が通る**
 - `src/userscript/auth.ts` ポップアップと `postMessage` の受信
 
 テストで固定すること。
@@ -645,7 +661,7 @@ COOP のフォールバック (コードを貼る経路) も実際に試す。
 
 - `src/userscript/sensor.ts` 20 秒ポーリングと `lines:changed`。数えるプロジェクトの判定
 - `src/userscript/store.ts` localStorage (ビットマップと集計値)
-- `src/userscript/index.ts` 常駐とマウント。**記録の疎通確認の自動送信は消した** (疎通確認のメニューは残す)
+- `src/userscript/index.ts` 常駐とマウント。**記録の疎通確認の自動送信は消した** (メニューも #54 で消した)
 - `src/userscript/report.ts` 「草: センサーの記録」の文面
 - ~~`src/userscript/beacon.ts` 画像 GET と署名~~ **段階 6 に移した。** 送る uid が段階 4 まで無い
 

@@ -5,25 +5,13 @@ import {
   HIDDEN_PROBE_KEY,
   PROBE_MENU_TITLE,
   PROBE_SIZES,
-  RECORD_MENU_TITLE,
   SENSOR_MENU_TITLE,
   start,
 } from "../../src/userscript/index.ts";
 import type { ProbeResult } from "../../src/userscript/probe.ts";
-import type { RecordReport } from "../../src/userscript/record.ts";
 import type { CountingStatus } from "../../src/userscript/sensor.ts";
 import { createStore } from "../../src/userscript/store.ts";
 import { localDay } from "../../src/userscript/time.ts";
-
-const REPORT: RecordReport = {
-  result: { kind: "written" },
-  createdKey: true,
-  publicKey: "B".repeat(87),
-  kid: "0123456789abcdef",
-  day: "2026-09-13",
-  wholeGraphUrl: "https://example.com/v1/g/aaaa.svg",
-  projectGraphUrl: "https://example.com/v1/g/bbbb.svg",
-};
 
 const LOADED: ProbeResult = {
   kind: "loaded",
@@ -35,8 +23,6 @@ function setup(projectName = "project-a", controlled = true) {
   const sizes: number[] = [];
   const alerts: string[] = [];
   const logs: string[] = [];
-  const recorded: string[] = [];
-  const recordState: { report: RecordReport | Error; gate?: Promise<void> } = { report: REPORT };
   const clock = { ms: Date.parse("2026-09-13T06:00:00Z") };
   const items: { title: string; onClick: () => void }[] = [];
   const store = new Map<string, string>();
@@ -67,14 +53,6 @@ function setup(projectName = "project-a", controlled = true) {
     runProbe: async (length) => {
       sizes.push(length);
       return LOADED;
-    },
-    runRecord: async (projectName) => {
-      recorded.push(projectName);
-      await recordState.gate;
-      if (recordState.report instanceof Error) {
-        throw recordState.report;
-      }
-      return recordState.report;
     },
     log: (message) => logs.push(message),
     alert: (message) => alerts.push(message),
@@ -120,8 +98,6 @@ function setup(projectName = "project-a", controlled = true) {
     sizes,
     alerts,
     logs,
-    recorded,
-    recordState,
     clock,
     items,
     store,
@@ -135,16 +111,12 @@ function setup(projectName = "project-a", controlled = true) {
 }
 
 describe("ページメニュー", () => {
-  it("「草: センサーの記録」と、疎通確認の 2 つを足す", () => {
+  it("「草: センサーの記録」と、送信の疎通確認を足す", () => {
     const t = setup();
 
     start(t.cosense, t.deps);
 
-    expect(t.items.map((i) => i.title)).toEqual([
-      SENSOR_MENU_TITLE,
-      PROBE_MENU_TITLE,
-      RECORD_MENU_TITLE,
-    ]);
+    expect(t.items.map((i) => i.title)).toEqual([SENSOR_MENU_TITLE, PROBE_MENU_TITLE]);
   });
 
   it("押すと 3 つの大きさを順に送り、プロジェクト名と結果を alert に出す", async () => {
@@ -204,7 +176,6 @@ describe("センサー", () => {
     expect(text).toContain("9:00–9:01 書き 1 分");
     expect(t.logs).toHaveLength(1);
     expect(t.sizes).toEqual([]);
-    expect(t.recorded).toEqual([]);
   });
 
   it("数えていないプロジェクトではそう出す", async () => {
@@ -283,82 +254,5 @@ describe("タブを隠したときの送信", () => {
     await t.clickMenu();
 
     expect(t.alerts[0]).toMatch(/タブを隠したとき: .*Service Worker: 不明\)/);
-  });
-});
-
-describe("記録の疎通確認のメニュー", () => {
-  it("押すとプロジェクト名を渡して送り、結果・鍵・公開鍵・草の URL を alert とコンソールに出す", async () => {
-    const t = setup("project-a");
-    start(t.cosense, t.deps);
-
-    await t.clickMenu(RECORD_MENU_TITLE);
-
-    expect(t.recorded).toEqual(["project-a"]);
-    expect(t.alerts).toHaveLength(1);
-    const text = t.alerts[0] ?? "";
-    expect(text).toContain("草: 記録の疎通確認 (project-a,");
-    expect(text).toContain("結果: 書いた (幅 17)");
-    expect(text).toContain("鍵: 新しく作って IndexedDB に保存した");
-    expect(text).toContain(`公開鍵: ${REPORT.publicKey}`);
-    expect(text).toContain(`kid: ${REPORT.kid}`);
-    expect(text).toContain(`合算の草: ${REPORT.wholeGraphUrl}`);
-    expect(text).toContain(`このプロジェクトの草: ${REPORT.projectGraphUrl}`);
-    // コピーできるようにコンソールにも同じ内容を出す
-    expect(t.logs).toEqual([text]);
-  });
-
-  it("鍵を読み戻したときと、届かなかったときの表示", async () => {
-    const t = setup();
-    t.recordState.report = { ...REPORT, createdKey: false, result: { kind: "error" } };
-    start(t.cosense, t.deps);
-
-    await t.clickMenu(RECORD_MENU_TITLE);
-
-    const text = t.alerts[0] ?? "";
-    expect(text).toContain("鍵: IndexedDB から読み戻した");
-    expect(text).toContain("★届かなかった (鍵が未登録・形の不一致・サーバの失敗のどれか)");
-  });
-
-  it("**送る前に失敗したら (IndexedDB が使えない等)、理由を alert に出す**", async () => {
-    const t = setup();
-    t.recordState.report = new Error("IndexedDB が無い");
-    start(t.cosense, t.deps);
-
-    await t.clickMenu(RECORD_MENU_TITLE);
-
-    expect(t.alerts[0]).toContain("★送る前に失敗した: Error: IndexedDB が無い");
-  });
-});
-
-const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
-
-describe("記録の疎通確認の列", () => {
-  it("**続けて押しても、前の送信が終わるまで次の送信を始めない**", async () => {
-    const t = setup();
-    let release = () => {};
-    t.recordState.gate = new Promise((resolve) => {
-      release = resolve;
-    });
-    start(t.cosense, t.deps);
-
-    await t.clickMenu(RECORD_MENU_TITLE);
-    await t.clickMenu(RECORD_MENU_TITLE);
-    await flush();
-    expect(t.recorded).toHaveLength(1);
-
-    release();
-    await flush();
-    await flush();
-    expect(t.recorded).toHaveLength(2);
-  });
-
-  it("**タブを隠しても、記録は自動で送らない** (段階 5 で自動送信を消した)", async () => {
-    const t = setup();
-    start(t.cosense, t.deps);
-
-    await t.setVisibility("hidden");
-    await flush();
-
-    expect(t.recorded).toEqual([]);
   });
 });
