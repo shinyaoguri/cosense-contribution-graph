@@ -78,7 +78,9 @@ src/shared/                 Worker と UserScript の両方から import する
   graph.ts                  53 週グリッドのレイアウト計算
 src/worker/
   index.ts                  ルーティング
-  auth.ts                   /auth/start と /auth/callback。ID トークンの検証
+  auth.ts                   /auth/start と /auth/callback
+  idtoken.ts                Google の ID トークンの検証と JWKS の保持
+  uid.ts                    sub から uid を導く (HMAC)
   enroll.ts                 デバイスの登録と失効
   ingest.ts                 GET /v1/p.gif
   merge.ts                  受け取ったエントリと保存済みの値のマージ (純関数)
@@ -142,6 +144,10 @@ Google の `subject_types_supported` は `public` なので、**`sub` は同じ 
 
 必ず `HMAC-SHA256(WORKER_SECRET, "google:" + sub)` にする。`sub` そのものは保存しない。
 
+**HMAC の鍵は `WORKER_SECRET` の文字列を UTF-8 にしたバイト列そのもの** (2026-09-14、`src/worker/uid.ts`、Issue #61)。
+`openssl rand -hex 32` で作った値でも 16 進としてデコードせず、64 文字の文字列として使う。
+**この取り決めを変えると全員の uid が変わる**ので、既知の答えのテストで固定した。
+
 **`WORKER_SECRET` を失うと全ユーザーの uid が再計算できなくなる。** Wrangler Secrets に置き、
 必ずバックアップする。
 
@@ -197,6 +203,21 @@ Bluesky が 2025 年 3 月に実際に壊れた。scrapbox.io 側がプロジェ
   キャッシュする (実測で約 6.6 時間、常に 2 本)。**未知の `kid` が来たら 1 回だけ強制再取得する**
   経路を用意する
 - `tokeninfo` エンドポイントはデバッグ専用。本番では使わない
+
+**実装で決めた細部** (2026-09-14、`src/worker/idtoken.ts`、Issue #61)。
+
+- **順序は「署名が通るまでクレームを信用しない」。** 形 → `alg` → `kid` で鍵 → 署名 → クレーム。
+  `alg` で落ちたら JWKS を取りに行かない
+- `aud` は**文字列で**一致すること。配列の形は、値が含まれていても拒否する (Google の ID トークンは文字列なので厳しい側に倒す)。
+  `azp` があればクライアント ID と一致すること
+- **`exp` と `iat` で許す時計のずれは 60 秒。** ID トークンは callback が Google から直接受け取った直後に検証するので小さくてよい。
+  `iat` が 60 秒より未来なら拒否する
+- `sub` は 1〜255 文字の文字列。トークンは 8KB を超えたらデコードしない
+- **JWKS は isolate の中で、読み込み済みの `CryptoKey` と期限だけを持つ。** 期限は `max-age` から `Age` を引き、60 秒〜1 日に丸める
+  (`max-age` が無ければ 60 秒)。取得中の Promise はリクエストをまたいで共有しない (workerd では別のリクエストの I/O を待てない)
+- **未知の `kid` での取り直しは、前回の取得から 60 秒経っていればだけ。** 偽の kid を並べて Google への取得を連発させない
+- `importKey("jwk")` には `{kty, n, e}` だけを渡す。`use` が `sig` 以外、`alg` が RS256 以外の鍵は使わない。
+  **JWKS が取れない・使える鍵が無いときは例外** (callback が 500 にする)
 
 ### デバイスの鍵
 
@@ -1074,8 +1095,10 @@ Cron で日次の要約をログに出す。UserScript 側のエラーは送ら�
   プロジェクト別 publicId から uid も
   全体用 publicId も導けないこと
 - `shared/sign.ts` 正規化が両端で一致すること。重複キーを検出すること
-- `worker/auth.ts` ID トークンの検証。**`iss` の 2 形式を許容すること**、`alg` が RS256 以外なら
-  拒否すること、`nonce` の不一致を拒否すること、未知の `kid` で JWKS を再取得すること
+- `worker/idtoken.ts` ID トークンの検証。**`iss` の 2 形式を許容すること**、`alg` が RS256 以外なら
+  拒否すること (JWKS を取りに行かないこと)、`nonce` の不一致を拒否すること、未知の `kid` で JWKS を 1 回だけ再取得すること。
+  外部への fetch はモックせず、**取得関数を注入して** Google と同じ形の JWKS を返す
+- `worker/uid.ts` 既知の答えと一致すること (HMAC の鍵の取り決めを固定する)
 - `worker/ingest.ts` 同じビーコンを 2 回送って値が変わらない。未来と 30 日超の過去を拒否する。
   `r & ~w` の排他。`daybits` がない日に古いビーコンが来ても `daily.w` が減らない。
   **2 つのプロジェクトで同じ分に活動したとき `*` 行の `w` が 2 にならず 1 になること**。
@@ -1094,7 +1117,8 @@ Cron で日次の要約をログに出す。UserScript 側のエラーは送ら�
 どれも設計の前提になる。段階 2 で潰す。
 
 - ECDSA P-256 のラウンドトリップ (ブラウザで sign、Workers で verify)。**2026-09-14 に Chrome で成立** (research §5)
-- `importKey("jwk", ...)` に Google の JWK をそのまま渡して通るか
+- `importKey("jwk", ...)` に Google の JWK をそのまま渡して通るか。**`{kty, n, e}` だけを渡す形にし、Google と同じ形の JWK
+  (`alg`・`use` つき) から読み込めることを workerd のテストで固定した** (2026-09-14、Issue #61)。本物の JWKS では callback の実装で確かめる
 - **ポップアップから `window.opener.postMessage` が scrapbox.io のプロジェクトページに届くか**
 - ポリシー URL 未設定のまま non-sensitive スコープのアプリを publish できるか
 - Rate Limiting binding が Free プランで使えるか
