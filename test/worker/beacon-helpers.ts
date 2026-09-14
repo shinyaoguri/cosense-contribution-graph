@@ -8,7 +8,7 @@ import { kidOf, PH_ALL, UID_BYTES } from "../../src/shared/ids.ts";
 import { exportPublicKey, generateSigningKeyPair, sign } from "../../src/shared/sign.ts";
 import type { ResolveKey } from "../../src/worker/keys.ts";
 
-export const ORIGIN = "https://example.com";
+const ORIGIN = "https://example.com";
 
 /** 2026-09-14 03:00 UTC (日本時間の正午)。 */
 export const NOW = Date.UTC(2026, 8, 14, 3, 0, 0);

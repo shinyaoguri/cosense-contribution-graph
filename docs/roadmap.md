@@ -442,16 +442,17 @@ Gyazo の証跡付きで確かめる (Issue #20)。
 
 ## 段階 3 — D1 と記録の受け口
 
-`GET /v1/p.gif` を実装する。Google サインインはまだないので、署名の検証は通るが
-uid は固定値を使ってよい。
+`GET /v1/p.gif` を実装する。Google サインインはまだないので、**署名は試験用の公開鍵 1 本で検証する**
+(下の「記録の疎通確認」)。
 
 作るもの。
 
-- `migrations/0001_init.sql` スキーマ一式
+- `migrations/0001_init.sql` スキーマ (`graphs` / `daily` / `daybits`。`users` と `keys` は段階 4)
 - `src/shared/ids.ts` uid / ph / publicId の導出
-- `src/shared/bits.ts` ビットマップの base64url 往復 / OR / popcount
+- `src/shared/base64url.ts` と `src/shared/bits.ts` ビットマップの base64url 往復 / OR / popcount
 - `src/shared/sign.ts` 署名対象の正規化
-- `src/worker/ingest.ts`
+- `src/shared/beacon.ts` ビーコンの組み立てと厳密な読み取り
+- `src/worker/ingest.ts` と `src/worker/merge.ts`
 - `src/worker/cron.ts` 90 日より古い `daybits` の削除
 
 テストで固定すること。ここが一番多い。
@@ -467,10 +468,46 @@ uid は固定値を使ってよい。
 - `ids.ts` の uid が 27 文字であること。`ph` が uid でソルトされていること。
   プロジェクト別 publicId から uid も全体用 publicId も導けないこと
 
+- **読みだった分が書きになっても合計が増えないこと** (w と r を別々に max で守ると二重に数える。ADR-0002 の改訂)
+- **読んでから書くまでに別の送信が割り込んでも、ビットを失わないこと** (楽観的な書き込み)
+
 ### 完了条件
 
-curl で同じビーコンを 2 回送り、`daily` の値が変わらないこと。
-`wrangler d1 execute --local` で中身を確認する。
+同じビーコンを 2 回送り、`daily` の値が変わらないこと。`wrangler d1 execute --local` で中身を確認する。
+署名が要るので curl だけでは送れない。Node で署名した URL をローカルの `wrangler dev` に送る。
+
+### 記録の疎通確認 (2026-09-14 追加、Issue #36)
+
+**Cosense から送った活動が D1 に記録され、共有 SVG の格子に色として出る**までを端から端まで通す。
+送信 (#31) と SVG の表示 (#20) に続く 3 本目の縦の切片。計画は Issue #36 のコメントにある。
+
+| 決めたこと | 内容 |
+|---|---|
+| 書き込み権 | **試験用の公開鍵で署名する。** 鍵はブラウザで `extractable: false` で作り IndexedDB に置く。Worker は `wrangler.jsonc` の `TRIAL_PUBLIC_KEY` で検証し、空なら全部 403 |
+| 試験用の uid | UserScript が 20 バイトの乱数を localStorage に作る。公開定数にすると `ph` を辞書で逆引きできる |
+| D1 の作成 | CI の deploy ジョブが無ければ作る (ADR-0014 決定 9)。作った後に `database_id` を固定する |
+| UserScript から送るもの | メニューから今日の固定パターンを、今のプロジェクトの `ph` と `*` の 2 エントリで送る |
+| 反映の待ち時間 | `max-age=900` は変えない。確認用の URL には使い捨てのクエリを付ける (未知のキーは無視される) |
+
+PR の順。
+
+1. ビーコンの符号化と署名対象の正規化 (shared) — #38
+2. 記録の受け口と D1 のスキーマ、Cron、CI の D1 作成
+3. 共有 SVG を D1 から描く
+4. UserScript の「草: 記録の疎通確認」
+5. 公開鍵と `database_id` を設定に入れる
+6. 結果の記録
+
+**範囲から外したもの。** Rate Limiting (段階 2 の未検証事項)、enroll / revoke / delete、`users` と `keys` のテーブル、
+30 日無送信のログ。
+
+**段階 4 でやること。** 試験用の公開鍵と、試験で書いたデータを消す。試験用の uid は `keys` に登録されない
+乱数なので、段階 4 の最初のマイグレーションで `graphs` / `daily` / `daybits` から消す。
+
+**ローカルの確認 (2026-09-14、PR 2)。** `.dev.vars` にテスト用の公開鍵を置いた `wrangler dev` に、Node で署名した
+ビーコン (合算とプロジェクトの 2 エントリ、1,224 文字) を 2 回送った。1 回目は幅 17、2 回目は幅 16 で、
+`wrangler d1 execute --local` で見た `daily` は 2 行とも w = 5 / r = 10 / pages = 1 のまま変わらなかった。
+ログは `{"event":"ingest","status":200,"reason":"written","entries":2,"changed":2}` と `"unchanged"` の 2 行で、uid は出ていない。
 
 ---
 
@@ -571,7 +608,7 @@ COOP のフォールバック (コードを貼る経路) も実際に試す。
 | 疎通確認 | **`WORKER_SECRET`** | `production` の Environment secrets に置く。`openssl rand -hex 32` で作り 1Password 等に控える。**初回デプロイはこれが無いと必ず失敗する** |
 | 段階 1 | Cloudflare アカウント | 無料枠。D1 はまだ不要 |
 | 段階 1 | Cosense の確認用ページ | 自分のプロジェクトのどこかに 1 ページ |
-| 段階 3 | D1 データベース | `wrangler d1 create cosense-grass`。**ローカルから 1 回だけ打つ** |
+| 段階 3 | D1 データベース | **CI の deploy ジョブが無ければ作る** (ADR-0014 決定 9)。CI 用トークンに **Account > D1 > Edit** が要る。作った後に `database_id` を `wrangler.jsonc` に固定する |
 | 段階 4 | **独自ドメイン** | `workers.dev` では zone の WAF が効かず、レートリミットがかけられない |
 | (同上) | **`WORKER_SECRET` は変えられない** | uid の導出鍵。**変えると全利用者の識別子が変わり、失うと再計算できない。必ずバックアップ** |
 | 段階 4 | Google Cloud の OAuth クライアント | `openid` スコープのみなら審査は不要 |

@@ -695,6 +695,49 @@ const workers_dev = config_workers_dev ?? defaultWorkersDev;
 `--dry-run` はアカウントを参照しない (`requireAuth` を通らない) ので、**`--dry-run` が通っても
 本番デプロイが通る保証にならない。**
 
+### D1 を作る経路とテスト (2026-09-14、wrangler 4.131.1・@cloudflare/vitest-plugin 1.1.8 のソース)
+
+Issue #36 で D1 を使い始めるときに確かめた。【ソース】は実装を読んで確認、【実行】はローカルで動かして確認。
+
+**`d1_databases` に `database_id` が無いと、`wrangler deploy` はデータベースを自動で作る**【ソース】。
+`--x-provision` と `--x-auto-create` は hidden のフラグで既定が true。`database_name` があればその名前をアカウントから探して
+再利用し、無ければその名前で作る。CI でもプロンプトは出ず、作った ID は設定ファイルに書き戻さない。
+トークンの権限が足りない (403) と警告だけ出して飛ばす。**location hint は付かない。**
+
+**今の CI の順序では初回で落ちる。** `d1 migrations apply <name> --remote` は、設定に ID が無ければ名前で API を引くが、
+データベースが無いと「Couldn't find a D1 DB named ...」で失敗する【ソース】。マイグレーションはデプロイより前の段なので、
+自動作成まで進まない。ADR-0014 決定 9 で「無ければ作る」段を前に置いた。
+
+- **`wrangler d1 create` は冪等でない。** 同名があるとエラー 7502【ソース】。`--json` は無い。`--location` (weur / eeur / apac / oc / wnam / enam) はある
+- **`wrangler d1 info <name>` は分析用の GraphQL (`d1AnalyticsAdaptiveGroups`) も叩く**【ソース】。有無の判定に使うと、
+  トークンの権限次第でデータベースがあっても失敗しうる。`wrangler d1 list --json` はページングしながら一覧だけを取る
+- **`database_id` が無くても `wrangler types --check` と `--dry-run` は通り、ローカルの D1 も動く**【実行・ソース】。
+  ローカルは ID の代わりにバインディング名を使う。vitest も `wrangler d1 execute --local` も `wrangler dev` もこの状態で動いた
+
+**テストの D1 はテストファイル単位で分かれ、同じファイルの中では共有される**【ソース】。vitest の `isolate` (既定 true) で
+ファイルごとにランナーが作られ、そのたびに Miniflare が立つ。同じファイルのテスト同士は前のテストの中身を引き継ぐので、
+テストごとに別の uid を使う。0.18 にあった `isolatedStorage` の設定は無くなっている (段階 0 の実測で気付いた点の答え)。
+
+**マイグレーションは設定の関数形で読み、setupFiles で当てる**【実行】。
+
+```ts
+cloudflareTest(async () => ({
+  wrangler: { configPath: "./wrangler.jsonc" },
+  miniflare: { bindings: { TEST_MIGRATIONS: await readD1Migrations("migrations") } },
+}))
+// setupFiles: await applyD1Migrations(env.DB, env.TEST_MIGRATIONS)
+```
+
+`env` の型は `Cloudflare.Env` なので、テスト用のバインディングは `declare namespace Cloudflare { interface Env { ... } }` で足す。
+
+**ローカルの D1 で通った構文**【実行】。`WHERE uid = ? AND (ph, day) IN (VALUES (?, ?), ...)` (行値の IN)、
+`ON CONFLICT (...) DO UPDATE SET r = max(daily.w + daily.r, excluded.w + excluded.r) - max(daily.w, excluded.w)`
+(右辺の `daily.*` は更新前の値)、BLOB 同士の等値比較による条件つき UPDATE。条件に合わない UPDATE と
+`ON CONFLICT DO NOTHING` の衝突は `meta.changes` が 0 になる。本番の D1 でも同じかは段階 3 のデプロイ後に確かめる。
+
+**`.claude/settings.json` の deny は `wrangler d1 migrations apply` を `--local` でも止める**。ローカルでスキーマを当てるときは
+`wrangler d1 execute cosense-grass --local --file migrations/0001_init.sql` を使った。
+
 ---
 
 ## 6. Google OAuth と COOP
