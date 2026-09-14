@@ -82,13 +82,21 @@ describe("共有 SVG を D1 から描く", () => {
     expect(svg).not.toBe(expected(project, project));
   });
 
-  it("別の uid の * の行は混ざらない", async () => {
-    const uid = randomUid();
-    await store(randomUid(), PH_ALL, [["2026-09-14", 1000, 0]]);
-    const publicId = await store(uid, PH_ALL, whole);
+  it("**別の uid の行は、同じ ph でも混ざらない**", async () => {
+    const other = randomUid();
+    await store(other, PH_ALL, [["2026-09-14", 1000, 0]]);
+    await store(other, PH, [["2026-09-13", 1000, 0]]);
 
-    expect(await renderStoredGraph(env.DB, publicId, DEFAULT_PARAMS, NOW)).toBe(
+    const uid = randomUid();
+    const wholeId = await store(uid, PH_ALL, whole);
+    const project: readonly Row[] = [["2026-09-14", 40, 0]];
+    const projectId = await store(uid, PH, project);
+
+    expect(await renderStoredGraph(env.DB, wholeId, DEFAULT_PARAMS, NOW)).toBe(
       expected(whole.slice(1), whole),
+    );
+    expect(await renderStoredGraph(env.DB, projectId, DEFAULT_PARAMS, NOW)).toBe(
+      expected(project, whole),
     );
   });
 

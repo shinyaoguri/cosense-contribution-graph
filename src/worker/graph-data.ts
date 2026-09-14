@@ -4,7 +4,7 @@
  * - `publicId` を `graphs` で引き、全体用 (`ph = '*'`) かプロジェクト別かを決める。無ければ `undefined` (404)
  * - **四分位とバランスの中心は、常に `ph = '*'` の全期間から取る** (ADR-0007 決定 4)。プロジェクト別の草も
  *   同じスケールで塗るので、並べて比べられる
- * - 表示するのは直近 53 週ぶん。週数を減らしたときの切り詰めは `renderGraph` がする
+ * - プロジェクト別は直近 53 週ぶんだけを読む。週数を減らしたときの切り詰めは `renderGraph` がする
  */
 import type { Minutes } from "../shared/balance.ts";
 import { centerOf } from "../shared/balance.ts";
@@ -46,9 +46,10 @@ async function loadGraph(
   let populationRows: readonly DayRow[];
   let displayRows: readonly DayRow[];
   if (graph.ph === PH_ALL) {
-    // 全体用は母集団と表示範囲が同じ行なので、1 回だけ読んで Worker で絞る (読み取り行数を倍にしない)
+    // 全体用は母集団と表示する行が同じなので、1 回だけ読む (読み取り行数を倍にしない)。
+    // 表示範囲より古い日は renderGraph が無視する
     populationRows = (await populationQuery.all<DayRow>()).results;
-    displayRows = populationRows.filter((row) => row.day >= start);
+    displayRows = populationRows;
   } else {
     const [population, display] = await db.batch<DayRow>([
       populationQuery,
