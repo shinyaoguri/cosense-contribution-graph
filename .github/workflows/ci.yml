@@ -99,11 +99,47 @@ jobs:
             echo "::notice::WORKER_SECRET が未設定なのでデプロイをスキップします (secrets.required を満たせないため、初回デプロイは必ず失敗する)"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
+      # **D1 が無ければ作る** (Issue #36)。ローカルからリモートを操作しない (ADR-0014) ので、
+      # 作る場所も CI にする。毎回走るが、ある限り一覧を見るだけ (初回だけの段を作らない。決定 7 と同じ形)。
+      #
+      # - 有無は `d1 list --json` で見る。`d1 info` は分析用の GraphQL も叩くので、トークンの権限次第で
+      #   データベースがあっても失敗し、作り直そうとして落ちうる
+      # - 一覧が取れない・読めないときは作らずに落とす (有無が分からないまま create しない)
+      # - **`--location apac` を付ける。** 付けないと作成を要求した場所 (CI のランナー) の近くになり、
+      #   日本の利用者から遠い。`wrangler deploy` の自動作成は場所を指定できないので、ここで先に作る
+      # - 作った ID は Actions のログに出る。wrangler.jsonc の database_id に固定する
+      - name: D1 が無ければ作る
+        if: steps.guard.outputs.skip != 'true' && hashFiles('migrations/*.sql') != ''
+        run: |
+          npx wrangler d1 list --json > "$RUNNER_TEMP/d1-list.json"
+          status=0
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            let databases;
+            try {
+              databases = JSON.parse(readFileSync(process.argv[1], "utf8"));
+            } catch {
+              console.error("d1 list の出力を JSON として読めない");
+              process.exit(2);
+            }
+            if (!Array.isArray(databases)) {
+              console.error("d1 list の出力が配列でない");
+              process.exit(2);
+            }
+            process.exit(databases.some((db) => db.name === "cosense-grass") ? 0 : 1);
+          ' "$RUNNER_TEMP/d1-list.json" || status=$?
+          if [ "$status" -eq 0 ]; then
+            echo "D1 cosense-grass はある"
+          elif [ "$status" -eq 1 ]; then
+            echo "::notice::D1 cosense-grass が無いので作る (location: apac)"
+            npx wrangler d1 create cosense-grass --location apac
+          else
+            exit "$status"
+          fi
       # スキーマはコードより先に上げる。逆にすると新しいコードがまだ無いテーブルを引く
       # 時間帯ができる。識別子は**データベース名**で指定する (バインディング名は変わりうる)。
       # `--remote` を必ず明示する (省略時の既定はローカル)。
-      # **マイグレーションが 1 本も無いうちは走らせない。** D1 は段階 3 で作り、
-      # そのときに migrations/*.sql と wrangler.jsonc の d1_databases を一緒に足す
+      # **マイグレーションが 1 本も無いうちは走らせない。**
       - name: D1 マイグレーションを適用
         if: steps.guard.outputs.skip != 'true' && hashFiles('migrations/*.sql') != ''
         run: npx wrangler d1 migrations apply cosense-grass --remote

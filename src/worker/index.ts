@@ -1,8 +1,12 @@
 import { centerOf } from "../shared/balance.ts";
+import { INGEST_PATH } from "../shared/beacon.ts";
 import { sha256Hex } from "../shared/hash.ts";
 import { PROBE_PATH } from "../shared/probe.ts";
 import { buildScale } from "../shared/scale.ts";
+import { deleteOldDaybits } from "./cron.ts";
 import { DEMO_TODAY, demoData } from "./demo.ts";
+import { handleIngest } from "./ingest.ts";
+import { trialKeyResolver } from "./keys.ts";
 import { parseParams } from "./params.ts";
 import { handleProbe } from "./probe.ts";
 import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
@@ -10,9 +14,8 @@ import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
 /**
  * Worker のエントリ。
  *
- * 経路は今 `/v1/g/{publicId}.svg` と `/v1/probe.gif` (送信の疎通確認) だけ。
- * 実データが無いので、グラフは `demo` 以外 404。
- * 段階 3 で `/v1/p.gif` (記録の受け口) を足す (docs/roadmap.md)。
+ * 経路は `/v1/p.gif` (記録の受け口)、`/v1/g/{publicId}.svg`、`/v1/probe.gif` (送信の疎通確認)。
+ * グラフはまだ D1 から描いていないので、`demo` 以外 404 (docs/roadmap.md 段階 3)。
  */
 
 /** `publicId` は URL で決まる。どのプロジェクトを描くかをクエリで指定しない (design §6)。 */
@@ -24,13 +27,24 @@ const CACHE_CONTROL = "public, max-age=900";
 const ETAG_LENGTH = 32;
 
 export default {
-  async fetch(request): Promise<Response> {
+  async fetch(request, env): Promise<Response> {
     // curl -I などの HEAD も受ける。本文はランタイムが落とす
     if (request.method !== "GET" && request.method !== "HEAD") {
       return notFound();
     }
 
     const url = new URL(request.url);
+    if (url.pathname === INGEST_PATH) {
+      // **記録は GET だけ。** HEAD で書き込ませない
+      if (request.method !== "GET") {
+        return notFound();
+      }
+      return handleIngest(url, {
+        db: env.DB,
+        resolveKey: trialKeyResolver(env.TRIAL_PUBLIC_KEY),
+        now: () => Date.now(),
+      });
+    }
     if (url.pathname === PROBE_PATH) {
       return handleProbe(request, url);
     }
@@ -45,8 +59,10 @@ export default {
     return notFound();
   },
 
-  async scheduled(): Promise<void> {
-    // 段階 3 で daybits の掃除を入れる (90 日より古い行を消す。ADR-0013 決定 2)。
+  async scheduled(controller, env): Promise<void> {
+    // 90 日より古い daybits を消す (ADR-0013 決定 2)。時刻は Cron が起動した予定時刻で決める
+    const deleted = await deleteOldDaybits(env.DB, controller.scheduledTime);
+    console.log(JSON.stringify({ event: "cron", deleted }));
   },
 } satisfies ExportedHandler<Env>;
 

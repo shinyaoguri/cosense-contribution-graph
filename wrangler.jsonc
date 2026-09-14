@@ -11,7 +11,10 @@
   // nodejs_compat / nodejs_compat_v2 が既定で有効で、公式が省略を勧めている。
   "compatibility_date": "2026-09-12",
 
-  "observability": { "enabled": true },
+  // **invocation logs は切る** (ADR-0013 の 2026-09-14 の改訂)。/v1/p.gif の URL には uid と署名が載るので、
+  // リクエストの URL が記録されると「uid をログに出さない」(ADR-0013 決定 1) に反する。
+  // 記録されるかは確かめていないので安全側に倒す。console.log の 1 行ログは残る
+  "observability": { "enabled": true, "logs": { "invocation_logs": false } },
 
   // 既定でも有効 (routes が空なら workers.dev が有効になる) だが明示する。
   // 段階 4 で独自ドメインの routes を足した瞬間に既定が無効へ変わり、
@@ -22,9 +25,27 @@
   // `--dry-run` と違って本番デプロイはバインディングを実アカウントと照合するので、
   // 使っていないものを宣言すると初回デプロイがそれで落ちうる。
   //
-  // - d1_databases — 段階 3 で `wrangler d1 create` し、実 ID と migrations_dir を入れて足す
-  // - ratelimits   — Free プランで使えるかが段階 2 の実機検証項目。検証してから足す
-  //                  (INGEST_LIMITER 60/60s、ENROLL_LIMITER 5/60s の予定。design §6)
+  // - ratelimits — Free プランで使えるかが段階 2 の実機検証項目。検証してから足す
+  //                (INGEST_LIMITER 60/60s、ENROLL_LIMITER 5/60s の予定。design §6)
+
+  // **database_id はまだ書かない。** データベースは CI の deploy ジョブが無ければ作る
+  // (`wrangler d1 create cosense-grass --location apac`)。初回のデプロイ後に Actions のログから ID を取り、
+  // ここに固定する (Issue #36)。固定するまでは wrangler が名前でデータベースを探す。
+  // 固定した後は、データベースが消えるとマイグレーションの段で落ちて気付ける
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cosense-grass",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  "vars": {
+    // 記録の疎通確認 (Issue #36) で /v1/p.gif の署名を検証する公開鍵。65 バイトの非圧縮 SEC1 を
+    // base64url にした 87 文字。**空のうちは記録を全部 403 にする。** 公開鍵なので秘密ではない。
+    // 段階 4 でデバイスごとの鍵 (keys テーブル) に置き換えて消す
+    "TRIAL_PUBLIC_KEY": ""
+  },
 
   // UTC。デプロイのたびに内容で置き換わるので、空配列にすると全削除される。
   "triggers": { "crons": ["17 3 * * *"] },

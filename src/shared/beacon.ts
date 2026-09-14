@@ -59,14 +59,14 @@ export type BeaconFields = {
   readonly entries: readonly Entry[];
 };
 
-type Beacon = BeaconFields & {
+export type Beacon = BeaconFields & {
   readonly signature: Uint8Array<ArrayBuffer>;
   /** 検証に使う署名対象 (`sign.ts` の正規化) */
   readonly signingInput: string;
 };
 
 /** 拒否した理由。ログに出す (値そのものは出さない)。 */
-type BeaconError = "keys" | "version" | "uid" | "kid" | "time" | "entries" | "signature";
+export type BeaconError = "keys" | "version" | "uid" | "kid" | "time" | "entries" | "signature";
 
 export type ParseResult =
   | { readonly ok: true; readonly beacon: Beacon }
