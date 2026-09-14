@@ -29,9 +29,9 @@ const MAX_COUNT = 99_999;
 
 const DIGEST_LENGTH = 16;
 
-type Trigger = "load" | "day-change" | "hidden" | "enrolled";
+export type Trigger = "load" | "day-change" | "hidden" | "enrolled";
 
-type SendOutcome =
+export type SendOutcome =
   | "written"
   | "unchanged"
   | "nothing"

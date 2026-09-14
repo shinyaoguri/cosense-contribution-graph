@@ -1,6 +1,6 @@
 /**
  * 「草: センサーの記録」の文面 (段階 5)。持ち主が、センサーの数えた分が実感と合うかを 1 日使って確かめるためのもの。
- * 送信はしない。DOM 注入の草 (段階 8) ができたら役目を終える。
+ * メニューを押しても送信はしない (送るのは sender.ts)。DOM 注入の草 (段階 8) ができたら役目を終える。
  */
 import { type Bitmap, MINUTES_PER_DAY } from "../shared/bits.ts";
 import { fromEpochDay, toEpochDay } from "../shared/graph.ts";
@@ -95,7 +95,7 @@ export function describeSensorReport(input: {
   const head = [
     `${input.title} (${input.now.toLocaleString("ja-JP")})`,
     describeStatus(input.project, input.status),
-    "このブラウザにだけ記録する。送信はまだしない",
+    "登録済みなら、読み込み時・日付の変更・タブを隠したときに送る",
     "",
     `今日 (${today})`,
     `合算: ${formatCounts(day.total.counts)}`,

@@ -36,6 +36,7 @@ function setup(options: { project?: string; user?: string } = {}) {
   const timers = new Map<number, () => void>();
   const pendingFetches: { resolve: (text: string | undefined) => void; reject: () => void }[] = [];
   const state = { recordThrows: false };
+  const dayChanges: string[] = [];
 
   const cosense: SensorCosense & {
     Project: { name: string };
@@ -87,9 +88,11 @@ function setup(options: { project?: string; user?: string } = {}) {
       return new Promise((resolve, reject) => pendingFetches.push({ resolve, reject }));
     },
     warn: (message) => warnings.push(message),
+    onDayChange: (today) => dayChanges.push(today),
   };
 
   return {
+    dayChanges,
     cosense,
     deps,
     recorded,
@@ -203,6 +206,8 @@ describe("読み", () => {
     ]);
     // 起動時と、日が変わったときの 2 回
     expect(t.folded).toEqual(["2026-09-13", "2026-09-14"]);
+    // **送信に知らせるのは日が変わったときだけ** (起動直後は読み込み時の送信が拾う)
+    expect(t.dayChanges).toEqual(["2026-09-14"]);
   });
 });
 

@@ -3,7 +3,6 @@ import { SIGN_IN_MENU_TITLE } from "../../src/userscript/auth.ts";
 import {
   type Cosense,
   type Dependencies,
-  HIDDEN_PROBE_KEY,
   PROBE_MENU_TITLE,
   PROBE_SIZES,
   SENSOR_MENU_TITLE,
@@ -45,10 +44,18 @@ function setup(projectName = "project-a", controlled = true) {
     off: () => undefined,
     PageMenu: { addItem: (item) => items.push(item) },
   };
-  const signIns = { count: 0 };
+  const signIns = { count: 0, outcome: "added" };
+  const triggers: string[] = [];
   const deps: Dependencies = {
     signIn: () => {
       signIns.count++;
+      return Promise.resolve(signIns.outcome);
+    },
+    sender: {
+      trigger: async (kind) => {
+        triggers.push(kind);
+        return "nothing";
+      },
     },
     startSensor: () => {
       sensor.started++;
@@ -61,10 +68,6 @@ function setup(projectName = "project-a", controlled = true) {
     },
     log: (message) => logs.push(message),
     alert: (message) => alerts.push(message),
-    storage: {
-      getItem: (key) => store.get(key) ?? null,
-      setItem: (key, value) => store.set(key, value),
-    },
     document: {
       get visibilityState() {
         return doc.visibilityState;
@@ -113,6 +116,7 @@ function setup(projectName = "project-a", controlled = true) {
     setVisibility,
     clickMenu,
     signIns,
+    triggers,
   };
 }
 
@@ -151,7 +155,7 @@ describe("ページメニュー", () => {
     for (const size of PROBE_SIZES) {
       expect(text).toContain(`${size} 文字: 届いた / 中身一致`);
     }
-    expect(text).toContain("タブを隠したとき: まだ無い");
+    expect(text).not.toContain("タブを隠したとき");
   });
 
   it("**押した時点でページが Service Worker の制御下かを出す** (Referer が届くかを左右する)", async () => {
@@ -207,23 +211,14 @@ describe("センサー", () => {
   });
 });
 
-describe("タブを隠したときの送信", () => {
-  it("隠したら 240 文字を 1 回送り、プロジェクト名と時刻つきで残す", async () => {
+describe("送信のきっかけ", () => {
+  it("**読み込んだとき (start) に 1 回、load で送る**", () => {
     const t = setup();
     start(t.cosense, t.deps);
-
-    await t.setVisibility("hidden");
-
-    expect(t.sizes).toEqual([240]);
-    expect(JSON.parse(t.store.get(HIDDEN_PROBE_KEY) ?? "null")).toEqual({
-      project: "project-a",
-      at: "2026-09-13T06:00:00.000Z",
-      controlled: true,
-      result: LOADED,
-    });
+    expect(t.triggers).toEqual(["load"]);
   });
 
-  it("**読み込みごとに 1 回だけ。** 何度隠しても増えない", async () => {
+  it("**タブを隠すたびに hidden で送る。見えるようになっただけでは送らない**", async () => {
     const t = setup();
     start(t.cosense, t.deps);
 
@@ -231,46 +226,27 @@ describe("タブを隠したときの送信", () => {
     await t.setVisibility("visible");
     await t.setVisibility("hidden");
 
-    expect(t.sizes).toEqual([240]);
+    expect(t.triggers).toEqual(["load", "hidden", "hidden"]);
   });
 
-  it("見えるようになっただけでは送らない", async () => {
+  it("**隠しても送信の疎通確認はもう送らない**", async () => {
     const t = setup();
     start(t.cosense, t.deps);
-
-    await t.setVisibility("visible");
-
+    await t.setVisibility("hidden");
     expect(t.sizes).toEqual([]);
   });
 
-  it("残した結果は次にメニューを押したとき、送ったプロジェクトの名前つきで出る", async () => {
-    const t = setup("project-a");
-    start(t.cosense, t.deps);
-    await t.setVisibility("hidden");
-
-    t.project.name = "project-b";
-    t.state.controlled = false;
-    await t.clickMenu();
-
-    const text = t.alerts[0] ?? "";
-    expect(text).toContain("(project-b,");
-    expect(text).toContain("Service Worker: 制御外");
-    // 隠したときの制御状態は、送ったときの値を出す
-    expect(text).toMatch(
-      /タブを隠したとき: 届いた \/ 中身一致 .*\(project-a, .*, Service Worker: 制御下\)/,
-    );
-  });
-
-  it("古い版が残した記録 (制御状態が無い) は「不明」と出す", async () => {
+  it("**登録できたら enrolled で送る**。取り消したときは送らない", async () => {
     const t = setup();
-    t.store.set(
-      HIDDEN_PROBE_KEY,
-      JSON.stringify({ project: "project-a", at: "2026-09-13T06:00:00.000Z", result: LOADED }),
-    );
     start(t.cosense, t.deps);
 
-    await t.clickMenu();
+    t.items.find((i) => i.title === SIGN_IN_MENU_TITLE)?.onClick();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(t.triggers).toEqual(["load", "enrolled"]);
 
-    expect(t.alerts[0]).toMatch(/タブを隠したとき: .*Service Worker: 不明\)/);
+    t.signIns.outcome = "cancelled";
+    t.items.find((i) => i.title === SIGN_IN_MENU_TITLE)?.onClick();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(t.triggers).toEqual(["load", "enrolled"]);
   });
 });

@@ -2,9 +2,11 @@
  * UserScript のエントリ。Cosense のユーザーページから 1 行で import される
  * バンドルの入口 (ADR-0005)。
  *
- * 今は**センサー** (段階 5、Issue #49) が活動を数えて localStorage に記録する。送信は段階 6。
+ * **センサー** (段階 5、Issue #49) が活動を数えて localStorage に記録し、**登録した鍵で署名して送る** (段階 6、Issue #67)。
+ * 送るのは読み込み時・日付の変更・タブを隠したとき・登録の成功のとき (`sender.ts`)。
  * **サインインしてこの端末の鍵を登録する**メニュー (段階 4、Issue #61) を載せている。
  * ほかに、手で再確認するための**送信の疎通確認** (Issue #31) のメニューを載せている。
+ * タブを隠したときに疎通確認を自動で送るのは、本物の送信が入ったので消した (Issue #67)。
  * **記録の疎通確認** (Issue #36) のメニューは、試験用の公開鍵を消したときに一緒に消した (Issue #54)。
  * DOM 注入と設定 UI は段階 8。
  */
@@ -15,6 +17,7 @@ import { requestImage } from "./image.ts";
 import { createIndexedDbDeviceStore } from "./keys.ts";
 import { describeResult, type ProbeResult, runProbe } from "./probe.ts";
 import { describeSensorReport } from "./report.ts";
+import { createSender, type Sender } from "./sender.ts";
 import { type Sensor, type SensorCosense, startExclusive, startSensor } from "./sensor.ts";
 import { createDialogView } from "./sign-in-dialog.ts";
 import { createStore, type Store } from "./store.ts";
@@ -44,32 +47,19 @@ export const PROBE_MENU_TITLE = "草: 送信の疎通確認";
 /** 1 日分のビットマップ (180 バイト)、分割のしきい値 (design §9)、Cloudflare の上限の近く。 */
 export const PROBE_SIZES = [240, 8_000, 15_000] as const;
 
-/** タブを隠したときに送った結果。**プロジェクト名はこのブラウザにだけ持つ** (design §9)。 */
-export const HIDDEN_PROBE_KEY = "cosense-grass:probe:hidden";
-
-const HIDDEN_PROBE_SIZE = 240;
-
-type HiddenRecord = {
-  readonly project: string;
-  readonly at: string;
-  /** 送ったときにページが Service Worker の制御下だったか */
-  readonly controlled: boolean;
-  readonly result: ProbeResult;
-};
-
 export type Dependencies = {
   /**
    * サインインしてこの端末を登録する。**メニューの onClick から同期で呼ぶ** (ポップアップを開くのに
    * クリックの直後である必要がある)
    */
-  readonly signIn: () => unknown;
+  readonly signIn: () => Promise<string>;
+  readonly sender: Pick<Sender, "trigger">;
   /** センサーを始める。同じタブで動いている前のセンサーは止める */
   readonly startSensor: () => Sensor;
   readonly store: Pick<Store, "readDay">;
   readonly runProbe: (length: number) => Promise<ProbeResult>;
   readonly log: (message: string) => void;
   readonly alert: (message: string) => void;
-  readonly storage: Pick<Storage, "getItem" | "setItem">;
   readonly document: Pick<Document, "addEventListener" | "visibilityState">;
   readonly now: () => Date;
   /**
@@ -93,24 +83,21 @@ export function start(cosense: Cosense, deps: Dependencies): void {
   cosense.PageMenu.addItem({
     title: SIGN_IN_MENU_TITLE,
     onClick: () => {
-      deps.signIn();
+      // ポップアップを開くのは signIn の同期区間。登録できたら、貯まっていた記録と今日の分を送る
+      void deps.signIn().then((outcome) => {
+        if (outcome === "added" || outcome === "known") {
+          void deps.sender.trigger("enrolled");
+        }
+      });
     },
   });
 
-  // **読み込みごとに 1 回だけ。** 隠すたびに送ると、確認のたびに何本も飛ぶ
-  let hiddenSent = false;
+  void deps.sender.trigger("load");
+  // **隠すたびに送る。** 変化が無ければ送らず、当日分は 1 日 4 回まで (sender.ts)
   deps.document.addEventListener("visibilitychange", () => {
-    if (deps.document.visibilityState !== "hidden" || hiddenSent) {
-      return;
+    if (deps.document.visibilityState === "hidden") {
+      void deps.sender.trigger("hidden");
     }
-    hiddenSent = true;
-    const project = cosense.Project.name;
-    const at = deps.now().toISOString();
-    const controlled = deps.serviceWorkerControlled();
-    void deps.runProbe(HIDDEN_PROBE_SIZE).then((result) => {
-      const record: HiddenRecord = { project, at, controlled, result };
-      deps.storage.setItem(HIDDEN_PROBE_KEY, JSON.stringify(record));
-    });
   });
 }
 
@@ -134,14 +121,6 @@ async function runMenu(cosense: Cosense, deps: Dependencies): Promise<void> {
     rows.push({ size: `${size} 文字`, result: describeResult(await deps.runProbe(size)) });
   }
 
-  const hidden = readHidden(deps.storage);
-  rows.push({
-    size: "タブを隠したとき",
-    result: hidden
-      ? `${describeResult(hidden.result)} (${hidden.project}, ${formatTime(hidden.at)}, ${describeController(hidden.controlled)})`
-      : "まだ無い (タブを一度隠して戻ってから押す)",
-  });
-
   console.table(rows);
   deps.alert(
     [
@@ -153,23 +132,7 @@ async function runMenu(cosense: Cosense, deps: Dependencies): Promise<void> {
   );
 }
 
-function readHidden(storage: Pick<Storage, "getItem">): HiddenRecord | undefined {
-  const raw = storage.getItem(HIDDEN_PROBE_KEY);
-  if (raw === null) {
-    return undefined;
-  }
-  try {
-    return JSON.parse(raw) as HiddenRecord;
-  } catch {
-    return undefined;
-  }
-}
-
-function describeController(controlled: boolean | undefined): string {
-  // 古い版が残した記録には無い
-  if (controlled === undefined) {
-    return "Service Worker: 不明";
-  }
+function describeController(controlled: boolean): string {
   return controlled ? "Service Worker: 制御下" : "Service Worker: 制御外";
 }
 
@@ -188,12 +151,25 @@ if (typeof window !== "undefined" && window.scrapbox) {
   const cosense = window.scrapbox;
   const warn = (message: string) => console.warn(`[cosense-grass] ${message}`);
   const store = createStore(window.localStorage, warn);
+  const keys = createIndexedDbDeviceStore(window.indexedDB);
+  const sender = createSender({
+    store,
+    keys,
+    sendImage: (url) => requestImage(url),
+    storage: window.localStorage,
+    now: () => new Date(),
+    // Web Locks で別のタブ・別の版のバンドルと直列にする。無ければそのまま (OR なので重なっても無害)
+    withLock: (run) =>
+      window.navigator.locks ? window.navigator.locks.request("cosense-grass:send", run) : run(),
+    warn,
+  });
   start(cosense, {
+    sender,
     signIn: createSignIn({
       openPopup: (url) => window.open(url, AUTH_POPUP_NAME, AUTH_POPUP_FEATURES),
       messages: window,
       view: createDialogView(window.document),
-      keys: createIndexedDbDeviceStore(window.indexedDB),
+      keys,
       generateKeyPair: generateSigningKeyPair,
       sendImage: (url) => requestImage(url),
       now: () => new Date(),
@@ -215,13 +191,13 @@ if (typeof window !== "undefined" && window.scrapbox) {
             return response.ok ? await response.text() : undefined;
           },
           warn,
+          onDayChange: () => void sender.trigger("day-change"),
         }),
       ),
     store,
     runProbe: (length) => runProbe(length),
     log: (message) => console.info(message),
     alert: (message) => window.alert(message),
-    storage: window.localStorage,
     document: window.document,
     now: () => new Date(),
     serviceWorkerControlled: () => Boolean(window.navigator.serviceWorker?.controller),
