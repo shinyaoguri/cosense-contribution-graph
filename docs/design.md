@@ -90,11 +90,13 @@ src/worker/
   cron.ts                   古いビットマップの削除
 src/userscript/
   index.ts                  エントリ。常駐とマウント
-  sensor.ts                 20 秒ポーリングと lines:changed
+  sensor.ts                 20 秒ポーリングと lines:changed。数えるプロジェクトの判定
+  time.ts                   ローカル時刻の日と分
   beacon.ts                 画像 GET 送信と署名
   keys.ts                   鍵ペアの生成と IndexedDB への保存
   auth.ts                   サインインのポップアップと postMessage の受信
-  store.ts                  localStorage
+  store.ts                  localStorage (ビットマップと集計値)
+  report.ts                 「草: センサーの記録」の文面 (段階 5 の確認用。段階 8 の表示で役目を終える)
   render.ts                 DOM 注入の草とツールチップ
   settings.ts               設定 UI
 scripts/build-userscript.mjs esbuild でバンドルする (配布ページへの反映は手動。ADR-0013 決定 3)
@@ -773,15 +775,32 @@ code:script.js
 
 ### センサー
 
+**段階 5 で実装した** (2026-09-14、`src/userscript/sensor.ts`、Issue #49)。
+
 20 秒ごとに判定し、条件を満たせば現在の分の read bit を立てる。
 
 - `document.visibilityState === "visible"`
 - **`document.hasFocus()`。これは必須。** これがないと開きっぱなしのタブを全部数えて、
   ただのブラウザ起動時間計測になる
-- 直近 3 分以内に操作があった (`scroll` / `wheel` / `mousemove` / `pointerdown` / `keydown` / `touchmove`)
+- 直近 3 分以内に操作があった (`scroll` / `wheel` / `mousemove` / `pointerdown` / `keydown` / `touchmove`)。
+  UserScript を読み込む前の操作は見えないので、読み込んだ後の最初の操作から数える
+- Layout が `page` / `list` / `stream` のどれか。Cosense が UserScript を読み直す条件と同じで、設定画面などは数えない
 
-write は `scrapbox.on("lines:changed", ({by}) => ...)` の `by === "edit"` のときだけ立てる (ADR-0006)。
-`remote` は他ユーザー、`userscript` は自前、`navigation` はページ遷移。
+write は `scrapbox.on("lines:changed", ({by}) => ...)` の `by === "edit"` のときだけ立て、`scrapbox.Page.id` を
+その日の編集したページに足す (ADR-0006)。`remote` は他ユーザー、`userscript` は自前、`navigation` はページ遷移。
+**元に戻す / やり直しは `by` が `undefined` で、数えない** (research §2。取りこぼすのは undo だけの分)。
+
+**数えるのは、自分のページに import の 1 行があるプロジェクトだけ** (ADR-0007 決定 5 の 2026-09-14 の改訂)。
+配布モジュールは 1 ドキュメントで 1 回しか評価されず、アプリ内でどのプロジェクトへ移っても動き続ける (research §2 の常駐)。
+
+- 評価したときのプロジェクトは導入済みとして数える
+- 別のプロジェクトに入ったら、同一オリジンで `/api/code/<project>/<自分のユーザー名>/script.js` を 1 回読み、
+  本文が `/api/code/cosense-grass/` を含むときだけ数える。結果はドキュメントの寿命の間だけ覚える
+- 確かめている間と、読めなかったとき (メンバーでない・自分のページが無い) は数えない。通信の失敗は次に数えるときに確かめ直す
+- 自分の別のページを経由して間接的に import していると数えない
+
+**同じタブで 2 つ動かさない。** `dev` と `v1` を別々のプロジェクトで import すると、それぞれのモジュールが評価される。
+`window[Symbol.for("cosense-grass.sensor")]` に動いているセンサーを置き、新しいセンサーは前のセンサーを止めてから始める。
 
 新規ページ作成の検出では**プレースホルダーページをカウントしない**。
 ポーリングのたびに**日付の変更も見る**。日を越えたら前日分を送る。
@@ -792,13 +811,24 @@ write は `scrapbox.on("lines:changed", ({by}) => ...)` の `by === "edit"` の�
 |---|---|---|
 | IndexedDB | — | デバイスの `CryptoKey` (`extractable: false`) |
 | localStorage | `uid` `kid` | サインインで得た識別子 |
-| localStorage | `bits` | `{"<ph>:<YYYY-MM-DD>": {w, r}}` base64url。当日と未送信分。`*` の行も持つ |
-| localStorage | `daily` | `{"<ph>:<YYYY-MM-DD>": {w, r, pages, created}}` 表示用。53 週分 |
-| localStorage | `projects` | `{"<ph>": {name}}` ローカル表示用のプロジェクト名 |
+| localStorage | `cosense-grass:bits` | 日 → プロジェクト名 → `{w, r, pages, created}`。w / r は base64url のビットマップ、pages / created はページ ID の配列。**今日と前の 29 日** |
+| localStorage | `cosense-grass:daily` | 日 → プロジェクト名か `*` → `{w, r, pages, created}` の数。**30 日より古くなった日を畳む。** 371 日 (53 週) |
 | localStorage | `sent` | 送信済み判定用のハッシュと当日の送信回数 |
 | localStorage | `settings` | read 計上の on/off など |
 
 **プロジェクト名はローカルだけに持つ。** サーバへ送るのは `ph` だけ。
+
+**`bits` と `daily` は段階 5 で実装した** (2026-09-14、`src/userscript/store.ts`、Issue #49)。当初の表から次を変えた。
+
+- **キーは ph ではなくプロジェクト名。** ph は uid でソルトするが、サインイン前は uid が無く、別のアカウントでサインインし直せば
+  変わる。ph は送る直前に導く。当初あった `projects` (ph → プロジェクト名) の表は要らなくなった
+- **合算 `*` はビットマップに持たない。** 読むときに各行の OR から数える。別に書くと食い違いうる。
+  pages / created は ID の和集合から数える
+- **ビットマップを持つ日は集計値に書かない。** 直近は `bits` から数えられる。2 か所に書くと、片方の書き込みだけ容量超過で失敗したときに食い違う。
+  畳むときは集計値を先に書き、既にある集計値とは Worker の `daily` と同じく w と合計の max でまとめる
+- **書くたびに読み直す。** 別のタブと localStorage を共有するので、読む → OR → 書くを同期の 1 区間で済ませる。
+  分の bit やページ ID が既に入っていれば書かない
+- 値は `{"v": 1, "days": ...}`。**知らない版の記録があれば書かない** (新しい版のバンドルが別のタブで書いた形を壊さない)
 
 localStorage はオリジン単位なので、**別プロジェクトのタブとも共有される**。
 IndexedDB も同様なので、同じブラウザなら鍵は 1 つで足りる。
@@ -841,7 +871,7 @@ IndexedDB も同様なので、同じブラウザなら鍵は 1 つで足りる�
 ツールチップは次の形。
 
 ```
-2026-09-12 — 書き 12 分 / 読み 38 分 / 7 ページ閲覧 / 2 ページ新規作成
+2026-09-12 — 書き 12 分 / 読み 38 分 / 7 ページ編集 / 2 ページ新規作成
 ```
 
 2 次元表示では色の絶対的な意味が読めないので、DOM 注入版では必ず出す。
@@ -1004,6 +1034,10 @@ Cron で日次の要約をログに出す。UserScript 側のエラーは送ら�
 
 段階ごとに動作確認してから次へ進む。1 PR = 1 関心事。
 **各段階の成果物・テスト項目・完了条件と、開発環境の整備は [roadmap.md](roadmap.md) にある。**
+
+**段階 5 は段階 4 より先に入れた** (2026-09-14、Issue #49)。段階 4 は Google Cloud の OAuth クライアント (持ち主の手作業) が
+無いと端から端まで通せない。段階 5 は外部の準備が要らず、完了条件が「1 日使って実感と合う」なので早く入れるほど観察の時間が取れる。
+センサーは uid も鍵も使わないので、段階 4 と独立に作れる。
 
 1. **基盤と SVG 生成・配色** — ダミーデータで `/v1/g/demo.svg`。Cosense に貼って実表示を確認する。
    **この段階で CI に型チェックとテストを足す**
