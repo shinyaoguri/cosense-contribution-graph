@@ -627,7 +627,10 @@ Cosense のページに貼ったときの見た目だけ、まだ確かめてい
 - `src/worker/auth.ts` `/auth/start` と `/auth/callback`
 - `src/worker/idtoken.ts` ID トークンの検証と JWKS の保持、`src/worker/uid.ts` sub から uid を導く。
   **OAuth クライアントを待たずに先に入れた** (2026-09-14、Issue #61)。使う経路 (callback) はまだ無い
-- `src/worker/enroll.ts` デバイスの登録と失効
+- `src/worker/enroll.ts` デバイスの登録と失効。**登録 (`/v1/enroll.gif`) と登録トークンの発行を先に入れた** (2026-09-14、Issue #61)。
+  トークンを発行する callback がまだ無いので本番では 403。失効はまだ
+- ~~`src/userscript/keys.ts`~~ は **callback と一緒に入れる** (2026-09-14、Issue #61)。jsdom に IndexedDB が無く、
+  読み戻せるかは Cosense 上でしか確かめられない。鍵と uid をどう一緒に持つかはサインインの流れで決まる
 - `src/userscript/keys.ts` 鍵ペアの生成と IndexedDB への保存
   - **記録の疎通確認が IndexedDB の DB `cosense-grass` (バージョン 1) と store `keys` を使っていた。** 同じ名前を使うなら、store の中の
     キー `trial` は避ける (持ち主が消し忘れても本物の鍵と取り違えない)。保存と読み戻しの実装は、消す前の `src/userscript/record.ts`
@@ -642,7 +645,7 @@ Cosense のページに貼ったときの見た目だけ、まだ確かめてい
 - `alg` が RS256 以外なら拒否すること。`none` や HS256 の混入を弾く
 - `nonce` の不一致を拒否すること
 - 未知の `kid` で JWKS を 1 回だけ再取得すること
-- 登録トークンが 1 回使い捨てで 5 分で切れること
+- 登録トークンが 1 回使い捨てで 5 分で切れること (#61 で固定した。同時に 2 回送っても通るのは 1 回)
 
 ~~外部への fetch のモックは `@msw/cloudflare` を使う。~~ **msw は入れない** (2026-09-14、Issue #61)。
 JWKS の取得関数を注入し、テストでは Google と同じ形の応答を返す関数を渡す。依存を増やさずに取得の回数まで数えられる。
