@@ -53,7 +53,7 @@ export type Dependencies = {
    * クリックの直後である必要がある)
    */
   readonly signIn: () => Promise<string>;
-  readonly sender: Pick<Sender, "trigger">;
+  readonly sender: Pick<Sender, "trigger" | "status">;
   /** センサーを始める。同じタブで動いている前のセンサーは止める */
   readonly startSensor: () => Sensor;
   readonly store: Pick<Store, "readDay">;
@@ -74,7 +74,7 @@ export function start(cosense: Cosense, deps: Dependencies): void {
 
   cosense.PageMenu.addItem({
     title: SENSOR_MENU_TITLE,
-    onClick: () => runSensorMenu(cosense, deps, sensor),
+    onClick: () => void runSensorMenu(cosense, deps, sensor),
   });
   cosense.PageMenu.addItem({
     title: PROBE_MENU_TITLE,
@@ -101,8 +101,10 @@ export function start(cosense: Cosense, deps: Dependencies): void {
   });
 }
 
-function runSensorMenu(cosense: Cosense, deps: Dependencies, sensor: Sensor): void {
+async function runSensorMenu(cosense: Cosense, deps: Dependencies, sensor: Sensor): Promise<void> {
+  const sending = await deps.sender.status();
   const report = describeSensorReport({
+    sending,
     title: SENSOR_MENU_TITLE,
     now: deps.now(),
     project: cosense.Project.name,

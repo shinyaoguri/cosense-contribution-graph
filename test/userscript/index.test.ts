@@ -56,6 +56,7 @@ function setup(projectName = "project-a", controlled = true) {
         triggers.push(kind);
         return "nothing";
       },
+      status: async () => ({ kind: "not-enrolled" }),
     },
     startSensor: () => {
       sensor.started++;
@@ -196,6 +197,7 @@ describe("センサー", () => {
     expect(text).toContain("合算: 書き 1 分 / 読み 1 分");
     expect(text).toContain("project-b: 書き 0 分 / 読み 1 分");
     expect(text).toContain("9:00–9:01 書き 1 分");
+    expect(text).toContain("送信: この端末は未登録");
     expect(t.logs).toHaveLength(1);
     expect(t.sizes).toEqual([]);
   });

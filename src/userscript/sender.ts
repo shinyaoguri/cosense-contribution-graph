@@ -18,6 +18,7 @@
  * - **uid・ph・kid・URL・プロジェクト名・例外のメッセージはログに出さない**
  */
 import { buildIngestUrl, readIngestWidth } from "../shared/beacon.ts";
+import { PH_ALL, publicIdOf } from "../shared/ids.ts";
 import { sign } from "../shared/sign.ts";
 import type { ImageResult } from "./image.ts";
 import type { DeviceStore } from "./keys.ts";
@@ -37,7 +38,7 @@ import {
 } from "./outbox.ts";
 import type { Store } from "./store.ts";
 import { localDay } from "./time.ts";
-import { WORKER_ORIGIN } from "./worker-origin.ts";
+import { graphUrl, WORKER_ORIGIN } from "./worker-origin.ts";
 
 /** 当日分を送る回数の上限 (design §9・§15 の仮値)。失敗も数える */
 export const MAX_TODAY_SENDS = 4;
@@ -57,8 +58,25 @@ export type SenderDependencies = {
   readonly warn: (message: string) => void;
 };
 
+/** 「草: センサーの記録」に出す送信の状況 */
+export type SendStatus =
+  | { readonly kind: "not-enrolled" | "newer-key" | "newer-sent" | "storage" }
+  | {
+      readonly kind: "enrolled";
+      readonly kid: string;
+      /** 合算の草。**alert にだけ出す** (コンソールに残さない) */
+      readonly graphUrl: string;
+      readonly todaySends: number;
+      /** まだ送れていないエントリのある日 (今日を含む) */
+      readonly pendingDays: number;
+      readonly last?: SentRecord["last"];
+      /** 抑制中なら、次に自動で送る時刻 (ミリ秒) */
+      readonly backoffUntil?: number;
+    };
+
 export type Sender = {
   trigger(kind: Trigger): Promise<SendOutcome>;
+  status(): Promise<SendStatus>;
 };
 
 /** 続けて n 回失敗した後、自動では送らない時間 */
@@ -92,6 +110,45 @@ export function createSender(deps: SenderDependencies): Sender {
         );
       }
       return outcome;
+    },
+
+    async status() {
+      const now = deps.now();
+      const today = localDay(now);
+      const sent = readSent(deps.storage);
+      if (sent === "newer") {
+        return { kind: "newer-sent" };
+      }
+      let device: Awaited<ReturnType<DeviceStore["read"]>>;
+      try {
+        device = await deps.keys.read();
+      } catch {
+        return { kind: "storage" };
+      }
+      if (device.kind === "newer") {
+        return { kind: "newer-key" };
+      }
+      if (device.kind !== "found") {
+        return { kind: "not-enrolled" };
+      }
+      const { uid, kid } = device.record;
+      const entries = await collectEntries(deps.store, uid, candidateDays(today, true));
+      const pendingDays = new Set<string>();
+      for (const entry of entries) {
+        if (!(sent.days[entry.day]?.e ?? []).includes(await entryDigest(uid, entry))) {
+          pendingDays.add(entry.day);
+        }
+      }
+      const backoffUntil = sent.failure ? sent.failure.at + backoffMs(sent.failure.n) : undefined;
+      return {
+        kind: "enrolled",
+        kid,
+        graphUrl: graphUrl(await publicIdOf(uid, PH_ALL)),
+        todaySends: sent.days[today]?.n ?? 0,
+        pendingDays: pendingDays.size,
+        ...(sent.last ? { last: sent.last } : {}),
+        ...(backoffUntil !== undefined && backoffUntil > now.getTime() ? { backoffUntil } : {}),
+      };
     },
   };
 }
