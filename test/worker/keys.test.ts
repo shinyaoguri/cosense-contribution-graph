@@ -1,3 +1,4 @@
+import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { encodeBase64url } from "../../src/shared/base64url.ts";
 import { kidOf } from "../../src/shared/ids.ts";
@@ -40,5 +41,14 @@ describe("試験用の公開鍵", () => {
     expect(await resolve("uid", await kidOf(notOnCurve))).toBeUndefined();
     expect(await trialKeyResolver("not base64url")("uid", "0123456789abcdef")).toBeUndefined();
     expect(await trialKeyResolver(encodeBase64url(new Uint8Array(64)))("uid", "x")).toBeUndefined();
+  });
+});
+
+describe("wrangler.jsonc の試験用の公開鍵", () => {
+  it("**書き写し間違いが無い** (読み込めて、持ち主のブラウザが出した kid と一致する)", async () => {
+    const configured: string = env.TRIAL_PUBLIC_KEY;
+    // Cosense の「草: 記録の疎通確認」のダイアログに出た kid (Issue #36)
+    const key = await trialKeyResolver(configured)("any-uid", "2039144416f25f35");
+    expect(key).toBeDefined();
   });
 });
