@@ -11,11 +11,10 @@ import {
   probeDigest,
   readProbeWidth,
 } from "../shared/probe.ts";
+import { type ImageOptions, requestImage } from "./image.ts";
 
 /** 本番の Worker。独自ドメインに載せたら差し替える (design §11)。 */
 export const WORKER_ORIGIN = "https://cosense-grass.soui.workers.dev";
-
-const TIMEOUT_MS = 15_000;
 
 const BASE64URL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
@@ -42,37 +41,15 @@ export async function probeUrl(payload: string, origin: string = WORKER_ORIGIN):
   return url.href;
 }
 
-type ImageLike = Pick<HTMLImageElement, "referrerPolicy" | "src" | "naturalWidth"> & {
-  onload: (() => void) | null;
-  onerror: (() => void) | null;
-};
+export type SendOptions = ImageOptions;
 
-export type SendOptions = {
-  readonly timeoutMs?: number;
-  /** テストで偽の画像に差し替える */
-  readonly createImage?: () => ImageLike;
-};
-
-export function sendProbe(url: string, options: SendOptions = {}): Promise<ProbeResult> {
-  const image = options.createImage?.() ?? new Image();
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => finish({ kind: "timeout" }), options.timeoutMs ?? TIMEOUT_MS);
-    function finish(result: ProbeResult) {
-      clearTimeout(timer);
-      image.onload = null;
-      image.onerror = null;
-      resolve(result);
-    }
-
-    image.onload = () => {
-      const flags = readProbeWidth(image.naturalWidth);
-      finish(flags ? { kind: "loaded", flags } : { kind: "unexpected", width: image.naturalWidth });
-    };
-    image.onerror = () => finish({ kind: "error" });
-    // **`src` より前に設定する。** 後から設定しても、始まったリクエストには効かない (ADR-0001)
-    image.referrerPolicy = "no-referrer";
-    image.src = url;
-  });
+export async function sendProbe(url: string, options: SendOptions = {}): Promise<ProbeResult> {
+  const result = await requestImage(url, options);
+  if (result.kind !== "loaded") {
+    return result;
+  }
+  const flags = readProbeWidth(result.width);
+  return flags ? { kind: "loaded", flags } : { kind: "unexpected", width: result.width };
 }
 
 export async function runProbe(length: number, options: SendOptions = {}): Promise<ProbeResult> {
