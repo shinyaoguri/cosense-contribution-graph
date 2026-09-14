@@ -47,6 +47,9 @@ describe("decodeBase64url", () => {
   it("4 で割って 1 余る長さは、どのバイト列にも対応しないので拒否する", () => {
     expect(decodeBase64url("Z")).toBeUndefined();
     expect(decodeBase64url("Zm9vY")).toBeUndefined();
+    // 末尾が値 0 の "A" だと余りビットの検査では落ちないので、長さの検査が単独で要る
+    expect(decodeBase64url("A")).toBeUndefined();
+    expect(decodeBase64url("Zm9vA")).toBeUndefined();
   });
 
   it("**末尾の余りビットが立っていれば拒否する** (同じバイト列の別表記を通さない)", () => {

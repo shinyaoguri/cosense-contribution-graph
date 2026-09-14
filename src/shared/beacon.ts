@@ -19,7 +19,7 @@ import { SIGNATURE_BYTES, signingInput } from "./sign.ts";
 
 export const INGEST_PATH = "/v1/p.gif";
 
-export const INGEST_VERSION = "1";
+const INGEST_VERSION = "1";
 
 /** クエリの名前。 */
 export const INGEST_PARAM = {
@@ -38,7 +38,7 @@ export const INGEST_PARAM = {
 export const MAX_ENTRIES = 14;
 
 /** `pages` と `created` の上限。1 日にこれを超えるページを数えることは無い。 */
-export const MAX_COUNT = 99_999;
+const MAX_COUNT = 99_999;
 
 /** 1 つのプロジェクト (または合算 `*`) の 1 日分。 */
 export type Entry = {
@@ -59,14 +59,14 @@ export type BeaconFields = {
   readonly entries: readonly Entry[];
 };
 
-export type Beacon = BeaconFields & {
+type Beacon = BeaconFields & {
   readonly signature: Uint8Array<ArrayBuffer>;
   /** 検証に使う署名対象 (`sign.ts` の正規化) */
   readonly signingInput: string;
 };
 
 /** 拒否した理由。ログに出す (値そのものは出さない)。 */
-export type BeaconError = "keys" | "version" | "uid" | "kid" | "time" | "entries" | "signature";
+type BeaconError = "keys" | "version" | "uid" | "kid" | "time" | "entries" | "signature";
 
 export type ParseResult =
   | { readonly ok: true; readonly beacon: Beacon }

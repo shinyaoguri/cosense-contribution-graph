@@ -65,9 +65,11 @@ vitest.worker.config.ts     @cloudflare/vitest-plugin (workerd)
 vitest.userscript.config.ts environment: jsdom
 migrations/0001_init.sql
 src/shared/                 Worker と UserScript の両方から import する
-  ids.ts                    ph / publicId の導出
-  sign.ts                   署名対象の正規化
-  bits.ts                   ビットマップ: base64url 往復 / OR / popcount
+  ids.ts                    uid / kid / ph / publicId の形と導出
+  base64url.ts              パディングなしの base64url。デコードは正規形だけを受け付ける
+  bits.ts                   ビットマップ: OR / andNot / popcount
+  sign.ts                   署名対象の正規化と ECDSA P-256 の署名・検証
+  beacon.ts                 GET /v1/p.gif のクエリの組み立てと厳密な読み取り、応答の幅
   scale.ts                  四分位スケール
   balance.ts                読み書きのバランス (配色に依らない)
   oklch.ts                  OKLCH → sRGB。彩度を二分探索でガモットに詰める
@@ -214,14 +216,21 @@ Ed25519 はブラウザ普及率 88% なので単独採用しない。
 **`URLSearchParams.toString()` を署名対象にしてはいけない。** 空白が `+` になる、エンコード集合が
 実装で違う、順序が不定、重複キーの扱いが未定義。
 
-固定順・固定フィールドの改行区切りにする。
+固定順・固定フィールドの改行区切りにする。**先頭の行は経路** (2026-09-14 改訂、ADR-0009)。
 
 ```
-署名対象 = "v=1\nu=<uid>\nd=<kid>\nt=<unix秒>\np=<p の生の値>"
+署名対象 = "/v1/p.gif\nv=1\nu=<uid>\nd=<kid>\nt=<unix秒>\np=<p の生の値>"
 ```
 
 値は生のまま連結し、URL に乗せるときだけエンコードする。正規化は `src/shared/sign.ts` に置いて
 両端で同じコードを使う。重複キーは Worker 側で検出して 400 を返す。
+
+- **経路を入れるのは、署名を別の受け口に使い回させないため。** 当初の形には無く、`/v1/p.gif` の署名を
+  同じフィールドを持つ `/v1/revoke.gif` や `/v1/delete.gif` へ持ち込めた
+- **値に改行を含めない。** 受け口は値の形を先に正規表現で確かめ、`sign.ts` も改行を含む値を例外にする。
+  改行が入ると別のフィールドを偽造できる
+- **base64url は正規形だけを受け付ける。** 末尾の余りビットだけが違う別の文字列を通すと、1 つの uid や署名に
+  複数の表記ができる。`atob` は余りビットを見ないので自前でデコードする (`src/shared/base64url.ts`)
 
 `t` はリプレイ窓の制限で、サーバ時刻 ±5 分を超えたら拒否する。ビットマップは OR なので
 リプレイ自体は無害だが、ログから拾った URL の再送を防げる。
@@ -246,6 +255,9 @@ Ed25519 はブラウザ普及率 88% なので単独採用しない。
 
 1 日を 1440 bit のビットマップで表す (ADR-0002)。write 用と read 用の 2 枚。
 集合演算なので冪等かつマージ可能で、順序依存がない。
+
+**並びは上位ビットから。** 分 m (ローカル時刻の 0:00 からの分) はバイト `m >> 3` の `0x80 >> (m & 7)`。
+0:00 がバイト 0 の最上位、23:59 がバイト 179 の最下位 (`src/shared/bits.ts`)。
 
 ### read / write
 
