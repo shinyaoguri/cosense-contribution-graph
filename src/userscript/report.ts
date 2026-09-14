@@ -121,7 +121,18 @@ function describeSending(status: SendStatus, now: Date, withUrl: boolean): strin
         ...(status.backoffUntil !== undefined
           ? [`★続けて失敗したので、次に自動で送るのは ${time(status.backoffUntil)} 以降`]
           : []),
-        ...(withUrl ? [`合算の草: ${status.graphUrl}`] : []),
+        ...(withUrl
+          ? [
+              `合算の草 (全プロジェクト・全端末): ${status.graphUrl}`,
+              ...(status.projects.length > 0
+                ? ["プロジェクト別の草 (このブラウザで直近 30 日に記録したもの):"]
+                : []),
+              ...status.projects.map(
+                (project) =>
+                  `  ${project.name}: ${project.graphUrl}${project.sent ? "" : " (まだ送っていないので表示されない)"}`,
+              ),
+            ]
+          : []),
       ];
     }
   }

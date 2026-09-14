@@ -154,6 +154,10 @@ describe("送信の状況", () => {
       kind: "enrolled",
       kid: "0123456789abcdef",
       graphUrl: url,
+      projects: [
+        { name: "project-a", graphUrl: `${url}?a`, sent: true },
+        { name: "project-b", graphUrl: `${url}?b`, sent: false },
+      ],
       todaySends: 2,
       pendingDays: 1,
       last: {
@@ -170,7 +174,9 @@ describe("送信の状況", () => {
     );
     expect(r.alert).toContain("今日の送信: 2 / 4 回");
     expect(r.alert).toContain("まだ送れていない日: 1 日");
-    expect(r.alert).toContain(url);
+    expect(r.alert).toContain(`合算の草 (全プロジェクト・全端末): ${url}`);
+    expect(r.alert).toContain(`  project-a: ${url}?a\n`);
+    expect(r.alert).toContain(`  project-b: ${url}?b (まだ送っていないので表示されない)`);
     expect(r.console).not.toContain(url);
   });
 
@@ -179,6 +185,7 @@ describe("送信の状況", () => {
       kind: "enrolled",
       kid: "0123456789abcdef",
       graphUrl: url,
+      projects: [],
       todaySends: 0,
       pendingDays: 3,
       last: { at: now.getTime(), trigger: "load", outcome: "error", requests: 1, entries: 2 },
@@ -190,7 +197,14 @@ describe("送信の状況", () => {
 
   it("まだ送っていなければそう出す", () => {
     expect(
-      report({ kind: "enrolled", kid: "k", graphUrl: url, todaySends: 0, pendingDays: 0 }).alert,
+      report({
+        kind: "enrolled",
+        kid: "k",
+        graphUrl: url,
+        projects: [],
+        todaySends: 0,
+        pendingDays: 0,
+      }).alert,
     ).toContain("最後の送信: まだ無い");
   });
 });

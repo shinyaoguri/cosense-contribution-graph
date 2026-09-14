@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { encodeBase64url } from "../../src/shared/base64url.ts";
 import { parseIngestQuery } from "../../src/shared/beacon.ts";
-import { kidOf, PH_ALL, phOf } from "../../src/shared/ids.ts";
+import { kidOf, PH_ALL, phOf, publicIdOf } from "../../src/shared/ids.ts";
 import {
   exportPublicKey,
   generateSigningKeyPair,
@@ -14,6 +14,7 @@ import { readSent, SENT_KEY } from "../../src/userscript/outbox.ts";
 import { backoffMs, createSender, MAX_TODAY_SENDS } from "../../src/userscript/sender.ts";
 import { type Activity, createStore } from "../../src/userscript/store.ts";
 import { localDay } from "../../src/userscript/time.ts";
+import { graphUrl } from "../../src/userscript/worker-origin.ts";
 
 const UID = encodeBase64url(new Uint8Array(20).fill(9));
 
@@ -343,7 +344,22 @@ describe("createSender — status", () => {
       requests: 1,
       entries: 4,
     });
+    expect(after.projects).toEqual([
+      { name: "p", graphUrl: graphUrl(await publicIdOf(UID, await phOf(UID, "p"))), sent: true },
+    ]);
     expect(after.backoffUntil).toBeUndefined();
+  });
+
+  it("**まだ送れていないプロジェクトは sent: false** (URL は 404 になる)", async () => {
+    const t = await harness({ image: () => ({ kind: "error" }) });
+    t.record({ kind: "read", project: "b", day: YESTERDAY, minute: 1 });
+    t.record({ kind: "read", project: "a", day: YESTERDAY, minute: 1 });
+    await t.sender.trigger("load");
+    const status = await t.sender.status();
+    expect(status.kind === "enrolled" && status.projects.map((p) => [p.name, p.sent])).toEqual([
+      ["a", false],
+      ["b", false],
+    ]);
   });
 
   it("抑制中なら次に送る時刻を返し、過ぎたら返さない", async () => {

@@ -18,7 +18,7 @@
  * - **uid・ph・kid・URL・プロジェクト名・例外のメッセージはログに出さない**
  */
 import { buildIngestUrl, readIngestWidth } from "../shared/beacon.ts";
-import { PH_ALL, publicIdOf } from "../shared/ids.ts";
+import { PH_ALL, phOf, publicIdOf } from "../shared/ids.ts";
 import { sign } from "../shared/sign.ts";
 import type { ImageResult } from "./image.ts";
 import type { DeviceStore } from "./keys.ts";
@@ -66,6 +66,15 @@ export type SendStatus =
       readonly kid: string;
       /** 合算の草。**alert にだけ出す** (コンソールに残さない) */
       readonly graphUrl: string;
+      /**
+       * このブラウザで直近 30 日に記録したプロジェクトの草 (名前の順)。`sent` が false なら、まだ 1 件も送れていないので URL は 404 になる。
+       * **alert にだけ出す**
+       */
+      readonly projects: readonly {
+        readonly name: string;
+        readonly graphUrl: string;
+        readonly sent: boolean;
+      }[];
       readonly todaySends: number;
       /** まだ送れていないエントリのある日 (今日を含む) */
       readonly pendingDays: number;
@@ -132,18 +141,33 @@ export function createSender(deps: SenderDependencies): Sender {
         return { kind: "not-enrolled" };
       }
       const { uid, kid } = device.record;
-      const entries = await collectEntries(deps.store, uid, candidateDays(today, true));
+      const days = candidateDays(today, true);
+      const entries = await collectEntries(deps.store, uid, days);
       const pendingDays = new Set<string>();
+      const sentPhs = new Set<string>();
       for (const entry of entries) {
-        if (!(sent.days[entry.day]?.e ?? []).includes(await entryDigest(uid, entry))) {
+        if ((sent.days[entry.day]?.e ?? []).includes(await entryDigest(uid, entry))) {
+          sentPhs.add(entry.ph);
+        } else {
           pendingDays.add(entry.day);
         }
       }
+      // プロジェクト名はこのブラウザにだけある。publicId は uid からしか導けないので、ここで作って見せる
+      const names = new Set(days.flatMap((day) => [...deps.store.readDay(day).projects.keys()]));
+      const projects = await Promise.all(
+        [...names]
+          .sort((a, b) => a.localeCompare(b))
+          .map(async (name) => {
+            const ph = await phOf(uid, name);
+            return { name, graphUrl: graphUrl(await publicIdOf(uid, ph)), sent: sentPhs.has(ph) };
+          }),
+      );
       const backoffUntil = sent.failure ? sent.failure.at + backoffMs(sent.failure.n) : undefined;
       return {
         kind: "enrolled",
         kid,
         graphUrl: graphUrl(await publicIdOf(uid, PH_ALL)),
+        projects,
         todaySends: sent.days[today]?.n ?? 0,
         pendingDays: pendingDays.size,
         ...(sent.last ? { last: sent.last } : {}),
