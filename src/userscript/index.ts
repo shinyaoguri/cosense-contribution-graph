@@ -3,14 +3,20 @@
  * バンドルの入口 (ADR-0005)。
  *
  * 今は**センサー** (段階 5、Issue #49) が活動を数えて localStorage に記録する。送信は段階 6。
+ * **サインインしてこの端末の鍵を登録する**メニュー (段階 4、Issue #61) を載せている。
  * ほかに、手で再確認するための**送信の疎通確認** (Issue #31) のメニューを載せている。
  * **記録の疎通確認** (Issue #36) のメニューは、試験用の公開鍵を消したときに一緒に消した (Issue #54)。
  * DOM 注入と設定 UI は段階 8。
  */
 import { PH_ALL } from "../shared/ids.ts";
+import { generateSigningKeyPair } from "../shared/sign.ts";
+import { AUTH_POPUP_FEATURES, AUTH_POPUP_NAME, createSignIn, SIGN_IN_MENU_TITLE } from "./auth.ts";
+import { requestImage } from "./image.ts";
+import { createIndexedDbDeviceStore } from "./keys.ts";
 import { describeResult, type ProbeResult, runProbe } from "./probe.ts";
 import { describeSensorReport } from "./report.ts";
 import { type Sensor, type SensorCosense, startExclusive, startSensor } from "./sensor.ts";
+import { createDialogView } from "./sign-in-dialog.ts";
 import { createStore, type Store } from "./store.ts";
 
 /**
@@ -52,6 +58,11 @@ type HiddenRecord = {
 };
 
 export type Dependencies = {
+  /**
+   * サインインしてこの端末を登録する。**メニューの onClick から同期で呼ぶ** (ポップアップを開くのに
+   * クリックの直後である必要がある)
+   */
+  readonly signIn: () => unknown;
   /** センサーを始める。同じタブで動いている前のセンサーは止める */
   readonly startSensor: () => Sensor;
   readonly store: Pick<Store, "readDay">;
@@ -78,6 +89,12 @@ export function start(cosense: Cosense, deps: Dependencies): void {
   cosense.PageMenu.addItem({
     title: PROBE_MENU_TITLE,
     onClick: () => void runMenu(cosense, deps),
+  });
+  cosense.PageMenu.addItem({
+    title: SIGN_IN_MENU_TITLE,
+    onClick: () => {
+      deps.signIn();
+    },
   });
 
   // **読み込みごとに 1 回だけ。** 隠すたびに送ると、確認のたびに何本も飛ぶ
@@ -172,6 +189,16 @@ if (typeof window !== "undefined" && window.scrapbox) {
   const warn = (message: string) => console.warn(`[cosense-grass] ${message}`);
   const store = createStore(window.localStorage, warn);
   start(cosense, {
+    signIn: createSignIn({
+      openPopup: (url) => window.open(url, AUTH_POPUP_NAME, AUTH_POPUP_FEATURES),
+      messages: window,
+      view: createDialogView(window.document),
+      keys: createIndexedDbDeviceStore(window.indexedDB),
+      generateKeyPair: generateSigningKeyPair,
+      sendImage: (url) => requestImage(url),
+      now: () => new Date(),
+      log: (message) => console.info(message),
+    }),
     startSensor: () =>
       // Symbol のキーで window に置く。別の版のバンドルからも同じキーで見つかる
       startExclusive(window as unknown as Record<symbol, unknown>, () =>

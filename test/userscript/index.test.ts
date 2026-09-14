@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { SIGN_IN_MENU_TITLE } from "../../src/userscript/auth.ts";
 import {
   type Cosense,
   type Dependencies,
@@ -44,7 +45,11 @@ function setup(projectName = "project-a", controlled = true) {
     off: () => undefined,
     PageMenu: { addItem: (item) => items.push(item) },
   };
+  const signIns = { count: 0 };
   const deps: Dependencies = {
+    signIn: () => {
+      signIns.count++;
+    },
     startSensor: () => {
       sensor.started++;
       return { stop: () => undefined, status: () => sensor.status };
@@ -107,16 +112,29 @@ function setup(projectName = "project-a", controlled = true) {
     state,
     setVisibility,
     clickMenu,
+    signIns,
   };
 }
 
 describe("ページメニュー", () => {
-  it("「草: センサーの記録」と、送信の疎通確認を足す", () => {
+  it("「草: センサーの記録」と、送信の疎通確認と、サインインを足す", () => {
     const t = setup();
 
     start(t.cosense, t.deps);
 
-    expect(t.items.map((i) => i.title)).toEqual([SENSOR_MENU_TITLE, PROBE_MENU_TITLE]);
+    expect(t.items.map((i) => i.title)).toEqual([
+      SENSOR_MENU_TITLE,
+      PROBE_MENU_TITLE,
+      SIGN_IN_MENU_TITLE,
+    ]);
+  });
+
+  it("**サインインは押した同期区間で 1 回だけ呼ぶ** (ポップアップを開くのにクリックの直後である必要がある)", () => {
+    const t = setup();
+    start(t.cosense, t.deps);
+
+    t.items.find((i) => i.title === SIGN_IN_MENU_TITLE)?.onClick();
+    expect(t.signIns.count).toBe(1);
   });
 
   it("押すと 3 つの大きさを順に送り、プロジェクト名と結果を alert に出す", async () => {
