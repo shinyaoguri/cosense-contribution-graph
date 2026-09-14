@@ -33,7 +33,8 @@ export const INGEST_PARAM = {
 
 /**
  * 1 リクエストのエントリ (ph, day) の上限 (design §6)。
- * URL は 1 エントリ約 520 文字なので、14 件で約 7.3KB。Cloudflare の上限 16KB に収まる。
+ * URL は 1 エントリ約 520 文字 (エンコード後は `|` と `;` が 3 文字になり最悪で約 530 文字) なので、
+ * 14 件で約 7.7KB。Cloudflare の上限 16KB に収まる (UserScript の outbox のテストが 8,000 文字以下を固定している)。
  */
 export const MAX_ENTRIES = 14;
 

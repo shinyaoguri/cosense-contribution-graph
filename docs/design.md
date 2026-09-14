@@ -99,7 +99,8 @@ src/userscript/
   index.ts                  エントリ。常駐とマウント
   sensor.ts                 20 秒ポーリングと lines:changed。数えるプロジェクトの判定
   time.ts                   ローカル時刻の日と分
-  beacon.ts                 画像 GET 送信と署名
+  outbox.ts                 送る記録を選び、送信済みをダイジェストで覚える (段階 6)
+  sender.ts                 登録した鍵で署名して送る。きっかけ・ロック・失敗の抑制 (段階 6)
   keys.ts                   この端末の鍵と uid を IndexedDB に 1 レコードで持つ
   auth.ts                   サインインのポップアップ、postMessage とコードの貼り付けの受信、登録
   sign-in-dialog.ts         サインインのダイアログ (段階 8 の設定 UI までの仮の置き場)
