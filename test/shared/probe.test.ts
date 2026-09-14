@@ -27,6 +27,10 @@ describe("sha256Hex", () => {
     );
   });
 
+  it("バイト列はそのままハッシュする (公開鍵から kid を作るのに使う)", async () => {
+    expect(await sha256Hex(new Uint8Array([0x61, 0x62, 0x63]))).toBe(await sha256Hex("abc"));
+  });
+
   it("桁数を指定すると先頭で切る", async () => {
     expect(await sha256Hex("abc", 32)).toBe("ba7816bf8f01cfea414140de5dae2223");
   });

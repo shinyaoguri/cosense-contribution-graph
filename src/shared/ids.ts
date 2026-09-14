@@ -1,11 +1,24 @@
 /**
- * UserScript と Worker の両方から使う識別子の規定。
+ * UserScript と Worker の両方から使う識別子の規定 (design §3)。
  *
  * **このファイルは DOM lib と workerd lib の両方で型検査される**
  * (tsconfig.userscript.json と tsconfig.worker.json の両方が include する)。
  * どちらか片方にしか無いグローバルを使うと型検査が落ちるので、
  * ここには環境に依らないコードだけを置く。
+ *
+ * ```
+ * uid        HMAC-SHA256(WORKER_SECRET, "google:" + sub) の先頭 160 bit を base64url (27 文字)
+ * kid        SHA-256(公開鍵 65 バイト)[0:16]
+ * ph         SHA-256(uid + ":" + プロジェクト名)[0:16]。'*' は全体
+ * publicId   SHA-256(uid + ":" + ph)[0:32]。全体用は ph = '*'
+ * ```
  */
+import { decodeBase64url } from "./base64url.ts";
+import { sha256Hex } from "./hash.ts";
+import { PUBLIC_KEY_BYTES } from "./sign.ts";
+
+/** uid のバイト数 (160 bit)。base64url にすると 27 文字 (ADR-0013 決定 2)。 */
+export const UID_BYTES = 20;
 
 /**
  * プロジェクト識別子 `ph` の桁数。
@@ -18,7 +31,14 @@ export const PH_LENGTH = 16;
 /** 全プロジェクトの合算を表す予約値。 */
 export const PH_ALL = "*";
 
+/** デバイス識別子 `kid` の桁数。 */
+export const KID_LENGTH = 16;
+
+/** 共有 URL の識別子 `publicId` の桁数。 */
+export const PUBLIC_ID_LENGTH = 32;
+
 const PH_PATTERN = new RegExp(`^[0-9a-f]{${PH_LENGTH}}$`);
+const KID_PATTERN = new RegExp(`^[0-9a-f]{${KID_LENGTH}}$`);
 
 /**
  * `ph` として受け付けてよい値かを判定する。
@@ -28,4 +48,37 @@ const PH_PATTERN = new RegExp(`^[0-9a-f]{${PH_LENGTH}}$`);
  */
 export function isValidPh(value: string): boolean {
   return value === PH_ALL || PH_PATTERN.test(value);
+}
+
+/**
+ * `uid` として受け付けてよい値か。20 バイトの正規な base64url (27 文字) だけ。
+ * 末尾の余りビットが立っている 27 文字は、同じ uid の別表記になるので拒否する。
+ */
+export function isValidUid(value: string): boolean {
+  return decodeBase64url(value)?.length === UID_BYTES;
+}
+
+export function isValidKid(value: string): boolean {
+  return KID_PATTERN.test(value);
+}
+
+/** プロジェクト名から `ph` を作る。**uid でソルトする** (辞書で逆引きされないように。design §3)。 */
+export function phOf(uid: string, projectName: string): Promise<string> {
+  return sha256Hex(`${uid}:${projectName}`, PH_LENGTH);
+}
+
+/**
+ * 共有 URL の `publicId`。一方向なので、プロジェクト用から全体用も他のプロジェクト用も導けない
+ * (ADR-0007 決定 3)。
+ */
+export function publicIdOf(uid: string, ph: string): Promise<string> {
+  return sha256Hex(`${uid}:${ph}`, PUBLIC_ID_LENGTH);
+}
+
+/** 公開鍵 (65 バイトの非圧縮 SEC1) から `kid` を作る。**文字列ではなくバイト列をハッシュする。** */
+export function kidOf(publicKey: Uint8Array<ArrayBuffer>): Promise<string> {
+  if (publicKey.length !== PUBLIC_KEY_BYTES) {
+    throw new RangeError(`公開鍵は ${PUBLIC_KEY_BYTES} バイト: ${publicKey.length}`);
+  }
+  return sha256Hex(publicKey, KID_LENGTH);
 }

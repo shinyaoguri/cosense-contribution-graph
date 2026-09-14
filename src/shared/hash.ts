@@ -7,9 +7,16 @@
 
 const HEX_LENGTH = 64;
 
-/** `text` の UTF-8 の SHA-256 を小文字の 16 進で返す。`length` 桁で切る (既定は全桁)。 */
-export async function sha256Hex(text: string, length = HEX_LENGTH): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+/**
+ * SHA-256 を小文字の 16 進で返す。`length` 桁で切る (既定は全桁)。
+ * 文字列は UTF-8 にしてからハッシュする。バイト列 (公開鍵など) はそのまま。
+ */
+export async function sha256Hex(
+  input: string | Uint8Array<ArrayBuffer>,
+  length = HEX_LENGTH,
+): Promise<string> {
+  const bytes = typeof input === "string" ? new TextEncoder().encode(input) : input;
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)]
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("")
