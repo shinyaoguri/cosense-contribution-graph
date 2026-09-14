@@ -35,6 +35,7 @@ npm run dev                  # wrangler dev。/__scheduled で Cron を叩ける
 
 **`check-links.sh` は外部 URL を見ない。意図的。** 一次情報への出典を大量に持つので、到達性を CI で
 見ると先方の都合で赤くなる。出典の鮮度は `research.md` の基準日付きの記述で人間が管理する。
+外部を見るのは配布ページの見張り (`distribution.yml`、Issue #47) だけで、これも required にしない。
 
 テスト中の「Missing required secrets」は**設計どおりで失敗ではない** (`secrets.required` を宣言していて、
 CI に秘密を置かない)。ローカルで消したいときは `.dev.vars.example` を `.dev.vars` にコピーする。

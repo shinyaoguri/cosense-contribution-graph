@@ -1,0 +1,114 @@
+# 配布ページのバンドルが main より古いまま放置されていないかを見張る (Issue #47)。
+#
+# 配布ページへの反映は持ち主の手作業 (ADR-0013 決定 3。PAT を CI に置かない) なので、貼り忘れに気付く仕組みにする。
+# main から作ったバンドルと配布ページの script.js を SHA-256 で比べ、違えば Issue で知らせ、揃ったら閉じる。
+#
+# - **required の検査にしない。** 外部 (scrapbox.io) の都合で赤くなりうる。check-links.sh が外部 URL を
+#   見ないのと同じ理由で、ci.yml と `npm run check` からは切り離す
+# - Cloudflare の秘密も PAT も使わない。公開プロジェクトはログインせずに読める
+name: Distribution
+
+on:
+  schedule:
+    # 1 日 1 回。毎時 0 分は Actions が混むのでずらす (日本時間 9:41)
+    - cron: "41 0 * * *"
+  workflow_dispatch:
+  # このワークフローとスクリプトを変えた PR で試す。**PR では Issue を触らず、結果をサマリに出すだけ**
+  pull_request:
+    paths:
+      - .github/workflows/distribution.yml
+      - scripts/check-distribution.sh
+
+permissions:
+  contents: read
+
+concurrency:
+  group: distribution-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    env:
+      # **見張るページは今は dev だけ** (追従させる相手は main)。リリース版 (v1…) を作るときに、
+      # 比べる相手 (タグなど) と一緒にページの増やし方を決める
+      PAGE: dev
+      LABEL: "distribution: stale"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build:userscript
+
+      # 違っても (exit 1) ここでは落とさず、次の段で Issue にする。取得できない (exit 2) ときは落とす
+      - name: 配布ページと比べる
+        id: compare
+        run: |
+          status=0
+          ./scripts/check-distribution.sh "$PAGE" dist/userscript.js || status=$?
+          if [ "$status" -ge 2 ]; then
+            exit "$status"
+          fi
+
+      - name: 結果を Issue に反映する
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ steps.compare.outputs.result }}
+          URL: ${{ steps.compare.outputs.url }}
+          BUNDLE_SHA: ${{ steps.compare.outputs.bundle_sha }}
+          BUNDLE_BYTES: ${{ steps.compare.outputs.bundle_bytes }}
+          PAGE_SHA: ${{ steps.compare.outputs.page_sha }}
+          PAGE_BYTES: ${{ steps.compare.outputs.page_bytes }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          signature=$'---\n<sub>🤖 Distribution ワークフロー (.github/workflows/distribution.yml) が書き込み</sub>'
+          # ラベルで同じ Issue を見分ける。1 ページにつき開いた Issue は 1 本
+          open_issue="$(gh issue list --state open --label "$LABEL" --limit 100 \
+            --json number,title --jq "map(select(.title | endswith(\"/$PAGE\"))) | .[0].number // empty")"
+
+          if [ "$RESULT" = "fresh" ]; then
+            if [ -n "$open_issue" ]; then
+              gh issue close "$open_issue" --reason completed \
+                --comment "配布ページ \`$PAGE\` が main のバンドルと一致した (SHA-256 \`$BUNDLE_SHA\`、[run]($RUN_URL))。"$'\n\n'"$signature"
+            fi
+            exit 0
+          fi
+
+          commit="$(git rev-parse --short HEAD)"
+          body="$(cat <<EOF
+          配布ページ [\`/cosense-grass/$PAGE\`]($URL) の \`script.js\` が、main (\`$commit\`) から作ったバンドルと違う。**配布ページへの貼り忘れ**の可能性がある。
+
+          | | SHA-256 | バイト |
+          |---|---|---|
+          | main から作ったバンドル | \`$BUNDLE_SHA\` | $BUNDLE_BYTES |
+          | 配布ページ | \`$PAGE_SHA\` | $PAGE_BYTES |
+
+          最終確認: $(date -u '+%Y-%m-%d %H:%M UTC') ([run]($RUN_URL))。この本文は毎日の実行で上書きされ、一致したら自動で閉じる。
+
+          ## 直し方
+
+          1. main で \`npm run build:userscript\` を走らせる
+          2. \`dist/userscript.js\` の中身を、配布ページの \`code:script.js\` ブロックに貼り替える
+          3. 次の実行 (または Actions の Distribution を手で実行) で閉じる
+
+          配布ページは取得のたびにキャッシュを避けて読んでいる。利用者に届くのは、エッジのキャッシュ (最長 2 時間) が切れた後になりうる (research §2)。
+
+          $signature
+          EOF
+          )"
+          if [ -n "$open_issue" ]; then
+            gh issue edit "$open_issue" --body "$body"
+          else
+            gh label create "$LABEL" --color D93F0B \
+              --description "配布ページのバンドルが main と違う (distribution.yml が管理)" 2>/dev/null || true
+            gh issue create --title "配布ページのバンドルが main より古い: /cosense-grass/$PAGE" \
+              --label "$LABEL" --body "$body"
+          fi
