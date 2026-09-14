@@ -183,6 +183,8 @@ code:script.js
  import "/api/code/shinyaoguri/cosense-grass-probe/script.js"
 ```
 
+**2026-09-14 に配布先を専用の公開プロジェクト `/cosense-grass` に移した** (ADR-0005 の改訂、#46)。上の実測は移す前のページで行った。
+
 **配布ページを差し替えても承認は求められなかった。** 自分のページの `script.js` が変わらないので SHA1 が一致する
 (下の「SHA1 承認ゲート」のとおり)。
 
