@@ -3,7 +3,9 @@ import {
   ACCEPT_PAST_DAYS,
   acceptsDay,
   DAYBITS_RETENTION_DAYS,
+  DEFAULT_TIME_ZONE,
   daybitsCutoff,
+  todayIn,
 } from "../../src/worker/days.ts";
 
 const at = (iso: string) => Date.parse(iso);
@@ -45,5 +47,21 @@ describe("記録を受け付ける日", () => {
 describe("Cron が消すビットマップ", () => {
   it("UTC の今日から 90 日前の日を境にする (その日は残す)", () => {
     expect(daybitsCutoff(at("2026-09-14T03:17:00Z"))).toBe("2026-06-16");
+  });
+});
+
+describe("共有 SVG の今日", () => {
+  it("既定のタイムゾーンは Asia/Tokyo (users.tz の既定)", () => {
+    expect(DEFAULT_TIME_ZONE).toBe("Asia/Tokyo");
+  });
+
+  it("**日本時間の 0:00 で日付が変わる**", () => {
+    expect(todayIn("Asia/Tokyo", at("2026-09-14T14:59:59Z"))).toBe("2026-09-14");
+    expect(todayIn("Asia/Tokyo", at("2026-09-14T15:00:00Z"))).toBe("2026-09-15");
+  });
+
+  it("年をまたいでも YYYY-MM-DD で返す", () => {
+    expect(todayIn("Asia/Tokyo", at("2025-12-31T15:00:00Z"))).toBe("2026-01-01");
+    expect(todayIn("UTC", at("2025-12-31T15:00:00Z"))).toBe("2025-12-31");
   });
 });

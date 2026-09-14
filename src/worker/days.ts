@@ -42,6 +42,26 @@ export function acceptsDay(day: string, nowMs: number): boolean {
   return target >= earliest && target <= latest;
 }
 
+/**
+ * 共有 SVG の「今日」を決めるタイムゾーン。`users.tz` の既定 (design §5)。
+ * **段階 4 で users を作るまでは全員これ。** day はクライアントのローカル日付なので、他の地域の利用者は
+ * 今日の列が 1 日ずれて見えうる。
+ */
+export const DEFAULT_TIME_ZONE = "Asia/Tokyo";
+
+/** `timeZone` での今日を `YYYY-MM-DD` で返す。 */
+export function todayIn(timeZone: string, nowMs: number): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(nowMs));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((p) => p.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
 /** これより前の日のビットマップを Cron が消す (この日は残す)。 */
 export function daybitsCutoff(nowMs: number): string {
   return fromEpochDay(utcEpochDay(nowMs) - DAYBITS_RETENTION_DAYS);
