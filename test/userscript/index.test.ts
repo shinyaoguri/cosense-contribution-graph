@@ -347,6 +347,32 @@ describe("記録の自動送信 (クリック無し)", () => {
     expect(autoRecords(t.store).hidden.result).toEqual({ kind: "written" });
   });
 
+  it("**結果を localStorage に書けなくても (容量超過など)、次の送信は走る**", async () => {
+    const t = setup();
+    const setItem = t.deps.storage.setItem;
+    let failures = 1;
+    const deps: Dependencies = {
+      ...t.deps,
+      storage: {
+        getItem: t.deps.storage.getItem,
+        setItem: (key, value) => {
+          if (key === AUTO_RECORD_KEY && failures-- > 0) {
+            throw new Error("QuotaExceededError");
+          }
+          setItem(key, value);
+        },
+      },
+    };
+
+    start(t.cosense, deps);
+    await flush();
+    await t.setVisibility("hidden");
+    await flush();
+
+    expect(t.recorded).toHaveLength(2);
+    expect(Object.keys(autoRecords(t.store))).toEqual(["hidden"]);
+  });
+
   it("**送る前に失敗したら、理由を残す**", async () => {
     const t = setup();
     t.recordState.report = new Error("IndexedDB が無い");
