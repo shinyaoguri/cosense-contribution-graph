@@ -537,6 +537,9 @@ rows read は**スキャンした行数**でカウントされる。返した行
   (2引数以上はスカラー関数)
 - `ON CONFLICT` の conflict target は省略できる (SQLite 3.35.0 以降) が、明示した方が安全。
   D1 の SQLite バージョンは公式に明記がない
+- **`DELETE ... RETURNING` は `db.batch()` の中でも行を返す** (2026-09-14、ローカルの workerd と `wrangler dev` で確認、Issue #61)。
+  `results[i].results` に消した行が入る。`INSERT ... SELECT ... WHERE ... ON CONFLICT (...) DO NOTHING` も同じ batch で通る。
+  **本番の D1 では、callback ができて最初に登録するときに確かめる**
 - `WITHOUT ROWID` は PRIMARY KEY 必須、PK の全カラムが暗黙に NOT NULL。
   向くのは**行が小さいとき** (目安はページサイズの 1/20、4KiB ページなら約 200 バイト)。
   それを超えると中間ノードのファンアウトが落ちて逆に遅くなる

@@ -70,6 +70,7 @@ src/shared/                 Worker と UserScript の両方から import する
   bits.ts                   ビットマップ: OR / andNot / popcount
   sign.ts                   署名対象の正規化と ECDSA P-256 の署名・検証
   beacon.ts                 GET /v1/p.gif のクエリの組み立てと厳密な読み取り、応答の幅
+  enroll.ts                 GET /v1/enroll.gif のクエリの組み立てと厳密な読み取り、応答の幅
   scale.ts                  四分位スケール
   balance.ts                読み書きのバランス (配色に依らない)
   oklch.ts                  OKLCH → sRGB。彩度を二分探索でガモットに詰める
@@ -81,7 +82,8 @@ src/worker/
   auth.ts                   /auth/start と /auth/callback
   idtoken.ts                Google の ID トークンの検証と JWKS の保持
   uid.ts                    sub から uid を導く (HMAC)
-  enroll.ts                 デバイスの登録と失効
+  enroll.ts                 デバイスの登録 (GET /v1/enroll.gif) と登録トークンの発行。失効
+  responses.ts              画像ビーコンの受け口が返す透過 GIF と拒否
   ingest.ts                 GET /v1/p.gif
   merge.ts                  受け取ったエントリと保存済みの値のマージ (純関数)
   days.ts                   記録を受け付ける日付の窓と、ビットマップの保持日数
@@ -187,7 +189,7 @@ Bluesky が 2025 年 3 月に実際に壊れた。scrapbox.io 側がプロジェ
 代替手段が乏しいので最初から備える。
 
 - ポップアップは postMessage を送ったうえで**コードも画面に表示する**。
-  `<uid>:<登録トークン>` を base64url にした 40 文字程度
+  `<uid>:<登録トークン>` を base64url にした **48 文字** (uid 20 バイト + トークン 16 バイト。2026-09-14、Issue #61)
 - 親は**タイムアウト付きで postMessage を待つ**。来なければ「ポップアップのコードを貼ってください」
   と案内する
 - **`popup.closed` のポーリングに依存しない。** COOP 下では `closed` が常に `true` を返して嘘をつく
@@ -309,8 +311,13 @@ Ed25519 はブラウザ普及率 88% なので単独採用しない。
 (どの uid にも書けた) を消すため、受け口が `keys` を引くようにした。行を入れるデバイス登録は段階 4 なので、それまでは空で記録は全部 403 になる。
 **`keys.last_seen` はまだ作っていない。**
 
-`users` は段階 4 で作る。`users.last_seen` と `keys.last_seen` は送信のたびの書き込みになるのに §11 の予算に入っていないので、
-デバイス登録と一緒に要否を決める。**`users.ver` は作るときに落とす。** 「ETag 兼用」だったが、
+**`enroll_tokens` はデバイス登録と一緒に作った** (2026-09-14、`migrations/0004_enroll_tokens.sql`、Issue #61)。
+トークンを発行する `/auth/callback` は OAuth クライアントが要るのでまだ無く、本番では空のまま。
+
+**`users` はデバイス登録でも作らなかった** (2026-09-14、Issue #61)。登録に要るのは `keys` と `graphs` だけで、
+読むコードも書くコードも無い。`tz` の設定か `last_seen` の記録が要るときに作る。
+`users.last_seen` と `keys.last_seen` は送信のたびの書き込みになるのに §11 の予算に入っていないので、
+そのときに要否を決める。**`users.ver` は作るときに落とす。** 「ETag 兼用」だったが、
 ETag を本文の SHA-256 にした (ADR-0015 決定 2) ので使い道が無い。
 
 ```sql
@@ -329,6 +336,13 @@ CREATE TABLE keys (
   created INTEGER NOT NULL,
   last_seen INTEGER NOT NULL,    -- まだ作っていない (段階 4 で要否を決める)
   PRIMARY KEY (uid, kid)
+) WITHOUT ROWID;
+
+-- 登録トークン。/auth/callback が発行し、/v1/enroll.gif が 1 回だけ使う
+CREATE TABLE enroll_tokens (
+  token_hash TEXT NOT NULL PRIMARY KEY,  -- SHA-256(トークン) の 16 進 64 桁。トークンそのものは保存しない
+  uid        TEXT NOT NULL,
+  expires    INTEGER NOT NULL            -- unix 秒。発行から 300 秒
 ) WITHOUT ROWID;
 
 -- 共有 URL の解決表。全体用とプロジェクト別が混在する
@@ -432,11 +446,39 @@ pages' = max(pages_old, pages_new)、created も同じ
 ### `GET /v1/enroll.gif` — デバイスの登録
 
 ```
-?u=<uid>&k=<公開鍵 base64url>&tok=<登録トークン>
+?v=1&u=<uid>&k=<公開鍵 base64url>&tok=<登録トークン>&sig=<base64url>
 ```
 
-登録トークンを検証し、`keys` に UPSERT する。トークンは 1 回使い捨てで 5 分有効。
-同時に `graphs` の全体用の行も UPSERT する。
+**段階 4 のうち、OAuth クライアントを待たずに実装した** (2026-09-14、`src/worker/enroll.ts`、Issue #61)。
+トークンを発行する `/auth/callback` がまだ無いので、本番では全部 403 になる。
+
+1. **形を見る (400)。** `src/shared/enroll.ts` の `parseEnrollQuery`。キーは 5 つちょうど、`k` は 65 バイト、
+   `tok` は 16 バイト、`sig` は 64 バイトの正規な base64url
+2. **公開鍵を読み込み (400)、その鍵で `sig` を検証する (403)。** ここまで D1 に触らない
+3. 1 回の batch (トランザクション) で、トークンのハッシュ・uid・期限が合うときだけ `keys` と全体用の `graphs` を INSERT し
+   (`ON CONFLICT DO NOTHING`)、**トークンを `DELETE ... RETURNING` で消す**
+4. 200 と透過 GIF。**幅は 16 + ビット (1 = 新しく登録した)**。登録済みの鍵を別のトークンで送ると 16
+
+**当初の形から変えたところ。**
+
+- **登録する鍵そのもので署名させる** (`sig`。ADR-0009 の改訂)。署名対象は `"/v1/enroll.gif\nv=1\nu=…\nk=…\ntok=…"`。
+  壊れた鍵 (秘密鍵と公開鍵の取り違え、IndexedDB から読み戻せない鍵) ではトークンを消費しない
+- **`v=1` を足した** (`/v1/p.gif` と揃える)。トークンは 1 回しか使えないので `t` (リプレイ窓) は持たない
+- **UPSERT ではなく `DO NOTHING`。** 登録済みの鍵の `created` を書き換えない
+- **トークンは 128 bit。D1 にはその SHA-256 だけを持つ。** D1 が漏れても期限内のトークンを使えない
+- **トークンは、期限切れや uid 違いでも最初に提示された時点で消す。** 残すと uid を変えながら何度でも試せる
+
+応答。
+
+| | 状態 | 本文 |
+|---|---|---|
+| 登録した / 登録済み | 200 | 幅 17 / 16 の透過 GIF。`Cache-Control: no-store` |
+| 形・曲線上に無い公開鍵 | 400 | text/plain |
+| 署名・知らないトークン・期限切れ・uid 違い | 403 | text/plain |
+| D1 の throw | 500 | text/plain (batch が戻るのでトークンは残る) |
+
+**GET だけ受ける。** HEAD でトークンを消費させない (404)。
+ログは `{"event":"enroll","status","reason"}` の 1 行だけ。**uid・kid・トークン・そのハッシュは出さない。**
 
 ### `GET /v1/p.gif` — 記録
 
@@ -591,6 +633,7 @@ X-Content-Type-Options: nosniff
 
 - 90 日より古い `daybits` を削除する (`daily` に集計済みなので情報は失われない)。**段階 3 で実装した** (`src/worker/cron.ts`)。
   境界は UTC の今日の 90 日前で、その日は残す
+- 使われずに期限が切れた登録トークン (`enroll_tokens`) を削除する (2026-09-14、Issue #61)。使われたものは受け口がその場で消す
 - 30 日以上送信のない `uid` をログ出力する。**`users.last_seen` が要るので段階 4 以降**
 
 ---
@@ -931,7 +974,7 @@ IndexedDB も同様なので、同じブラウザなら鍵は 1 つで足りる�
 | 共有 URL を知る人が書き込む | 署名が必要。公開鍵から秘密鍵は導出できない |
 | **第三者が他人の識別子を計算する** | uid は Worker 固有の秘密で HMAC する。`sub` を知っていても計算できない |
 | 運営者が他人の書き込み権を得る | 秘密鍵はデバイスから出ない。ログに流れるのは公開鍵と署名だけ |
-| D1 の漏洩から書き込み権が漏れる | 保存するのは公開鍵だけ |
+| D1 の漏洩から書き込み権が漏れる | 保存するのは公開鍵だけ。登録トークンも SHA-256 だけを持つ |
 | D1 の漏洩からプロジェクト名が漏れる | uid でソルトしたハッシュしか送らない |
 | **D1 の漏洩から Google アカウントが特定される** | `sub` は保存せず HMAC の結果だけを持つ |
 | プロジェクト別の共有 URL から全体や他を見る | 一方向導出 |
@@ -987,6 +1030,9 @@ Free 枠で組める多層にする。
 D1 Free の日次上限は 2026-09-01 から実際に強制される。超えると UTC 0 時まで
 **全ユーザーが記録できなくなる**ので、予算は設計の制約として扱う。
 
+**デバイス登録の書き込みは無視できる。** 1 回で最大 4 行 (トークンの発行 1 + `keys` 1 + `graphs` 0〜1 + トークンの削除 1) で、
+サインインは初回とデバイス追加のときだけ。
+
 読みは日次 500 万行あるので、UPSERT の前に SELECT する余裕がある。
 no-op な UPDATE が rows written にカウントされるかは公式に記述がないので、それに依存しない。
 
@@ -997,6 +1043,7 @@ no-op な UPDATE が rows written にカウントされるかは公式に記述�
 | 分単位のビットマップ (`daybits`) | **90 日。** Cron で削除する。集計済みなので情報は失われない |
 | 日次の集計値 (`daily`) | **削除しない。** 利用者が自分で削除するまで持つ |
 | 公開鍵 (`keys`) | 失効させるか、利用者のデータ全体を削除するまで |
+| 登録トークンのハッシュ (`enroll_tokens`) | 使うまで。使わなければ 5 分で無効になり、Cron が消す |
 
 **日次の集計値を無期限に持つ。** 数年後に振り返れることを要件として選んだ (ADR-0013 の改訂)。
 

@@ -35,6 +35,8 @@ export type Signer = {
   readonly kid: string;
   readonly publicKey: Uint8Array<ArrayBuffer>;
   readonly resolveKey: ResolveKey;
+  /** この鍵ペアの秘密鍵で署名する (登録の所有証明に使う) */
+  sign(input: string): Promise<Uint8Array<ArrayBuffer>>;
   /** 署名つきの URL。`time` の既定は NOW */
   url(uid: string, entries: readonly Entry[], time?: number): Promise<URL>;
 };
@@ -47,6 +49,7 @@ export async function createSigner(): Promise<Signer> {
     kid,
     publicKey,
     resolveKey: async (_uid, requested) => (requested === kid ? pair.publicKey : undefined),
+    sign: (input) => sign(pair.privateKey, input),
     url: async (uid, entries, time = NOW / 1000) =>
       new URL(
         await buildIngestUrl(ORIGIN, { uid, kid, time, entries }, (input) =>
