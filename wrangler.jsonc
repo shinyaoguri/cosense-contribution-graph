@@ -44,6 +44,15 @@
     }
   ],
 
+  // 秘密ではない設定。**ダッシュボードで vars を足さない** (keep_vars を付けていないので、
+  // デプロイのたびにここの内容に置き換わる。research §5)。
+  "vars": {
+    // Google Cloud の OAuth クライアント (段階 4、Issue #61)。クライアント ID は公開情報
+    "GOOGLE_CLIENT_ID": "1019787027635-rqednvrt9cm4p5bk6uu3lgjf318162l6.apps.googleusercontent.com",
+    // redirect_uri と認証の cookie の基準 (ADR-0014 決定 10)。ローカルでは .dev.vars で上書きできる
+    "PUBLIC_ORIGIN": "https://grass.soui.dev"
+  },
+
   // UTC。デプロイのたびに内容で置き換わるので、空配列にすると全削除される。
   "triggers": { "crons": ["17 3 * * *"] },
 
@@ -52,10 +61,10 @@
   //
   // **使っているコードに合わせて足していく。** Worker がまだ無い状態の初回デプロイは、
   // ここに宣言した secret が揃わないと必ず失敗する。使わない secret まで宣言すると、
-  // 仮の値を本番に置くことになる。GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET は
-  // 段階 4 (Google サインイン) で足す。
+  // 仮の値を本番に置くことになる。**足したら .github/workflows/ci.yml の names も足す。**
   //
   // WORKER_SECRET は一度決めたら変えられない (変えると全利用者の識別子が変わる)。
+  // GOOGLE_CLIENT_SECRET は OAuth クライアントのもの (段階 4、Issue #61)。
   // 値は GitHub の production 環境にあり、CI が毎回 --secrets-file で渡す。
-  "secrets": { "required": ["WORKER_SECRET"] }
+  "secrets": { "required": ["WORKER_SECRET", "GOOGLE_CLIENT_SECRET"] }
 }

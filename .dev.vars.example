@@ -8,4 +8,10 @@
 # 利用者の識別子を導出する鍵。**失うと全利用者の識別子が再計算できなくなる**
 WORKER_SECRET=dummy-not-a-real-secret
 
-# GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET は段階 4 (Google サインイン) で足す
+# OAuth クライアントの secret。ダミーのままでは Google とのやり取りは通らない
+GOOGLE_CLIENT_SECRET=dummy-not-a-real-secret
+
+# ローカルで OAuth を実際に通すときだけ、開発用の OAuth クライアント (リダイレクト URI が
+# http://localhost:8787/auth/callback) を別に作り、次を置く。**本番のクライアントの secret は置かない**
+# PUBLIC_ORIGIN=http://localhost:8787
+# GOOGLE_CLIENT_ID=<開発用のクライアント ID>

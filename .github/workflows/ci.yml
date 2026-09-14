@@ -81,6 +81,9 @@ jobs:
       # いるので、Worker がまだ存在しない状態の deploy はこれが無いと必ず例外になる
       # (wrangler の secrets-validation)。値そのものは渡さず、真偽だけを見る
       WORKER_SECRET_PRESENT: ${{ secrets.WORKER_SECRET != '' }}
+      # secrets.required に足した (段階 4、Issue #61)。Worker は既にあるので、未設定だと
+      # inherit が解決できずにデプロイが落ちる
+      GOOGLE_CLIENT_SECRET_PRESENT: ${{ secrets.GOOGLE_CLIENT_SECRET != '' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -97,6 +100,9 @@ jobs:
             echo "skip=true" >> "$GITHUB_OUTPUT"
           elif [ "$WORKER_SECRET_PRESENT" != "true" ]; then
             echo "::notice::WORKER_SECRET が未設定なのでデプロイをスキップします (secrets.required を満たせないため、初回デプロイは必ず失敗する)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          elif [ "$GOOGLE_CLIENT_SECRET_PRESENT" != "true" ]; then
+            echo "::notice::GOOGLE_CLIENT_SECRET が未設定なのでデプロイをスキップします (secrets.required を満たせないため)"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
       # **D1 が無ければ作る** (Issue #36)。ローカルからリモートを操作しない (ADR-0014) ので、
@@ -157,17 +163,24 @@ jobs:
         if: steps.guard.outputs.skip != 'true'
         env:
           WORKER_SECRET: ${{ secrets.WORKER_SECRET }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
         run: |
           node --input-type=module -e '
             import { writeFileSync } from "node:fs";
             import { join } from "node:path";
-            const value = process.env.WORKER_SECRET;
-            if (!value) {
-              console.error("WORKER_SECRET が空。guard を通過したのに値が無い");
-              process.exit(1);
+            // wrangler.jsonc の secrets.required と同じ並び。足したらここも足す
+            const names = ["WORKER_SECRET", "GOOGLE_CLIENT_SECRET"];
+            const secrets = {};
+            for (const name of names) {
+              const value = process.env[name];
+              if (!value) {
+                console.error(`${name} が空。guard を通過したのに値が無い`);
+                process.exit(1);
+              }
+              secrets[name] = value;
             }
             const file = join(process.env.RUNNER_TEMP, "worker-secrets.json");
-            writeFileSync(file, JSON.stringify({ WORKER_SECRET: value }), { mode: 0o600 });
+            writeFileSync(file, JSON.stringify(secrets), { mode: 0o600 });
           '
       - name: デプロイ
         if: steps.guard.outputs.skip != 'true'

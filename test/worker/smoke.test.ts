@@ -20,6 +20,7 @@ describe("secrets の足場", () => {
     // vitest.worker.config.ts の miniflare.bindings が入ることを確かめる
     // (段階 4 の HMAC のテストの前提)。
     expect(env.WORKER_SECRET).toBe("test-worker-secret");
+    expect(env.GOOGLE_CLIENT_SECRET).toBe("test-google-client-secret");
   });
 });
 
