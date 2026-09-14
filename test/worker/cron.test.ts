@@ -46,4 +46,27 @@ describe("Cron", () => {
     expect(await days("daybits")).toEqual(["2026-06-16", "2026-09-13"]);
     expect(await days("daily")).toEqual(["2026-06-15", "2026-06-16", "2026-09-13"]);
   });
+
+  it("**期限の切れた登録トークンを消し、期限内のものは残す**", async () => {
+    const nowSeconds = Math.floor(NOW / 1000);
+    await env.DB.batch(
+      [
+        ["expired", nowSeconds - 1],
+        ["edge", nowSeconds],
+        ["valid", nowSeconds + 300],
+      ].map(([hash, expires]) =>
+        env.DB.prepare(
+          "INSERT INTO enroll_tokens (token_hash, uid, expires) VALUES (?, ?, ?)",
+        ).bind(hash, UID, expires),
+      ),
+    );
+
+    const controller = createScheduledController({ scheduledTime: NOW, cron: "17 3 * * *" });
+    await worker.scheduled(controller, env);
+
+    const { results } = await env.DB.prepare(
+      "SELECT token_hash FROM enroll_tokens ORDER BY token_hash",
+    ).all();
+    expect(results.map((row) => row.token_hash)).toEqual(["edge", "valid"]);
+  });
 });

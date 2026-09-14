@@ -1,11 +1,13 @@
 import { centerOf } from "../shared/balance.ts";
 import { INGEST_PATH } from "../shared/beacon.ts";
+import { ENROLL_PATH } from "../shared/enroll.ts";
 import { sha256Hex } from "../shared/hash.ts";
 import { isValidPublicId } from "../shared/ids.ts";
 import { PROBE_PATH } from "../shared/probe.ts";
 import { buildScale } from "../shared/scale.ts";
-import { deleteOldDaybits } from "./cron.ts";
+import { deleteExpiredEnrollTokens, deleteOldDaybits } from "./cron.ts";
 import { DEMO_TODAY, demoData } from "./demo.ts";
+import { handleEnroll } from "./enroll.ts";
 import { renderStoredGraph } from "./graph-data.ts";
 import { handleIngest } from "./ingest.ts";
 import { d1KeyResolver } from "./keys.ts";
@@ -16,7 +18,8 @@ import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
 /**
  * Worker のエントリ。
  *
- * 経路は `/v1/p.gif` (記録の受け口)、`/v1/g/{publicId}.svg`、`/v1/probe.gif` (送信の疎通確認)。
+ * 経路は `/v1/p.gif` (記録の受け口)、`/v1/enroll.gif` (デバイスの登録)、`/v1/g/{publicId}.svg`、
+ * `/v1/probe.gif` (送信の疎通確認)。
  * グラフは `demo` ならデモを、それ以外は D1 の記録から描く。
  */
 
@@ -46,6 +49,13 @@ export default {
         resolveKey: d1KeyResolver(env.DB),
         now: () => Date.now(),
       });
+    }
+    if (url.pathname === ENROLL_PATH) {
+      // **登録も GET だけ。** HEAD でトークンを消費させない
+      if (request.method !== "GET") {
+        return notFound();
+      }
+      return handleEnroll(url, { db: env.DB, now: () => Date.now() });
     }
     if (url.pathname === PROBE_PATH) {
       return handleProbe(request, url);
@@ -77,7 +87,9 @@ export default {
   async scheduled(controller, env): Promise<void> {
     // 90 日より古い daybits を消す (ADR-0013 決定 2)。時刻は Cron が起動した予定時刻で決める
     const deleted = await deleteOldDaybits(env.DB, controller.scheduledTime);
-    console.log(JSON.stringify({ event: "cron", deleted }));
+    // 使われずに期限が切れた登録トークンを消す
+    const expiredTokens = await deleteExpiredEnrollTokens(env.DB, controller.scheduledTime);
+    console.log(JSON.stringify({ event: "cron", deleted, expiredTokens }));
   },
 } satisfies ExportedHandler<Env>;
 
