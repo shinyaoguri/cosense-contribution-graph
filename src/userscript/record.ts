@@ -17,6 +17,7 @@ import { isValidUid, kidOf, PH_ALL, phOf, publicIdOf, UID_BYTES } from "../share
 import { exportPublicKey, generateSigningKeyPair, sign } from "../shared/sign.ts";
 import { type ImageOptions, requestImage } from "./image.ts";
 import { WORKER_ORIGIN } from "./probe.ts";
+import { localDay } from "./time.ts";
 
 /** 試験用の uid を置く localStorage のキー。 */
 export const TRIAL_UID_KEY = "cosense-grass:trial:uid";
@@ -62,12 +63,6 @@ export type RecordReport = {
   readonly wholeGraphUrl: string;
   readonly projectGraphUrl: string;
 };
-
-/** ローカル時刻の今日。day はクライアントのローカル日付で決める (ADR-0002)。 */
-export function localDay(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
-}
 
 async function loadOrCreateKey(
   store: KeyStore,
