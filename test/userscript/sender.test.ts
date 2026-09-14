@@ -314,3 +314,46 @@ describe("createSender — 鍵と状態", () => {
     expect(stored).toContain('"outcome":"written"');
   });
 });
+
+describe("createSender — status", () => {
+  it("未登録なら not-enrolled", async () => {
+    const t = await harness({ device: { kind: "missing" } });
+    expect(await t.sender.status()).toEqual({ kind: "not-enrolled" });
+  });
+
+  it("**登録済みなら kid・合算の草の URL・今日の回数・未送信の日数・最後の送信を返す**", async () => {
+    const t = await harness();
+    t.record({ kind: "read", project: "p", day: YESTERDAY, minute: 1 });
+    t.record({ kind: "read", project: "p", day: TODAY, minute: 1 });
+    const before = await t.sender.status();
+    expect(before.kind === "enrolled" && before.pendingDays).toBe(2);
+
+    await t.sender.trigger("hidden");
+    const after = await t.sender.status();
+    if (after.kind !== "enrolled") throw new Error(after.kind);
+    const found = t.state.device;
+    if (found.kind !== "found") throw new Error();
+    expect(after.kid).toBe(found.record.kid);
+    expect(after.graphUrl).toMatch(/^https:\/\/grass\.soui\.dev\/v1\/g\/[0-9a-f]{32}\.svg$/);
+    expect(after.pendingDays).toBe(0);
+    expect(after.todaySends).toBe(1);
+    expect(after.last).toMatchObject({
+      trigger: "hidden",
+      outcome: "written",
+      requests: 1,
+      entries: 4,
+    });
+    expect(after.backoffUntil).toBeUndefined();
+  });
+
+  it("抑制中なら次に送る時刻を返し、過ぎたら返さない", async () => {
+    const t = await harness({ image: () => ({ kind: "error" }) });
+    t.record({ kind: "read", project: "p", day: YESTERDAY, minute: 1 });
+    await t.sender.trigger("load");
+    const status = await t.sender.status();
+    expect(status.kind === "enrolled" && status.backoffUntil).toBe(NOON + backoffMs(1));
+    t.clock.ms += backoffMs(1);
+    const later = await t.sender.status();
+    expect(later.kind === "enrolled" && later.backoffUntil).toBeUndefined();
+  });
+});

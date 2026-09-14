@@ -1,9 +1,10 @@
 /**
  * 「草: センサーの記録」の文面 (段階 5)。持ち主が、センサーの数えた分が実感と合うかを 1 日使って確かめるためのもの。
- * メニューを押しても送信はしない (送るのは sender.ts)。DOM 注入の草 (段階 8) ができたら役目を終える。
+ * 段階 6 からは送信の状況も出す。メニューを押しても送信はしない (送るのは sender.ts)。DOM 注入の草 (段階 8) ができたら役目を終える。
  */
 import { type Bitmap, MINUTES_PER_DAY } from "../shared/bits.ts";
 import { fromEpochDay, toEpochDay } from "../shared/graph.ts";
+import { MAX_TODAY_SENDS, type SendStatus } from "./sender.ts";
 import type { CountingStatus } from "./sensor.ts";
 import type { Counts, Store } from "./store.ts";
 import { localDay } from "./time.ts";
@@ -75,6 +76,57 @@ function describeStatus(project: string, status: CountingStatus): string {
   }
 }
 
+const TRIGGER_TEXT = {
+  load: "読み込み時",
+  "day-change": "日付の変更",
+  hidden: "タブを隠したとき",
+  enrolled: "登録の直後",
+} as const;
+
+const OUTCOME_TEXT: Record<string, string> = {
+  written: "書いた",
+  unchanged: "変化なし (送信済みと同じ)",
+  error: "★届かなかった (未登録・期限切れの鍵・形の誤り・サーバの失敗のどれか)",
+  timeout: "★応答が無い",
+  unexpected: "★応答の画像が想定と違う",
+  "key-unusable": "★この端末の鍵で署名できない (サインインし直す)",
+  storage: "★送信済みの記録を書けない",
+};
+
+/** 送信の状況。**合算の草の URL は `withUrl` のときだけ** (alert にだけ出し、コンソールに残さない) */
+function describeSending(status: SendStatus, now: Date, withUrl: boolean): string[] {
+  switch (status.kind) {
+    case "not-enrolled":
+      return [
+        "送信: この端末は未登録なので送っていない。ページメニューの「草: サインインしてこの端末を登録」から登録すると送る",
+      ];
+    case "newer-key":
+      return ["送信: 新しい版の cosense-grass が登録した鍵なので、この版からは送らない"];
+    case "newer-sent":
+      return ["送信: 新しい版の cosense-grass が送信の記録を書いているので、この版からは送らない"];
+    case "storage":
+      return ["送信: このブラウザの保存領域 (IndexedDB) を開けないので送っていない"];
+    case "enrolled": {
+      const time = (ms: number) =>
+        new Date(ms).toLocaleTimeString("ja-JP", { hour: "numeric", minute: "2-digit" });
+      const sameDay = (ms: number) => localDay(new Date(ms)) === localDay(now);
+      const last = status.last;
+      return [
+        `送信: 登録済み (端末の識別子 ${status.kid})`,
+        last
+          ? `最後の送信: ${sameDay(last.at) ? time(last.at) : new Date(last.at).toLocaleString("ja-JP")} ${TRIGGER_TEXT[last.trigger]} — ${OUTCOME_TEXT[last.outcome] ?? last.outcome} (リクエスト ${last.requests} / エントリ ${last.entries})`
+          : "最後の送信: まだ無い",
+        `今日の送信: ${status.todaySends} / ${MAX_TODAY_SENDS} 回 (タブを隠したときに送る。変化が無ければ数えない)`,
+        `まだ送れていない日: ${status.pendingDays} 日`,
+        ...(status.backoffUntil !== undefined
+          ? [`★続けて失敗したので、次に自動で送るのは ${time(status.backoffUntil)} 以降`]
+          : []),
+        ...(withUrl ? [`合算の草: ${status.graphUrl}`] : []),
+      ];
+    }
+  }
+}
+
 export type SensorReport = {
   /** ダイアログ。区間は新しい方から `ALERT_RANGES` 個まで */
   readonly alert: string;
@@ -88,14 +140,15 @@ export function describeSensorReport(input: {
   readonly project: string;
   readonly status: CountingStatus;
   readonly store: Pick<Store, "readDay">;
+  readonly sending: SendStatus;
 }): SensorReport {
   const today = localDay(input.now);
   const day = input.store.readDay(today);
 
-  const head = [
+  const head = (withUrl: boolean) => [
     `${input.title} (${input.now.toLocaleString("ja-JP")})`,
     describeStatus(input.project, input.status),
-    "登録済みなら、読み込み時・日付の変更・タブを隠したときに送る",
+    ...describeSending(input.sending, input.now, withUrl),
     "",
     `今日 (${today})`,
     `合算: ${formatCounts(day.total.counts)}`,
@@ -123,7 +176,7 @@ export function describeSensorReport(input: {
 
   return {
     alert: [
-      ...head,
+      ...head(true),
       hidden > 0
         ? `${rangeTitle} — 新しい ${shown.length} 個。ほか ${hidden} 個はコンソール`
         : rangeTitle,
@@ -131,7 +184,7 @@ export function describeSensorReport(input: {
       ...recent,
     ].join("\n"),
     console: [
-      ...head,
+      ...head(false),
       rangeTitle,
       ...(ranges.length > 0 ? ranges.map(formatRange) : emptyRanges),
       ...recent,

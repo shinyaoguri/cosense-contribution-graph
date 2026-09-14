@@ -47,6 +47,8 @@ function memoryStore() {
   );
 }
 
+const NOT_ENROLLED = { kind: "not-enrolled" } as const;
+
 describe("describeSensorReport", () => {
   const now = new Date(2026, 8, 14, 18, 0, 0);
 
@@ -63,6 +65,7 @@ describe("describeSensorReport", () => {
     store.record({ kind: "read", project: "project-a", day: "2026-09-10", minute: 0 });
 
     const report = describeSensorReport({
+      sending: NOT_ENROLLED,
       title: "草",
       now,
       project: "project-a",
@@ -87,6 +90,7 @@ describe("describeSensorReport", () => {
 
   it("記録が無ければ区間は「まだ無い」", () => {
     const report = describeSensorReport({
+      sending: NOT_ENROLLED,
       title: "草",
       now,
       project: "project-a",
@@ -107,6 +111,7 @@ describe("describeSensorReport", () => {
     }
 
     const report = describeSensorReport({
+      sending: NOT_ENROLLED,
       title: "草",
       now,
       project: "project-a",
@@ -121,5 +126,71 @@ describe("describeSensorReport", () => {
     );
     expect(report.console).toContain("0:00–0:01 読み 1 分");
     expect(report.console.match(/読み 1 分/g)).toHaveLength(count);
+  });
+});
+
+describe("送信の状況", () => {
+  const store = createStore({ getItem: () => null, setItem: () => undefined }, () => undefined);
+  const now = new Date(2026, 8, 15, 12, 0, 0);
+  const report = (sending: Parameters<typeof describeSensorReport>[0]["sending"]) =>
+    describeSensorReport({
+      title: "草: センサーの記録",
+      now,
+      project: "p",
+      status: "counting",
+      store,
+      sending,
+    });
+  const url = "https://grass.soui.dev/v1/g/0123456789abcdef0123456789abcdef.svg";
+
+  it("未登録ならメニューの名前で登録を促す", () => {
+    expect(report({ kind: "not-enrolled" }).alert).toContain(
+      "「草: サインインしてこの端末を登録」",
+    );
+  });
+
+  it("**登録済みなら最後の送信・今日の回数・未送信の日を出し、合算の草の URL は alert にだけ出す**", () => {
+    const r = report({
+      kind: "enrolled",
+      kid: "0123456789abcdef",
+      graphUrl: url,
+      todaySends: 2,
+      pendingDays: 1,
+      last: {
+        at: new Date(2026, 8, 15, 11, 5).getTime(),
+        trigger: "hidden",
+        outcome: "written",
+        requests: 1,
+        entries: 3,
+      },
+    });
+    expect(r.alert).toContain("送信: 登録済み (端末の識別子 0123456789abcdef)");
+    expect(r.alert).toMatch(
+      /最後の送信: 11:05 タブを隠したとき — 書いた \(リクエスト 1 \/ エントリ 3\)/,
+    );
+    expect(r.alert).toContain("今日の送信: 2 / 4 回");
+    expect(r.alert).toContain("まだ送れていない日: 1 日");
+    expect(r.alert).toContain(url);
+    expect(r.console).not.toContain(url);
+  });
+
+  it("抑制中なら次に送る時刻、失敗は★で出す", () => {
+    const r = report({
+      kind: "enrolled",
+      kid: "0123456789abcdef",
+      graphUrl: url,
+      todaySends: 0,
+      pendingDays: 3,
+      last: { at: now.getTime(), trigger: "load", outcome: "error", requests: 1, entries: 2 },
+      backoffUntil: new Date(2026, 8, 15, 12, 15).getTime(),
+    });
+    expect(r.alert).toContain("★届かなかった");
+    expect(r.alert).toContain("次に自動で送るのは 12:15 以降");
+  });
+
+  it("まだ送っていなければそう出す", () => {
+    expect(
+      report({ kind: "enrolled", kid: "k", graphUrl: url, todaySends: 0, pendingDays: 0 }).alert,
+    ).toContain("最後の送信: まだ無い");
   });
 });
