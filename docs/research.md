@@ -84,29 +84,42 @@ CSP は時間とともに変わる。2023-09 に OpenAI、2024 年に AWS Bedroc
 
 ### Cosense の Service Worker が画像リクエストを作り直す (2026-09-14)
 
-**上の `no-referrer` は Cosense のページでは効かない。** UserScript から `/v1/probe.gif` へ送った実測と、
+**Service Worker がページを制御していると、上の `no-referrer` は効かない。** 届く Referer はオリジンだけ
+(`https://scrapbox.io/`) で、**プロジェクト名もページ名も含まない。** UserScript から `/v1/probe.gif` へ送った実測と、
 Service Worker のコードの両方で確かめた (Issue #31)。
 
-実測。公開プロジェクトの自分のページに UserScript を置き、Chrome で送った (2026-09-14 0:20 JST)。
+実測。Chrome で、自分のページの UserScript から送った (2026-09-14 JST)。**送ったものはすべて届き、中身も壊れなかった。**
 
-| 送ったもの | 届いたか | 中身 | Referer | `Sec-Fetch-Dest` |
-|---|---|---|---|---|
-| 240 / 8,000 / 15,000 文字 | 届いた | 一致 | **あり** | **`image` 以外** |
-| タブを隠したときの 240 文字 | 届いた | 一致 | **あり** | **`image` 以外** |
+| 時刻 | プロジェクト | ページの制御 | 送ったもの | Referer | `Sec-Fetch-Dest` |
+|---|---|---|---|---|---|
+| 0:18〜0:20 | 公開 | (記録なし) | 240 / 8,000 / 15,000 文字、タブを隠したとき | あり (形は測っていない) | `image` 以外 |
+| 9:55 | 公開 | (記録なし) | 同上 | なし | `image` |
+| 10:04 | 公開 | **制御外** (強制再読み込み) | 240 / 8,000 / 15,000 文字 | なし | `image` |
+| 10:07:16 | 非公開 | **制御下** | タブを隠したときの 240 文字 | **オリジンだけ** | `image` 以外 |
+| 10:07:44 | 非公開 | **制御外** | 240 / 8,000 / 15,000 文字 | なし | `image` |
+
+「ページの制御」は `navigator.serviceWorker.controller` の有無。最初の 2 回はまだ記録していなかったが、
+Referer と `Sec-Fetch-Dest` の組み合わせから、0:20 は制御下、9:55 は制御外だったと読める。
 
 原因。`https://scrapbox.io/serviceworker.js` の画像の経路 (`respondImageNetworkFirst`) は
 **`fetch(request, { mode: request.mode, credentials: request.credentials })`** で送り直している。
+fetch のハンドラは、https・GET・destination が image・Gyazo のアップロードでない、といった条件で横取りするので、
+**制御下のページからの画像ビーコンは毎回ここを通る。**
 
 - [Fetch 仕様の `new Request(input, init)`](https://fetch.spec.whatwg.org/#dom-request) は、init が空でないとき
   request の referrer を `"client"` に、referrer policy を空に戻す。**ページで付けた `no-referrer` はここで捨てられる**
 - 新しい request は destination を引き継がないので空になり、`Sec-Fetch-Dest: empty` で届く
 - referrer は Service Worker 自身の URL になる。`serviceworker.js` の応答に `Referrer-Policy` ヘッダが無いので
-  既定の `strict-origin-when-cross-origin` が効き、**仕様どおりならオリジンだけ (`https://scrapbox.io/`) が届く**。
+  既定の `strict-origin-when-cross-origin` が効き、クロスオリジンなので**オリジンだけに切り詰められる**。
   アプリのページは `referrer-policy: no-referrer` を返しているが、Service Worker の fetch には効かない
+- 強制再読み込み (Cmd+Shift+R) で開いたページは制御外になり、ページの `no-referrer` がそのまま効く
 - 画像の応答は URL をキーに Cache Storage へ保存される (ADR-0001 の 2026-09-12 の改訂に既出)
 
-**Referer がオリジンだけかは、まだ測っていない。** 受け口にパスの有無を返すビットを足した (design §6)。
-公開・非公開の両方のプロジェクトで測ってから、ADR-0001 の `no-referrer` の記述を改訂する。
+**測れていないこと。**
+
+- 公開プロジェクトの制御下で Referer の形。referrer は Service Worker の URL から作られ、プロジェクトに依らないので、
+  非公開と同じオリジンだけになるはず
+- Chrome 以外のブラウザ
 
 ### 検討して却下した他の出口
 
@@ -155,6 +168,24 @@ document.getElementsByTagName("body")[0].appendChild(n);
 - `CurrentProject.isMember` が true。**ゲスト閲覧では動かない**
 - 書く場所は「そのプロジェクト内の、自分のユーザー名と同じタイトルのページ」の `code:script.js` だけ。
   settings ページに書いても効かない
+
+### 配布ページからの import (2026-09-14 実測)
+
+**公開プロジェクトの配布ページからの import は、非公開プロジェクトでも動く** (ADR-0005 の前提。Issue #31)。
+Chrome で、公開プロジェクト `/shinyaoguri` の `cosense-grass-probe` ページにバンドルを置き、
+公開プロジェクトと持ち主の非公開プロジェクトの両方で、自分のページに次の 1 行だけを書いた。
+どちらでもページメニューに疎通確認の項目が出た。
+
+```
+code:script.js
+ import "/api/code/shinyaoguri/cosense-grass-probe/script.js"
+```
+
+**配布ページを差し替えても承認は求められなかった。** 自分のページの `script.js` が変わらないので SHA1 が一致する
+(下の「SHA1 承認ゲート」のとおり)。
+
+自分のページの `code:script.js` は、ページ内のすべての `code:script.js` を上から連結した 1 つのファイルとして
+配信される。既存の UserScript と並べて置いても、配布側は import の 1 行を足すだけでよい。
 
 ### SHA1 承認ゲート
 
