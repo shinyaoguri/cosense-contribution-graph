@@ -100,8 +100,10 @@ src/userscript/
   sensor.ts                 20 秒ポーリングと lines:changed。数えるプロジェクトの判定
   time.ts                   ローカル時刻の日と分
   beacon.ts                 画像 GET 送信と署名
-  keys.ts                   鍵ペアの生成と IndexedDB への保存
-  auth.ts                   サインインのポップアップと postMessage の受信
+  keys.ts                   この端末の鍵と uid を IndexedDB に 1 レコードで持つ
+  auth.ts                   サインインのポップアップ、postMessage とコードの貼り付けの受信、登録
+  sign-in-dialog.ts         サインインのダイアログ (段階 8 の設定 UI までの仮の置き場)
+  worker-origin.ts          Worker のオリジン (https://grass.soui.dev) と共有 SVG の URL
   store.ts                  localStorage (ビットマップと集計値)
   report.ts                 「草: センサーの記録」の文面 (段階 5 の確認用。段階 8 の表示で役目を終える)
   render.ts                 DOM 注入の草とツールチップ
@@ -197,7 +199,17 @@ COOP は `unsafe-none` なので opener が切れない (`research.md` §7)。
 - **手順 5 のメッセージは `{type: "cosense-grass:auth", v: 1, code}`** (失敗は `{type, v: 1, error: "cancelled" | "expired" | "failed"}`)。
   `{uid, token}` から変えた。postMessage の値と手で貼られたコードを `src/shared/auth.ts` の `parseAuthCode` 1 本で読むため。
   失敗も送るので、取り消したときに親がタイムアウトまで待たない
-- UserScript 側 (手順 1・6) はまだ
+
+**UserScript 側 (手順 1・6) も実装した** (2026-09-15、`src/userscript/auth.ts`、Issue #61)。
+
+- 段階 8 の設定 UI ができるまでは、ページメニューの「草: サインインしてこの端末を登録」から始める。**押した同期区間で**
+  `window.open(".../auth/start", "cosense-grass-auth", "popup,width=480,height=640")` を呼び、同じ区間で `message` のリスナーを付ける
+  (Cosense のページメニューはクリックの処理中に `onClick` を呼ぶ。research §2)
+- `message` は **`origin === "https://grass.soui.dev"` と `source === popup`** を確かめ、`type` と `v` を見てから `parseAuthCode` に渡す。
+  **最初に取れたコードで締める** (同じコードの 2 回目は Worker が 403 にする)。受け取ったらポップアップを閉じる
+- コードを受け取ってから保存済みの鍵を読む。**同じ uid なら使い回し** (署名できなければ新しい鍵)、無ければ作る、
+  **別の uid なら確かめてから置き換える**。登録する鍵で署名して `/v1/enroll.gif` を送り、**16 / 17 が返ってから保存する**
+- 結果には「新しく登録した / 登録済み」、受け取った経路、kid、合算の草の URL を出す。**uid・コード・トークンはログにも画面にも出さない**
 
 ### COOP が enforced になったときのフォールバック
 
@@ -211,10 +223,12 @@ Bluesky が 2025 年 3 月に実際に壊れた。scrapbox.io 側がプロジェ
 - ポップアップは postMessage を送ったうえで**コードも画面に表示する**。
   `<uid>:<登録トークン>` を base64url にした **48 文字** (uid 20 バイト + トークン 16 バイト。2026-09-14、Issue #61)。
   組み立てと読み取りは `src/shared/auth.ts`。読むときは前後の空白を落とす
-- 親は**タイムアウト付きで postMessage を待つ**。来なければ「ポップアップのコードを貼ってください」
-  と案内する
+- ~~親は**タイムアウト付きで postMessage を待つ**。来なければ「ポップアップのコードを貼ってください」
+  と案内する~~ **親はダイアログに最初から貼り付け欄を出し、postMessage と貼り付けの早い方で進む** (2026-09-15、Issue #61)。
+  タイムアウトで切り替えないので、待たされる時間が無い。`window.prompt` は開いている間イベントループを止め、
+  ポップアップからのメッセージを待たされるので使わない。ポップアップがブロックされた (`window.open` が null) ときはリスナーを付けない
 - **`popup.closed` のポーリングに依存しない。** COOP 下では `closed` が常に `true` を返して嘘をつく
-- 起動時に `window.opener` の生存を確認し、切れていたら明示的にフォールバックへ
+- ~~起動時に `window.opener` の生存を確認し、切れていたら明示的にフォールバックへ~~ Worker の画面は opener の有無によらず常にコードを出すので、確認は要らない
 
 ### ID トークンの検証
 
@@ -941,14 +955,18 @@ write は `scrapbox.on("lines:changed", ({by}) => ...)` の `by === "edit"` の�
 
 | 場所 | キー | 内容 |
 |---|---|---|
-| IndexedDB | — | デバイスの `CryptoKey` (`extractable: false`) |
-| localStorage | `uid` `kid` | サインインで得た識別子 |
+| IndexedDB | `cosense-grass` / `keys` / `device` | `{v, uid, kid, privateKey, publicKey, enrolledAt}`。秘密鍵は `CryptoKey` (`extractable: false`)、公開鍵は 65 バイトの raw |
 | localStorage | `cosense-grass:bits` | 日 → プロジェクト名 → `{w, r, pages, created}`。w / r は base64url のビットマップ、pages / created はページ ID の配列。**今日と前の 29 日** |
 | localStorage | `cosense-grass:daily` | 日 → プロジェクト名か `*` → `{w, r, pages, created}` の数。**30 日より古くなった日を畳む。** 371 日 (53 週) |
 | localStorage | `sent` | 送信済み判定用のハッシュと当日の送信回数 |
 | localStorage | `settings` | read 計上の on/off など |
 
 **プロジェクト名はローカルだけに持つ。** サーバへ送るのは `ph` だけ。
+
+**uid と kid は localStorage に分けず、鍵と同じ IndexedDB のレコードに持つ** (2026-09-15、`src/userscript/keys.ts`、Issue #61)。
+当初は IndexedDB に鍵、localStorage に uid と kid だったが、片方だけ消えると食い違う (鍵が無いのに uid がある、など)。
+記録の疎通確認 (Issue #36) が同じ DB と store のキー `trial` を使っていたので、キーは `device` にして `trial` は読まない。
+**知らない版のレコードは上書きしない** (`store.ts` と同じ約束)。
 
 **`bits` と `daily` は段階 5 で実装した** (2026-09-14、`src/userscript/store.ts`、Issue #49)。当初の表から次を変えた。
 
@@ -1060,6 +1078,11 @@ IndexedDB も同様なので、同じブラウザなら鍵は 1 つで足りる�
 - `publicId` を知る人に日別活動量が見える。共有するかはユーザーの選択
 - デバイスの IndexedDB を読める攻撃者 (物理アクセスや深刻な XSS) は、そのデバイスから署名できる。
   ただし鍵を取り出して持ち出すことはできない
+- **攻撃者のコードを貼らされる。** 攻撃者が自分でサインインして出したコードを「これを貼って」と渡すと、被害者の端末が
+  攻撃者の uid に登録され、その後の送信の `ph` から、被害者がどのプロジェクトで活動しているかを攻撃者が辞書で推測できる。
+  ダイアログに「自分でサインインして出たコードだけを貼る」と書き、結果に受け取った経路を出す
+- **ポップアップ内のページは opener を動かせる。** opener が要るので `noopener` を付けられず、Google などのページは
+  `opener.location` で Cosense のタブを移動させられる。使い終えたらポップアップを閉じて時間を短くする
 - **表示したコードを騙し取るフィッシング。** 攻撃者のサイトが `/auth/start` をポップアップで開き、表示されたコードを貼らせれば、
   攻撃者が被害者の uid に鍵を登録できる。コードを表示する経路 (COOP のフォールバック) に付きまとう。
   画面に「Cosense の草の設定にだけ貼る」と書き、5 分・1 回で使えなくなることで狭める

@@ -392,7 +392,7 @@ Gyazo の証跡付きで確かめる (Issue #20)。
 | 確認すること | 失敗したときの影響 |
 |---|---|
 | ECDSA P-256 のラウンドトリップ (ブラウザで sign、Workers で verify) | 認証方式が成立しない |
-| `importKey("jwk", ...)` に Google の JWK をそのまま渡して通るか | ID トークン検証の実装が変わる |
+| `importKey("jwk", ...)` に Google の JWK をそのまま渡して通るか | ID トークン検証の実装が変わる。**`{kty, n, e}` だけを渡す形で本物の JWKS でも成立** (2026-09-14、#61) |
 | **ポップアップから `postMessage` が scrapbox.io のプロジェクトページに届くか** | サインインが成立しない |
 | `extractable: false` の `CryptoKey` を IndexedDB から読み戻せるか | Firefox で鍵が失われる |
 | Rate Limiting binding が Free プランで使えるか | DoS 対策を WAF だけに寄せる |
@@ -630,14 +630,11 @@ Cosense のページに貼ったときの見た目だけ、まだ確かめてい
   **OAuth クライアントを待たずに先に入れた** (2026-09-14、Issue #61)。使う経路 (callback) はまだ無い
 - `src/worker/enroll.ts` デバイスの登録と失効。**登録 (`/v1/enroll.gif`) と登録トークンの発行を先に入れた** (2026-09-14、Issue #61)。
   トークンを発行する callback がまだ無いので本番では 403。失効はまだ
-- ~~`src/userscript/keys.ts`~~ は **callback と一緒に入れる** (2026-09-14、Issue #61)。jsdom に IndexedDB が無く、
-  読み戻せるかは Cosense 上でしか確かめられない。鍵と uid をどう一緒に持つかはサインインの流れで決まる
-- `src/userscript/keys.ts` 鍵ペアの生成と IndexedDB への保存
-  - **記録の疎通確認が IndexedDB の DB `cosense-grass` (バージョン 1) と store `keys` を使っていた。** 同じ名前を使うなら、store の中の
-    キー `trial` は避ける (持ち主が消し忘れても本物の鍵と取り違えない)。保存と読み戻しの実装は、消す前の `src/userscript/record.ts`
-    (main の `3836a07` にある) から起こせる
+- `src/userscript/keys.ts` この端末の鍵と uid を IndexedDB に 1 レコードで持つ。**入れた** (2026-09-15、Issue #61)。キーは `device` で、
+  記録の疎通確認のキー `trial` は読まない
 - 受け口 (`src/worker/keys.ts`) は `keys` テーブルを引く形にしてある (#56)。**enroll が `keys` に行を入れれば記録が通る**
-- `src/userscript/auth.ts` ポップアップと `postMessage` の受信
+- `src/userscript/auth.ts` ポップアップ、`postMessage` とコードの貼り付けの受信、登録。**入れた** (2026-09-15、Issue #61)。
+  メニューは「草: サインインしてこの端末を登録」、ダイアログは `sign-in-dialog.ts`
 
 テストで固定すること。
 
@@ -652,10 +649,26 @@ Cosense のページに貼ったときの見た目だけ、まだ確かめてい
 JWKS の取得関数を注入し、テストでは Google と同じ形の応答を返す関数を渡す。依存を増やさずに取得の回数まで数えられる。
 `fetchMock` は現行ではない。
 
+### 確かめ方 (持ち主)
+
+1. `npm run build` の `dist/userscript.js` を `/cosense-grass/dev` の `code:script.js` に貼り、ページを開き直す
+2. メニュー「草: サインインしてこの端末を登録」→ ポップアップでアカウントを選ぶ → ポップアップが閉じ、
+   「この端末を新しく登録しました」「受け取った経路: ポップアップ」、kid、合算の草の URL が出る (postMessage が届いたことも分かる)
+3. 合算の草の URL を開いて SVG が表示される (まだ送信しないので空の草)
+4. ページを再読み込みしてもう一度サインイン → 「登録済み」で kid が同じ (IndexedDB から鍵を読み戻して署名できた)
+5. ダイアログの「別のタブでサインインを開く」でサインインし、出たコードを貼って Enter → 「登録済み」「受け取った経路: コードの貼り付け」。
+   同じコードをもう一度貼ると「登録できませんでした」
+6. **2 台目** (別の PC か別のブラウザ。できれば Firefox) で同じ Google アカウント → 「新しく登録しました」で **kid は違い、合算の草の URL が 1 台目と同じ**
+   (publicId は uid から導くので、URL が同じなら uid が同じ)
+
+結果はこの節に日付とブラウザを添えて書き、#61 にもコメントする。
+
 ### 完了条件
 
 2 台のデバイスから同じ Google アカウントでサインインし、**同じ uid になって同じ草に合流すること。**
 COOP のフォールバック (コードを貼る経路) も実際に試す。
+
+草への合流そのものは送信 (段階 6) が入ってから見える。段階 4 では合算の草の URL が同じになることで uid の一致を確かめる。
 
 ---
 
