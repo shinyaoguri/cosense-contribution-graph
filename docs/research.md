@@ -517,6 +517,17 @@ Personal Access Token は全ユーザーが `https://scrapbox.io/settings/person
 エラー: 400 別プロジェクト / 401 未認証 / 403 権限不足 / 404 preview 不在・期限切れ・消費済み /
 409 `NotFastForward` か `DuplicateTitle` / 422 ops 不正。
 
+#### ops は 1 リクエスト 30KB 前後に割る (2026-09-15 実測)
+
+100KB のバンドルを 1 回で送ると **`400 Bad Request: request entity too large`**
+(`insertBefore` 1 件 + `delete` 2,207 件、JSON で 198KB)。**30KB 程度に割ると通る** —
+挿入 4 回 + 削除 5 回で 2,208 行のページを全面差し替えできた。通った最大は 31KB で、上限そのものは公表されていない。
+
+- **先に新しい内容を `_end` へ挿入し、後で古い行を消す。** 分割すると commit も分かれるので、
+  逆順だと途中でページが空になる (import している側に空のスクリプトが配られうる)
+- `503 Service Unavailable` が混ざる。**preview からやり直す** (`previewId` は 1 回限り)
+- `insertBefore` の `text` は改行で複数行になるので、挿入は行数ではなくバイト数で割る
+
 `/api/code/{project}/{page}/{filename}` は拡張子から MIME を決めるので、`.json` なら
 `application/json` で返る。公開プロジェクトなら未認証で読める。
 

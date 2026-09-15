@@ -145,8 +145,9 @@ Worker の API も同様に `/v1/` を固定し、破壊的変更では `/v2/` �
 問い合わせは [Issue](https://github.com/shinyaoguri/cosense-contribution-graph/issues) で受ける。
 プライバシーポリシーにも連絡先としてここを書く。
 
-配布は専用の公開プロジェクトにバンドルを手動で貼る。自動化に必要な Personal Access Token は
-スコープがなくアカウント全体にアクセスできるので、CI の Secrets には置かない。
+配布は専用の公開プロジェクトにバンドルを貼る。貼るのは人が起こす操作で、**CI では自動化しない** —
+Personal Access Token はスコープがなくアカウント全体にアクセスできるので、CI の Secrets には置かない
+(ADR-0013 決定 3)。
 
 ## 注意
 
