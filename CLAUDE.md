@@ -102,9 +102,11 @@ rc ファイルにも `.env` にも書かない。ローカルは `wrangler auth
 UserScript は他人のブラウザで動く。**同一パスの中身を差し替えてよいのはバグ修正だけ。**
 Worker の API も `/v1/` を固定し、破壊的変更では `/v2/` へ上げる。
 配布は公開プロジェクト [`/cosense-grass`](https://scrapbox.io/cosense-grass/) で、ページは `dev` (開発版) と `v1`、`v2`… (リリース版)。
-バンドルは**手元の `cosense` CLI で配布ページに貼る** (ADR-0013 決定 3 の 2026-09-15 の改訂)。
-**CI では自動化しない** (PAT を Secrets に置かない)。貼ったら `/api/code/cosense-grass/<page>/script.js` を
-取得して `dist/userscript.js` と diff する。ops のサイズ上限と分割は research §4。
+バンドルは **`npm run paste -- <page>` で貼る** (`scripts/paste-distribution.ts`。ADR-0013 決定 3 の改訂)。
+手元の `cosense` CLI を使うので **CI では動かない** (PAT を Secrets に置かない)。
+**ops を手で組んで貼らない** — 分割の順番を間違えると配布ページが空になる (#105)。
+貼った後の突き合わせはスクリプトが `check-distribution.sh` を呼んで行う
+(**末尾の改行 1 つを落としてから比べる**。Cosense は行の配列なので配信物に改行が無い)。
 
 ## 開発フロー
 

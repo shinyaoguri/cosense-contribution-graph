@@ -1020,8 +1020,12 @@ Service Account ならプロジェクト単位に絞れるが、ビジネスプ�
 - **CI では自動化しない。** PAT を GitHub の Secrets に置かないのは変えない (決定 3 の理由はそのまま有効)
 - **貼るのは人が起こす操作。** リリースのたびに指示があって走る。ビルドやマージの後続処理にはしない
 - **貼ったら配信されている中身を突き合わせる。** `/api/code/cosense-grass/<page>/script.js` を取得して
-  手元の `dist/userscript.js` と diff する (末尾の改行だけは Cosense 側に無い)
+  手元の `dist/userscript.js` と比べる (末尾の改行だけは Cosense 側に無いので、落としてから比べる)
 - ops のサイズ上限と分割の作法は research §4
+- **手順はスクリプトにした** (2026-09-15、`scripts/paste-distribution.ts`、Issue #105)。
+  `npm run paste -- <page>` で貼る。分割の順番を手で組むと配布ページを空にしうるため
+  (実際に `dev` を 40 秒空にした)、**消す行を挿入より前に確定することを仕組みで縛る**。
+  スクリプト自身が CI では動かない (`process.env.CI` で止まる)
 
 ### 決定 4 — 連絡先は GitHub の Issue
 
