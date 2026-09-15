@@ -4,14 +4,15 @@
  *
  * **センサー** (段階 5、Issue #49) が活動を数えて localStorage に記録し、**登録した鍵で署名して送る** (段階 6、Issue #67)。
  * 送るのは読み込み時・日付の変更・タブを隠したとき・登録の成功のとき (`sender.ts`)。
- * **サインインしてこの端末の鍵を登録する**メニュー (段階 4、Issue #61) と、**合算とプロジェクト別の草を見る**メニュー (段階 8、Issue #73) を載せている。
+ * **合算とプロジェクト別の草を見る**メニュー (段階 8、Issue #73) と、**草の設定**のメニュー (段階 8、Issue #79) を載せている。
+ * サインイン (段階 4、Issue #61) は単独のメニューをやめ、「草の設定」に集約した (design §9)。
  * ほかに、手で再確認するための**送信の疎通確認** (Issue #31) のメニューを載せている。
  * タブを隠したときに疎通確認を自動で送るのは、本物の送信が入ったので消した (Issue #67)。
  * **記録の疎通確認** (Issue #36) のメニューは、試験用の公開鍵を消したときに一緒に消した (Issue #54)。
- * 「草の設定」は段階 8 の残り。
+ * 「草の設定」のデバイスの失効と全データの削除は段階 8 の残り (Issue #79)。
  */
 import { generateSigningKeyPair } from "../shared/sign.ts";
-import { AUTH_POPUP_FEATURES, AUTH_POPUP_NAME, createSignIn, SIGN_IN_MENU_TITLE } from "./auth.ts";
+import { AUTH_POPUP_FEATURES, AUTH_POPUP_NAME, createSignIn } from "./auth.ts";
 import { createGraphDialog, type GraphDialog } from "./graph-dialog.ts";
 import { requestImage } from "./image.ts";
 import { createIndexedDbDeviceStore } from "./keys.ts";
@@ -19,6 +20,9 @@ import { describeResult, type ProbeResult, runProbe } from "./probe.ts";
 import { describeSensorReport } from "./report.ts";
 import { createSender, type Sender } from "./sender.ts";
 import { type Sensor, type SensorCosense, startExclusive, startSensor } from "./sensor.ts";
+import { describeSettings, SETTINGS_MENU_TITLE } from "./settings.ts";
+import { createSettingsDialog, type SettingsDialog } from "./settings-dialog.ts";
+import { createSettings, type SettingsAccess } from "./settings-store.ts";
 import { createDialogView } from "./sign-in-dialog.ts";
 import { createStore, type Store } from "./store.ts";
 import { localDay } from "./time.ts";
@@ -60,6 +64,9 @@ export type Dependencies = {
   readonly signIn: () => Promise<string>;
   readonly sender: Pick<Sender, "trigger" | "status">;
   readonly graphDialog: Pick<GraphDialog, "open">;
+  readonly settingsDialog: Pick<SettingsDialog, "open">;
+  /** 設定の読み書き。**開くたびに読み直す** (別のタブで変えた値を拾う) */
+  readonly settings: Pick<SettingsAccess, "read">;
   /** センサーを始める。同じタブで動いている前のセンサーは止める */
   readonly startSensor: () => Sensor;
   readonly store: Pick<Store, "readDay" | "readRange">;
@@ -83,23 +90,16 @@ export function start(cosense: Cosense, deps: Dependencies): void {
     onClick: () => void runViewMenu(cosense, deps),
   });
   cosense.PageMenu.addItem({
+    title: SETTINGS_MENU_TITLE,
+    onClick: () => void runSettingsMenu(deps),
+  });
+  cosense.PageMenu.addItem({
     title: SENSOR_MENU_TITLE,
     onClick: () => void runSensorMenu(cosense, deps, sensor),
   });
   cosense.PageMenu.addItem({
     title: PROBE_MENU_TITLE,
     onClick: () => void runMenu(cosense, deps),
-  });
-  cosense.PageMenu.addItem({
-    title: SIGN_IN_MENU_TITLE,
-    onClick: () => {
-      // ポップアップを開くのは signIn の同期区間。登録できたら、貯まっていた記録と今日の分を送る
-      void deps.signIn().then((outcome) => {
-        if (outcome === "added" || outcome === "known") {
-          void deps.sender.trigger("enrolled");
-        }
-      });
-    },
   });
 
   void deps.sender.trigger("load");
@@ -108,6 +108,21 @@ export function start(cosense: Cosense, deps: Dependencies): void {
     if (deps.document.visibilityState === "hidden") {
       void deps.sender.trigger("hidden");
     }
+  });
+}
+
+/** 押すたびに登録の状態と設定を読み直す (別のタブで登録・変更したものを拾う) */
+async function runSettingsMenu(deps: Dependencies): Promise<void> {
+  const status = await deps.sender.status();
+  deps.settingsDialog.open(describeSettings(status, deps.settings.read()), {
+    // ポップアップを開くのは signIn の同期区間。登録できたら、貯まっていた記録と今日の分を送る
+    signIn: () => {
+      void deps.signIn().then((outcome) => {
+        if (outcome === "added" || outcome === "known") {
+          void deps.sender.trigger("enrolled");
+        }
+      });
+    },
   });
 }
 
@@ -181,6 +196,7 @@ if (typeof window !== "undefined" && window.scrapbox) {
   const cosense = window.scrapbox;
   const warn = (message: string) => console.warn(`[cosense-grass] ${message}`);
   const store = createStore(window.localStorage, warn);
+  const settings = createSettings(window.localStorage);
   const keys = createIndexedDbDeviceStore(window.indexedDB);
   const sender = createSender({
     store,
@@ -195,6 +211,10 @@ if (typeof window !== "undefined" && window.scrapbox) {
   });
   start(cosense, {
     sender,
+    settings,
+    settingsDialog: createSettingsDialog(window.document, {
+      setCountRead: (value) => settings.setCountRead(value),
+    }),
     graphDialog: createGraphDialog(window.document, {
       writeText: (text) =>
         window.navigator.clipboard
@@ -220,6 +240,7 @@ if (typeof window !== "undefined" && window.scrapbox) {
           document: window.document,
           events: window,
           setInterval: (handler, ms) => window.setInterval(handler, ms),
+          countRead: () => settings.read().settings.countRead,
           clearInterval: (id) => window.clearInterval(id),
           // 同一オリジン。connect-src 'self' なので通る (research §1)
           fetchText: async (path) => {

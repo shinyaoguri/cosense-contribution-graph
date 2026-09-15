@@ -144,9 +144,7 @@ describe("送信の状況", () => {
   const url = "https://grass.soui.dev/v1/g/0123456789abcdef0123456789abcdef.svg";
 
   it("未登録ならメニューの名前で登録を促す", () => {
-    expect(report({ kind: "not-enrolled" }).alert).toContain(
-      "「草: サインインしてこの端末を登録」",
-    );
+    expect(report({ kind: "not-enrolled" }).alert).toContain("「草の設定」");
   });
 
   it("**登録済みなら最後の送信・今日の回数・未送信の日を出し、合算の草の URL は alert にだけ出す**", () => {
