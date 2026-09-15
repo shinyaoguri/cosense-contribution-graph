@@ -413,6 +413,18 @@ Cosense は拡張子を見て `<img>` にするかを決め、描画できるか
 
 つまり**鮮度は自分のサーバの `Cache-Control` で完全に制御できる**。短い `max-age` を返すこと。
 
+### UserScript のダイアログと共有 SVG の `<img>` (2026-09-15 実測)
+
+ログインしていない Chrome で公開プロジェクト `/cosense-grass/` を開き、ページから実行した (「草を見る」、Issue #73)。
+
+- **素の `<dialog>` は、どのプロジェクトテーマでも背景 `rgb(255, 255, 255)`・文字 `rgb(0, 0, 0)`。**
+  `html` の `data-project-theme` を `default-light` / `default-dark` / `default-minimal` / `paper-dark` / `hacker1` / `hacker2` に
+  切り替えて測った。body の背景はテーマで変わる (`default-dark` は `rgb(32, 34, 40)`、`hacker2` は `rgb(6, 40, 37)`) が、ダイアログは変わらない。
+  `max-width` は `calc(100% - 34px)`。開いたプロジェクトの属性は `data-project-theme="default-minimal"` だった
+- Service Worker の制御下のページで、`https://grass.soui.dev/v1/g/demo.svg` は `<img>` で読め、`naturalWidth` × `naturalHeight` は 775 × 200。
+  存在しない publicId (`000…0`) は `error` になる
+- `navigator.clipboard.writeText` は関数として存在する
+
 ---
 
 ## 4. REST API
