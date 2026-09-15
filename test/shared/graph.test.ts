@@ -102,11 +102,15 @@ describe("月ラベル", () => {
 });
 
 describe("曜日ラベル", () => {
-  it("日曜始まりなので 月・水・金 は 1・3・5 行目", () => {
+  it("日曜始まりで 7 行すべてに出す", () => {
     expect(WEEKDAY_LABELS).toEqual([
+      { position: 0, text: "日" },
       { position: 1, text: "月" },
+      { position: 2, text: "火" },
       { position: 3, text: "水" },
+      { position: 4, text: "木" },
       { position: 5, text: "金" },
+      { position: 6, text: "土" },
     ]);
   });
 });
