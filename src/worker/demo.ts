@@ -4,7 +4,8 @@
  * **決定論的に作る。** 乱数を使うと ETag もテストの期待値も毎回変わる。
  */
 import type { Minutes } from "../shared/balance.ts";
-import { DAYS, fromEpochDay, MAX_WEEKS, toEpochDay } from "../shared/graph.ts";
+import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
+import { DAYS, MAX_WEEKS } from "./graph/grid.ts";
 
 /**
  * デモの「今日」。**週の途中 (水曜) に固定する。** 日曜や土曜だと左右の列が欠けず、

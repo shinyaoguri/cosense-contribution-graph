@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { decodeBase64url } from "../../src/shared/base64url.ts";
-import { fromEpochDay, toEpochDay } from "../../src/shared/graph.ts";
+import { fromEpochDay, toEpochDay } from "../../src/shared/epoch-day.ts";
 import {
   type Activity,
   BITS_DAYS,

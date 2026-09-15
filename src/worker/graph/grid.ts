@@ -1,14 +1,11 @@
 /**
- * 草の格子のレイアウトと日付の計算 (design §8)。
+ * 草の格子と描画パラメータ (design §8)。**草を描くのは Worker だけ** (ADR-0019)。
  *
- * **日付は UTC だけで計算する。** workerd は常に UTC だが、jsdom はテストを走らせるマシンの
- * タイムゾーンで動く (手元は JST)。ローカル時刻の API を使うと両環境で結果がずれ、しかも CI は
- * 両方 UTC なので食い違いを検出できない。`today` は `"YYYY-MM-DD"` の文字列で受け取り、
- * `Date.UTC` と `getUTCDay` だけで扱う。
- *
- * 両 lib で型検査され、両環境でテストされる。
+ * 日付は `src/shared/epoch-day.ts` の通し日数で扱う。**UTC だけで計算する**ので、
+ * 今日の列はサーバの日本時間で決まり、マシンのタイムゾーンに依らない。
  */
-import { DEFAULT_SCHEME, type SchemeName, type Theme } from "./scheme.ts";
+import { fromEpochDay, toEpochDay, weekdayOf } from "../../shared/epoch-day.ts";
+import { DEFAULT_SCHEME, type SchemeName, type Theme } from "../../shared/scheme.ts";
 
 /** 行は曜日の 7 行。日曜始まり (design §8)。 */
 export const DAYS = 7;
@@ -38,28 +35,6 @@ export const DEFAULT_PARAMS: Params = {
   mode: "bi",
   palette: DEFAULT_SCHEME,
 };
-
-const MS_PER_DAY = 86_400_000;
-const DAY_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
-
-/** `"YYYY-MM-DD"` を 1970-01-01 からの通し日数にする。 */
-export function toEpochDay(day: string): number {
-  const match = DAY_PATTERN.exec(day);
-  if (!match) {
-    throw new RangeError(`日付は YYYY-MM-DD で渡す: ${day}`);
-  }
-  return Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])) / MS_PER_DAY;
-}
-
-/** 通し日数を `"YYYY-MM-DD"` にする。 */
-export function fromEpochDay(epochDay: number): string {
-  return new Date(epochDay * MS_PER_DAY).toISOString().slice(0, 10);
-}
-
-/** 曜日。0 = 日曜 .. 6 = 土曜。 */
-export function weekdayOf(epochDay: number): number {
-  return new Date(epochDay * MS_PER_DAY).getUTCDay();
-}
 
 export type GridCell = {
   readonly day: string;
@@ -109,7 +84,8 @@ const MONTH_NAMES = [
 // ラベルが重なる列の間隔。「10月」は 3 文字で約 2 列ぶんの幅がある
 const MIN_LABEL_COLUMNS = 3;
 
-export type Label = {
+/** 軸のラベル。`position` は月なら列、曜日なら行の番号 (px ではない)。 */
+export type AxisLabel = {
   readonly position: number;
   readonly text: string;
 };
@@ -124,7 +100,7 @@ export type Label = {
  * - **右端から 3 列未満の位置には出さない。** 「10月」は約 2 列ぶんの幅があり、右端の列に置くと
  *   SVG の外へはみ出す。そこで始まる月は高々 2 週しか表示されていない
  */
-export function monthLabels(cells: readonly GridCell[]): Label[] {
+export function monthLabels(cells: readonly GridCell[]): AxisLabel[] {
   const firstDayOfColumn = new Map<number, string>();
   let lastColumn = 0;
   for (const cell of cells) {
@@ -134,7 +110,7 @@ export function monthLabels(cells: readonly GridCell[]): Label[] {
     lastColumn = Math.max(lastColumn, cell.column);
   }
 
-  const labels: Label[] = [];
+  const labels: AxisLabel[] = [];
   let previousMonth = -1;
   for (const [column, day] of [...firstDayOfColumn].sort((a, b) => a[0] - b[0])) {
     const month = Number(day.slice(5, 7)) - 1;
@@ -160,6 +136,6 @@ export function monthLabels(cells: readonly GridCell[]): Label[] {
  * **7 行すべてに出す。** 一つ飛ばしにするのは英語の `Mon` / `Wed` / `Fri` が
  * 行の高さ (14px) に対して幅を取るからで、1 文字の日本語なら全曜日を並べても重ならない。
  */
-export const WEEKDAY_LABELS: readonly Label[] = ["日", "月", "火", "水", "木", "金", "土"].map(
+export const WEEKDAY_LABELS: readonly AxisLabel[] = ["日", "月", "火", "水", "木", "金", "土"].map(
   (text, position) => ({ position, text }),
 );

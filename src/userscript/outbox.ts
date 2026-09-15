@@ -9,7 +9,7 @@
  */
 import { type Entry, formatEntries, MAX_ENTRIES } from "../shared/beacon.ts";
 import { popcount } from "../shared/bits.ts";
-import { fromEpochDay, toEpochDay } from "../shared/graph.ts";
+import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
 import { sha256Hex } from "../shared/hash.ts";
 import { PH_ALL, phOf } from "../shared/ids.ts";
 import type { Store } from "./store.ts";

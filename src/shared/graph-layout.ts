@@ -8,7 +8,7 @@
  * **色はスキームに任せる** (`src/shared/scheme.ts`)。ここはバランスを計算してスキームに渡すだけで、
  * どの色相になるかを知らない。凡例もスキームの `legendBalances` から組み立てる。
  */
-import { balanceOf, type Minutes } from "./balance.ts";
+
 import {
   CELL,
   DAYS,
@@ -19,7 +19,8 @@ import {
   type Params,
   STEP,
   WEEKDAY_LABELS,
-} from "./graph.ts";
+} from "../worker/graph/grid.ts";
+import { balanceOf, type Minutes } from "./balance.ts";
 import { levelOf, type Scale } from "./scale.ts";
 import { type ColorScheme, schemeOf, type Theme } from "./scheme.ts";
 

@@ -13,7 +13,7 @@
  */
 import { decodeBase64url, encodeBase64url } from "./base64url.ts";
 import { BITMAP_BYTES, type Bitmap, isBitmap } from "./bits.ts";
-import { fromEpochDay, toEpochDay } from "./graph.ts";
+import { fromEpochDay, toEpochDay } from "./epoch-day.ts";
 import { isValidKid, isValidPh, isValidUid } from "./ids.ts";
 import { SIGNATURE_BYTES, signingInput } from "./sign.ts";
 

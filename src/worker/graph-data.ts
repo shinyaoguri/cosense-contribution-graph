@@ -8,10 +8,11 @@
  */
 import type { Minutes } from "../shared/balance.ts";
 import { centerOf } from "../shared/balance.ts";
-import { DAYS, fromEpochDay, MAX_WEEKS, type Params, toEpochDay } from "../shared/graph.ts";
+import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
 import { PH_ALL } from "../shared/ids.ts";
 import { buildScale } from "../shared/scale.ts";
 import { DEFAULT_TIME_ZONE, todayIn } from "./days.ts";
+import { DAYS, MAX_WEEKS, type Params } from "./graph/grid.ts";
 import { renderGraph } from "./svg.ts";
 
 type DayRow = { readonly day: string; readonly w: number; readonly r: number };
