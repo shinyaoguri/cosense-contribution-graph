@@ -10,8 +10,8 @@ import {
 } from "../../src/shared/sign.ts";
 import type { ImageResult } from "../../src/userscript/image.ts";
 import type { DeviceRead } from "../../src/userscript/keys.ts";
-import { readSent, SENT_KEY } from "../../src/userscript/outbox.ts";
-import { backoffMs, createSender, MAX_TODAY_SENDS } from "../../src/userscript/sender.ts";
+import { MAX_TODAY_SENDS, readSent, SENT_KEY } from "../../src/userscript/outbox.ts";
+import { backoffMs, createSender } from "../../src/userscript/sender.ts";
 import { type Activity, createStore } from "../../src/userscript/store.ts";
 import { localDay } from "../../src/userscript/time.ts";
 import { graphUrl } from "../../src/userscript/worker-origin.ts";
@@ -224,6 +224,56 @@ describe("createSender — タブを隠したとき", () => {
   });
 });
 
+describe("createSender — 今すぐ送る (manual)", () => {
+  it("**今日も送る**", async () => {
+    const t = await harness();
+    t.record({ kind: "write", project: "p", day: TODAY, minute: 700 });
+
+    expect(await t.sender.trigger("manual")).toBe("written");
+    const beacon = decoded(t.urls[0] ?? "");
+    expect(new Set(beacon.entries.map((e) => e.day))).toEqual(new Set([TODAY]));
+  });
+
+  it("**抑制を無視して送る** (押したら 1 回は試す)", async () => {
+    const t = await harness({ image: () => ({ kind: "error" }) });
+    t.record({ kind: "read", project: "p", day: YESTERDAY, minute: 1 });
+    expect(await t.sender.trigger("load")).toBe("error");
+    // 自動は抑制される
+    expect(await t.sender.trigger("load")).toBe("backoff");
+
+    t.state.image = () => ({ kind: "loaded", width: 17 });
+    expect(await t.sender.trigger("manual")).toBe("written");
+  });
+
+  it("**失敗しても抑制を伸ばさない** (押し直すたびに自動の送信まで止まると困る)", async () => {
+    const t = await harness({ image: () => ({ kind: "error" }) });
+    t.record({ kind: "read", project: "p", day: YESTERDAY, minute: 1 });
+    expect(await t.sender.trigger("load")).toBe("error");
+    const first = await t.sender.status();
+    const until = first.kind === "enrolled" ? first.backoffUntil : undefined;
+    expect(until).toBeDefined();
+
+    // 押し直しても n は増えない (= 次に自動で送る時刻が動かない)
+    for (let i = 0; i < 3; i++) {
+      expect(await t.sender.trigger("manual")).toBe("error");
+    }
+    const after = await t.sender.status();
+    expect(after.kind === "enrolled" && after.backoffUntil).toBe(until);
+  });
+
+  it(`**当日の上限 (1 日 ${MAX_TODAY_SENDS} 回) は自動と共有する**`, async () => {
+    const t = await harness();
+    for (let i = 0; i < MAX_TODAY_SENDS; i++) {
+      t.record({ kind: "read", project: "p", day: TODAY, minute: i });
+      await t.sender.trigger("manual");
+    }
+    t.record({ kind: "read", project: "p", day: TODAY, minute: 99 });
+
+    expect(await t.sender.trigger("manual")).toBe("limited");
+    expect(t.urls).toHaveLength(MAX_TODAY_SENDS);
+  });
+});
+
 describe("createSender — 鍵と状態", () => {
   it.each([
     ["未登録", { kind: "missing" } as DeviceRead, "not-enrolled"],
@@ -327,7 +377,8 @@ describe("createSender — status", () => {
     t.record({ kind: "read", project: "p", day: YESTERDAY, minute: 1 });
     t.record({ kind: "read", project: "p", day: TODAY, minute: 1 });
     const before = await t.sender.status();
-    expect(before.kind === "enrolled" && before.pendingDays).toBe(2);
+    expect(before.kind === "enrolled" && before.pendingPastDays).toBe(1);
+    expect(before.kind === "enrolled" && before.todayPending).toBe(true);
 
     await t.sender.trigger("hidden");
     const after = await t.sender.status();
@@ -336,7 +387,8 @@ describe("createSender — status", () => {
     if (found.kind !== "found") throw new Error();
     expect(after.kid).toBe(found.record.kid);
     expect(after.graphUrl).toMatch(/^https:\/\/grass\.soui\.dev\/v1\/g\/[0-9a-f]{32}\.svg$/);
-    expect(after.pendingDays).toBe(0);
+    expect(after.pendingPastDays).toBe(0);
+    expect(after.todayPending).toBe(false);
     expect(after.todaySends).toBe(1);
     expect(after.last).toMatchObject({
       trigger: "hidden",

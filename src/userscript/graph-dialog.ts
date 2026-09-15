@@ -10,6 +10,8 @@
  *   **統合の草を出せないときと、まだ草が無いときは開いて出す** (見るものがこれしか無い)
  * - 文言は `textContent`、ハンドラは `addEventListener` (`sign-in-dialog.ts` と同じ約束。research §1)
  * - キー入力・貼り付け・コピーをダイアログの外へ伝えない (Cosense のショートカットとコピーの処理に拾わせない)
+ * - **同期の状態と「今すぐ送る」を統合の合算の草の直後に置く** (Issue #102)。押した後は
+ *   **ダイアログを開き直さず、状態行と表示中の画像だけ差し替える** (開き直すと畳みが戻り、画像を全部取り直す)
  * - **草の URL はコンソールにもログにも出さない** (publicId が分かると誰でも見られる)
  * - **「設定」はここから開く** (Issue #95)。ページメニューはこのダイアログの 1 項目だけにしたので、
  *   設定への入口はここが唯一。サインインは設定のダイアログの中のクリックで始まるので、
@@ -24,6 +26,8 @@ import {
   type IntegratedView,
   type LocalGraph,
   type LocalView,
+  SEND_NOW_LABEL,
+  type SyncView,
   tooltipOf,
   type ViewModel,
 } from "./viewer.ts";
@@ -45,9 +49,21 @@ export type GraphDialogDependencies = {
   readonly writeText: (text: string) => Promise<void>;
 };
 
+/** 「今すぐ送る」の結果 (`settings-dialog.ts` の `danger()` と同じ、返り値を差し込む形) */
+export type SendNowResult = {
+  /** 押した結果としてボタンの横に出す文言 */
+  readonly text: string;
+  /** 押した後の状態。状態行を描き直すのに使う */
+  readonly view: SyncView;
+  /** サーバの記録が変わったか。true なら表示中の草を取り直す */
+  readonly refresh: boolean;
+};
+
 export type GraphDialogHandlers = {
   /** 「設定」を開く。**このダイアログを閉じてから呼ばれる** (2 枚重ねない) */
   openSettings(): void;
+  /** まだ送れていない記録を今すぐ送る。**押せるときだけ呼ばれる** */
+  sendNow(): Promise<SendNowResult>;
 };
 
 export type GraphDialog = {
@@ -57,6 +73,8 @@ export type GraphDialog = {
 
 export function createGraphDialog(doc: Document, deps: GraphDialogDependencies): GraphDialog {
   let dialog: HTMLDialogElement | undefined;
+  /** 表示中の統合の草。送った後にここだけ取り直す */
+  let frames: { entry: GraphEntry; frame: HTMLElement }[] = [];
 
   const element = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string) => {
     const node = doc.createElement(tag);
@@ -85,19 +103,34 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     current.remove();
   };
 
+  const imageElement = (entry: GraphEntry, lazy: boolean) => {
+    const img = element("img");
+    img.width = GRAPH_WIDTH;
+    img.height = GRAPH_HEIGHT;
+    img.alt = `${entry.label} の草`;
+    if (lazy) {
+      // 属性で付ける (jsdom は loading の IDL 属性を持たない)
+      img.setAttribute("loading", "lazy");
+    }
+    img.setAttribute("referrerpolicy", "no-referrer");
+    img.style.maxWidth = "none";
+    return img;
+  };
+
+  /**
+   * **キャッシュを外すクエリは `<img>` にだけ付ける** (Issue #102)。
+   * 共有 SVG は `max-age=900` なので、送った直後に同じ URL で読むとブラウザのキャッシュから古い絵が返る。
+   * Worker は未知のクエリを無視する (`params.ts`)。**コピーする URL には混ぜない** (他人に渡すものなので)。
+   */
+  const srcOf = (entry: GraphEntry, bust?: number) =>
+    bust === undefined ? entry.url : `${entry.url}?r=${bust}`;
+
   /** 草の画像。読めなければ文言に置き換える (送れているのに読めないのは、サーバに届かないとき) */
   const image = (entry: GraphEntry) => {
     const frame = element("div");
     // 狭い画面では横にスクロールする (style 属性は Cosense の CSP で許されている。research §1)
     frame.style.overflowX = "auto";
-    const img = element("img");
-    img.width = GRAPH_WIDTH;
-    img.height = GRAPH_HEIGHT;
-    img.alt = `${entry.label} の草`;
-    // 属性で付ける (jsdom は loading の IDL 属性を持たない)
-    img.setAttribute("loading", "lazy");
-    img.setAttribute("referrerpolicy", "no-referrer");
-    img.style.maxWidth = "none";
+    const img = imageElement(entry, true);
     img.addEventListener("error", () => {
       frame.replaceChildren(
         element(
@@ -106,9 +139,66 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
         ),
       );
     });
-    img.src = entry.url;
+    img.src = srcOf(entry);
     frame.append(img);
+    frames.push({ entry, frame });
     return frame;
+  };
+
+  /**
+   * 送った後に、表示中の草を取り直す。**新しい絵が読めてから差し替える** —
+   * 取り直しが失敗したときに、見えていた草が文言に化けないようにする。
+   */
+  const refreshGraphs = () => {
+    const bust = Date.now();
+    for (const { entry, frame } of frames) {
+      const next = imageElement(entry, false);
+      next.addEventListener("load", () => {
+        frame.replaceChildren(next);
+      });
+      next.src = srcOf(entry, bust);
+    }
+  };
+
+  /** 同期の状態と「今すぐ送る」。押した後はここだけ描き直す */
+  const sync = (view: SyncView, handlers: GraphDialogHandlers) => {
+    const block = element("div");
+    const lines = element("div");
+    const line = element("p");
+    const status = element("span");
+    status.setAttribute("role", "status");
+    const send = element("button");
+    send.type = "button";
+    send.textContent = SEND_NOW_LABEL;
+
+    const render = (current: SyncView) => {
+      lines.replaceChildren(...current.lines.map((text) => element("p", text)));
+      send.disabled = !current.canSend;
+    };
+
+    send.addEventListener("click", () => {
+      // 待っている間に押し直させない (Web Locks で直列にはなるが、押した実感が無いと連打される)
+      send.disabled = true;
+      status.textContent = " 送っています…";
+      handlers.sendNow().then(
+        (result) => {
+          status.textContent = ` ${result.text}`;
+          render(result.view);
+          if (result.refresh) {
+            refreshGraphs();
+          }
+        },
+        () => {
+          status.textContent = " 送れませんでした。";
+          send.disabled = false;
+        },
+      );
+    });
+
+    render(view);
+    line.append(send, status);
+    block.append(lines, line);
+    return block;
   };
 
   const copyLine = (entry: GraphEntry) => {
@@ -178,7 +268,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     }
   };
 
-  const integrated = (view: IntegratedView) => {
+  const integrated = (view: IntegratedView, handlers: GraphDialogHandlers) => {
     const section = element("section");
     section.append(element("h3", "全端末を統合した記録"));
     if (view.kind === "message") {
@@ -188,9 +278,10 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     section.append(
       element(
         "p",
-        "同じ Google アカウントで登録した端末の記録をまとめた草です。最大 15 分遅れて更新され、今日の列は日本時間で決まります。",
+        "同じ Google アカウントで登録した端末の記録をまとめた草です。ほかの人に見せる草は最大 15 分遅れて更新され、今日の列は日本時間で決まります。",
       ),
       graph(view.total),
+      sync(view.sync, handlers),
     );
 
     if (view.projects.length === 0) {
@@ -256,6 +347,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
   return {
     open(model, handlers) {
       close();
+      frames = [];
       const node = element("dialog");
       // 長い説明文で画面の幅いっぱいに広がらないよう、草の幅に余白を足したところで止める
       node.style.maxWidth = `min(${GRAPH_WIDTH + 80}px, calc(100% - 34px))`;
@@ -270,7 +362,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
 
       node.append(
         element("h2", MENU_TITLE),
-        integrated(model.integrated),
+        integrated(model.integrated, handlers),
         local(model.local, localOpen(model.integrated)),
       );
       const buttonLine = element("p");

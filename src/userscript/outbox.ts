@@ -5,6 +5,7 @@
  * - 1 日の中身はプロジェクトごとの行と合算 `*` の行。**合算は store が各行の OR から作ったものをそのまま使う** (足さない)
  * - プロジェクト名は `phOf(uid, name)` にしてから送る。**URL にプロジェクト名を載せない**
  * - **送れた中身は、エントリごとのダイジェストで覚える** (`cosense-grass:sent`)。変わったプロジェクトと `*` だけを送り直す
+ * - **`manual` (「今すぐ送る」) も同じ経路を通る** (Issue #102)。違うのは backoff を免れることと、失敗を `failure.n` に積まないことだけ
  */
 import { type Entry, formatEntries, MAX_ENTRIES } from "../shared/beacon.ts";
 import { popcount } from "../shared/bits.ts";
@@ -24,12 +25,24 @@ const SEND_PAST_DAYS = 29;
 /** URL の長さの上限。Cloudflare の上限 16KB より十分短く */
 export const MAX_URL_LENGTH = 8_000;
 
+/**
+ * 当日分を送る回数の上限 (design §9・§15 の仮値)。**失敗も数える**。
+ * **手動の「今すぐ送る」もこの枠を使う** (ADR-0010 の書き込み予算そのものなので、押した回数だけ増やさない)
+ */
+export const MAX_TODAY_SENDS = 4;
+
 /** `pages` と `created` の上限 (shared/beacon.ts)。これを超える数は送れないので丸める */
 const MAX_COUNT = 99_999;
 
 const DIGEST_LENGTH = 16;
 
-export type Trigger = "load" | "day-change" | "hidden" | "enrolled";
+/** 送るきっかけ。`manual` だけが人の操作 (「今すぐ送る」。Issue #102) */
+export type Trigger = "load" | "day-change" | "hidden" | "enrolled" | "manual";
+
+/** 今日も送るきっかけか (過去の未送信はどのきっかけでも送る) */
+export function includesToday(kind: Trigger): boolean {
+  return kind === "hidden" || kind === "enrolled" || kind === "manual";
+}
 
 export type SendOutcome =
   | "written"
@@ -45,6 +58,31 @@ export type SendOutcome =
   | "unexpected"
   | "storage"
   | "newer-sent";
+
+/**
+ * 「今すぐ送る」を押した結果として出す文言 (`revoke.ts` の `REVOKE_TEXT`、`cleaner.ts` の `CLEAR_TEXT` と同じ形)。
+ *
+ * **`readSent` は `last` を検証せずに通す**ので、知らない版が書いた `outcome` が入りうる。
+ * 引くときは `SEND_TEXT[outcome] ?? SEND_TEXT_FALLBACK` で受ける。
+ */
+export const SEND_TEXT: Record<SendOutcome, string> = {
+  written: "送りました。",
+  unchanged: "送りました (サーバ側の記録は変わりませんでした)。",
+  nothing: "送るものはありませんでした。",
+  limited: `今日の送信は上限 (1 日 ${MAX_TODAY_SENDS} 回) に達しています。次にページを開いたときに送られます。`,
+  // 手動では backoff を免れるので、ここは通らない
+  backoff: "続けて失敗したので、少し待ってから送ります。",
+  "not-enrolled": "この端末は未登録なので送れません。",
+  "newer-key": "新しい版の cosense-grass が登録した鍵なので、この版からは送れません。",
+  "key-unusable": "この端末の鍵で署名できませんでした。サインインし直してください。",
+  error: "送れませんでした (サーバに届きませんでした)。",
+  timeout: "送れませんでした (応答がありませんでした)。",
+  unexpected: "送れませんでした (想定外の応答でした)。",
+  storage: "このブラウザの保存領域に書けないので送れませんでした。",
+  "newer-sent": "新しい版の cosense-grass が送信の記録を書いているので、この版からは送れません。",
+};
+
+export const SEND_TEXT_FALLBACK = "送信を試しました。";
 
 type SentDay = {
   /** 送れたエントリのダイジェスト */
