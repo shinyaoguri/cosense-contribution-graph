@@ -6,6 +6,9 @@
  * 送るのは読み込み時・日付の変更・タブを隠したとき・登録の成功のとき、
  * それに**草のダイアログの「今すぐ送る」を押したとき** (`sender.ts`、Issue #102)。
  *
+ * **草を描くのは Worker だけ** (ADR-0019、Issue #109)。ダイアログに出すのは共有 SVG の `<img>` で、
+ * UserScript は数えて送るだけにした。
+ *
  * **ページメニューに足すのは `cosense-grass` の 1 項目だけ** (Issue #95)。ほかのスクリプトと並ぶ場所なので
  * 占有を最小にし、**どのスクリプトのものかが分かる名前で名乗る** (Issue #101)。
  * **「設定」はそのダイアログから開く** (段階 8、Issue #73・#79)。
@@ -30,23 +33,16 @@ import { describeSettings, MENU_TITLE } from "./settings.ts";
 import { createSettingsDialog, type SettingsDialog } from "./settings-dialog.ts";
 import { createSettings, type SettingsAccess } from "./settings-store.ts";
 import { createDialogView } from "./sign-in-dialog.ts";
-import { createStore, type Store } from "./store.ts";
-import { localDay } from "./time.ts";
-import {
-  describeIntegrated,
-  describeLocal,
-  describeSync,
-  type IntegratedView,
-  localRangeStart,
-} from "./viewer.ts";
+import { createStore } from "./store.ts";
+import { describeIntegrated, describeSync, type IntegratedView } from "./viewer.ts";
 
 /**
  * 配布バンドルの版。**配布ページ `/cosense-grass/v1` に対応する** (Issue #95)。
  *
- * **破壊的変更のときは配布ページを分ける** (README のバージョン運用)。
- * 同一パスの中身を差し替えてよいのはバグ修正だけ。
+ * **番号を上げるのは、利用者が import の 1 行を書き直さないと動かなくなるときだけ** (ADR-0019)。
+ * 見えるものが減るだけの変更は同じページを差し替え、minor を上げる。
  */
-export const USERSCRIPT_VERSION = "1.0.0";
+export const USERSCRIPT_VERSION = "1.1.0";
 
 /** UserScript から使う `window.scrapbox` のうち、ここで触る部分だけ (research §2)。 */
 export type Cosense = SensorCosense & {
@@ -72,7 +68,6 @@ export type Dependencies = {
   readonly settings: Pick<SettingsAccess, "read">;
   /** センサーを始める。同じタブで動いている前のセンサーは止める */
   readonly startSensor: () => Sensor;
-  readonly store: Pick<Store, "readDay" | "readRange">;
   readonly document: Pick<Document, "addEventListener" | "visibilityState">;
   readonly now: () => Date;
 };
@@ -112,7 +107,7 @@ async function runSettingsDialog(deps: Dependencies): Promise<void> {
   });
 }
 
-/** 押すたびに鍵・送信の記録・センサーの記録を読み直す (別のタブで登録・送信・記録したものを拾う) */
+/** 押すたびに鍵と送信の記録を読み直す (別のタブで登録・送信したものを拾う) */
 async function runViewMenu(cosense: Cosense, deps: Dependencies): Promise<void> {
   const project = cosense.Project.name;
   let integrated: IntegratedView;
@@ -124,26 +119,20 @@ async function runViewMenu(cosense: Cosense, deps: Dependencies): Promise<void> 
       lines: ["草の一覧を作れませんでした。ページを開き直して、もう一度押してください。"],
     };
   }
-  // 状況を待った後の時刻で読む (日付をまたいでも、今日の列と記録が食い違わない)
-  const today = localDay(deps.now());
-  const local = describeLocal(deps.store.readRange(localRangeStart(today), today), today, project);
-  deps.graphDialog.open(
-    { integrated, local },
-    {
-      // 押された時点で草のダイアログは閉じている。設定は自分で状況を読み直す
-      openSettings: () => void runSettingsDialog(deps),
-      // **送った後に状況を読み直す。** ダイアログを開き直さず、状態行だけ差し替えてもらう
-      sendNow: async () => {
-        const outcome = await deps.sender.trigger("manual");
-        return {
-          text: SEND_TEXT[outcome] ?? SEND_TEXT_FALLBACK,
-          view: describeSync(await deps.sender.status(), deps.now()),
-          // サーバの記録が変わったときだけ取り直す (変わっていなければ同じ絵になる)
-          refresh: outcome === "written",
-        };
-      },
+  deps.graphDialog.open(integrated, {
+    // 押された時点で草のダイアログは閉じている。設定は自分で状況を読み直す
+    openSettings: () => void runSettingsDialog(deps),
+    // **送った後に状況を読み直す。** ダイアログを開き直さず、状態行だけ差し替えてもらう
+    sendNow: async () => {
+      const outcome = await deps.sender.trigger("manual");
+      return {
+        text: SEND_TEXT[outcome] ?? SEND_TEXT_FALLBACK,
+        view: describeSync(await deps.sender.status(), deps.now()),
+        // サーバの記録が変わったときだけ取り直す (変わっていなければ同じ絵になる)
+        refresh: outcome === "written",
+      };
     },
-  );
+  });
 }
 
 declare global {
@@ -214,7 +203,6 @@ if (typeof window !== "undefined" && window.scrapbox) {
           onDayChange: () => void sender.trigger("day-change"),
         }),
       ),
-    store,
     document: window.document,
     now: () => new Date(),
   });

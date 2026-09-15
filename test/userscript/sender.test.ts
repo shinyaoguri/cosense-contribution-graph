@@ -46,6 +46,7 @@ async function harness(
   const storage = {
     getItem: (k: string) => map.get(k) ?? null,
     setItem: (k: string, v: string) => void map.set(k, v),
+    removeItem: (k: string) => void map.delete(k),
   };
   const store = createStore(storage, () => undefined);
   const clock = { ms: NOON };

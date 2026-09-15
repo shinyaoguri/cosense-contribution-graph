@@ -10,10 +10,13 @@
  * - 消した後も、サーバに送信済みの記録は残る (`/account` から消す)
  */
 import { SENT_KEY } from "./outbox.ts";
-import { BITS_KEY, DAILY_KEY } from "./store.ts";
+import { BITS_KEY, LEGACY_DAILY_KEY } from "./store.ts";
 
-/** 消す localStorage のキー。**設定は含めない。** */
-export const CLEARED_KEYS = [BITS_KEY, DAILY_KEY, SENT_KEY] as const;
+/**
+ * 消す localStorage のキー。**設定は含めない。**
+ * 1.0.0 までの日次集計も消す — `sweep` がまだ走っていないブラウザにも残っている (ADR-0019)。
+ */
+export const CLEARED_KEYS = [BITS_KEY, LEGACY_DAILY_KEY, SENT_KEY] as const;
 
 export type ClearResult =
   /** 消えた */

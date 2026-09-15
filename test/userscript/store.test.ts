@@ -6,9 +6,7 @@ import {
   BITS_DAYS,
   BITS_KEY,
   createStore,
-  DAILY_DAYS,
-  DAILY_KEY,
-  type DayView,
+  LEGACY_DAILY_KEY,
   STORE_VERSION,
 } from "../../src/userscript/store.ts";
 
@@ -30,6 +28,12 @@ function memoryStorage() {
       }
       state.writes++;
       map.set(key, value);
+    },
+    removeItem: (key: string) => {
+      if (state.failing.has(key)) {
+        throw new DOMException("quota", "QuotaExceededError");
+      }
+      map.delete(key);
     },
   };
 }
@@ -187,7 +191,7 @@ describe("壊れた記録と、書けないとき", () => {
 
     expect(store.record(read("project-a", 0))).toBe("blocked");
     expect(store.record(read("project-a", 1))).toBe("blocked");
-    expect(store.fold(TODAY)).toBe("blocked");
+    expect(store.sweep(TODAY)).toBe("blocked");
     expect(storage.map.get(BITS_KEY)).toBe(newer);
     expect(warnings).toHaveLength(1);
   });
@@ -229,95 +233,64 @@ describe("壊れた記録と、書けないとき", () => {
   });
 });
 
-describe("fold", () => {
-  it(`**今日から ${BITS_DAYS - 1} 日前までのビットマップは残し、それより古い日を集計値に畳む**`, () => {
+describe("sweep", () => {
+  it(`**今日から ${BITS_DAYS - 1} 日前までのビットマップを残し、それより古い日は消す**`, () => {
     const { storage, store } = setup();
     const kept = daysBefore(BITS_DAYS - 1);
-    const folded = daysBefore(BITS_DAYS);
+    const dropped = daysBefore(BITS_DAYS);
     store.record(read("project-a", 600, kept));
-    store.record(write("project-a", 600, PAGE_A, folded));
-    store.record(read("project-a", 601, folded));
-    store.record(write("project-b", 600, PAGE_B, folded));
+    store.record(write("project-a", 600, PAGE_A, dropped));
 
-    expect(store.fold(TODAY)).toBe("written");
+    expect(store.sweep(TODAY)).toBe("written");
 
     const bits = JSON.parse(storage.map.get(BITS_KEY) ?? "");
     expect(Object.keys(bits.days)).toEqual([kept]);
-    const daily = JSON.parse(storage.map.get(DAILY_KEY) ?? "");
-    expect(daily.days[folded]).toEqual({
-      // 合算は OR から数える。2 つのプロジェクトで同じ 10:00 に書いたので w は 1
-      "*": { w: 1, r: 1, pages: 2, created: 0 },
-      "project-a": { w: 1, r: 1, pages: 1, created: 0 },
-      "project-b": { w: 1, r: 0, pages: 1, created: 0 },
-    });
-
-    // 畳んだ日も読める (ビットマップは無い)
-    const day = store.readDay(folded);
-    expect(day.total).toEqual({ counts: { w: 1, r: 1, pages: 2, created: 0 } });
-    expect(day.projects.get("project-b")?.counts.w).toBe(1);
+    // **消した日はもう読めない。** 送れない日の記録を持ち続けない (ADR-0019)
+    expect(store.readDay(dropped).total.counts).toEqual({ w: 0, r: 0, pages: 0, created: 0 });
   });
 
-  it("畳むものが無ければ書かない", () => {
+  it("消すものが無ければ書かない", () => {
     const { storage, store } = setup();
     store.record(read("project-a", 0));
     const writes = storage.state.writes;
 
-    expect(store.fold(TODAY)).toBe("unchanged");
+    expect(store.sweep(TODAY)).toBe("unchanged");
     expect(storage.state.writes).toBe(writes);
   });
 
-  it(`${DAILY_DAYS} 日より古い集計値は消す`, () => {
+  it("**1.0.0 までの日次集計を消す** (ADR-0019)", () => {
     const { storage, store } = setup();
-    const counts = { w: 1, r: 0, pages: 0, created: 0 };
-    storage.map.set(
-      DAILY_KEY,
-      JSON.stringify({
-        v: STORE_VERSION,
-        days: {
-          [daysBefore(DAILY_DAYS - 1)]: { "*": counts },
-          [daysBefore(DAILY_DAYS)]: { "*": counts },
-        },
-      }),
-    );
+    storage.map.set(LEGACY_DAILY_KEY, JSON.stringify({ v: STORE_VERSION, days: {} }));
 
-    expect(store.fold(TODAY)).toBe("written");
-    const daily = JSON.parse(storage.map.get(DAILY_KEY) ?? "");
-    expect(Object.keys(daily.days)).toEqual([daysBefore(DAILY_DAYS - 1)]);
+    expect(store.sweep(TODAY)).toBe("written");
+    expect(storage.map.has(LEGACY_DAILY_KEY)).toBe(false);
   });
 
-  it("**既に畳んだ集計値とは w と合計の max でまとめる** (前回ビットマップを消せなかったとき二重にしない)", () => {
+  it("壊れた日次集計も消すが、**知らない版が書いたものは触らない**", () => {
     const { storage, store } = setup();
-    const day = daysBefore(BITS_DAYS);
-    storage.map.set(
-      DAILY_KEY,
-      JSON.stringify({
-        v: STORE_VERSION,
-        days: { [day]: { "*": { w: 5, r: 0, pages: 3, created: 0 } } },
-      }),
-    );
-    for (const minute of [0, 1, 2]) {
-      store.record(write("project-a", minute, undefined, day));
-    }
-    for (const minute of [3, 4, 5, 6]) {
-      store.record(read("project-a", minute, day));
-    }
+    storage.map.set(LEGACY_DAILY_KEY, "{");
 
-    store.fold(TODAY);
-    const daily = JSON.parse(storage.map.get(DAILY_KEY) ?? "");
-    // w = max(5, 3)、合計 = max(5, 7)
-    expect(daily.days[day]["*"]).toEqual({ w: 5, r: 2, pages: 3, created: 0 });
+    expect(store.sweep(TODAY)).toBe("written");
+    expect(storage.map.has(LEGACY_DAILY_KEY)).toBe(false);
+
+    const newer = JSON.stringify({ v: STORE_VERSION + 1, days: {} });
+    storage.map.set(LEGACY_DAILY_KEY, newer);
+
+    expect(store.sweep(TODAY)).toBe("unchanged");
+    expect(storage.map.get(LEGACY_DAILY_KEY)).toBe(newer);
   });
 
-  it("**集計値を書けなければ、ビットマップを消さない**", () => {
-    const { storage, store } = setup();
-    const day = daysBefore(BITS_DAYS);
-    store.record(read("project-a", 0, day));
-    // ビットマップは書けるが、集計値だけ書けない
-    storage.state.failing.add(DAILY_KEY);
+  it("**日次集計を消せなくても、古いビットマップは消す**", () => {
+    const { storage, warnings, store } = setup();
+    const dropped = daysBefore(BITS_DAYS);
+    store.record(read("project-a", 0, dropped));
+    storage.map.set(LEGACY_DAILY_KEY, JSON.stringify({ v: STORE_VERSION, days: {} }));
+    storage.state.failing.add(LEGACY_DAILY_KEY);
 
-    expect(store.fold(TODAY)).toBe("failed");
+    expect(store.sweep(TODAY)).toBe("written");
     const bits = JSON.parse(storage.map.get(BITS_KEY) ?? "");
-    expect(Object.keys(bits.days)).toEqual([day]);
+    expect(Object.keys(bits.days)).toEqual([]);
+    expect(warnings).toHaveLength(1);
   });
 });
 
@@ -339,141 +312,25 @@ describe("readDay", () => {
     expect(day.total.bits?.r[0]).toBe(0x80);
     expect(day.projects.get("project-a")?.bits?.w[0]).toBe(0);
   });
-});
 
-describe("readRange", () => {
-  const counts = (w: number, r: number, pages = 0, created = 0) => ({ w, r, pages, created });
+  // 書き込みは "blocked" で断るが、**読みは黙って空を返す** (草を出せないだけで、壊れたとは言わない)
+  it("知らない版の記録は空を返す", () => {
+    const { storage, store } = setup();
+    storage.map.set(BITS_KEY, JSON.stringify({ v: STORE_VERSION + 1, days: {} }));
 
-  /**
-   * 範囲の内外に、ビットマップの日・ビットマップが空の日・両方にある日・集計値だけの日 (`*` あり・なし・空) を混ぜる。
-   * `getItem` を数える。
-   */
-  function mixed() {
-    const t = setup();
-    t.store.record(read("a", 1, daysBefore(1)));
-    t.store.record(write("b", 2, PAGE_A, daysBefore(1)));
-    t.store.record(read("a", 3, daysBefore(2)));
-    const bits = JSON.parse(t.storage.map.get(BITS_KEY) ?? "{}");
-    bits.days[daysBefore(3)] = {};
-    t.storage.map.set(BITS_KEY, JSON.stringify(bits));
-    t.storage.map.set(
-      DAILY_KEY,
-      JSON.stringify({
-        v: STORE_VERSION,
-        days: {
-          [daysBefore(2)]: { "*": counts(9, 9), a: counts(9, 9) },
-          [daysBefore(3)]: { "*": counts(5, 1, 2, 1), a: counts(5, 1, 2, 1) },
-          [daysBefore(40)]: { a: counts(4, 0) },
-          [daysBefore(41)]: {},
-          [daysBefore(DAILY_DAYS)]: { "*": counts(1, 1) },
-        },
-      }),
-    );
-    const gets = new Map<string, number>();
-    const getItem = t.storage.getItem;
-    t.storage.getItem = (key: string) => {
-      gets.set(key, (gets.get(key) ?? 0) + 1);
-      return getItem(key);
-    };
-    const store = createStore(t.storage, () => undefined);
-    return { ...t, store, gets };
-  }
-
-  const summary = (range: ReadonlyMap<string, DayView>) =>
-    Object.fromEntries(
-      [...range].map(([day, view]) => [
-        day,
-        {
-          total: view.total.counts,
-          bits: view.total.bits !== undefined,
-          projects: Object.fromEntries([...view.projects].map(([name, row]) => [name, row.counts])),
-        },
-      ]),
-    );
-
-  it("**ビットマップのある日はそれから、無い日は集計値から読む。** 記録の無い日と範囲外は入れない", () => {
-    const t = mixed();
-
-    const range = t.store.readRange(daysBefore(DAILY_DAYS - 1), TODAY);
-
-    expect(summary(range)).toEqual({
-      [daysBefore(1)]: {
-        total: counts(1, 1, 1),
-        bits: true,
-        projects: { a: counts(0, 1), b: counts(1, 0, 1) },
-      },
-      // 集計値にもあるが、ビットマップが正
-      [daysBefore(2)]: { total: counts(0, 1), bits: true, projects: { a: counts(0, 1) } },
-      // ビットマップが空なので集計値から
-      [daysBefore(3)]: {
-        total: counts(5, 1, 2, 1),
-        bits: false,
-        projects: { a: counts(5, 1, 2, 1) },
-      },
-      // `*` の無い集計値は合算を 0 にする (プロジェクト行を足さない)
-      [daysBefore(40)]: { total: counts(0, 0), bits: false, projects: { a: counts(4, 0) } },
-    });
+    expect(store.readDay(TODAY).total.counts).toEqual({ w: 0, r: 0, pages: 0, created: 0 });
   });
 
-  it("**localStorage はキーごとに 1 回だけ読む**", () => {
-    const t = mixed();
+  it("JSON として読めなければ空を返す", () => {
+    const { storage, store } = setup();
+    storage.map.set(BITS_KEY, "{");
 
-    t.store.readRange(daysBefore(DAILY_DAYS - 1), TODAY);
-
-    expect(Object.fromEntries(t.gets)).toEqual({ [BITS_KEY]: 1, [DAILY_KEY]: 1 });
+    expect(store.readDay(TODAY).total.counts).toEqual({ w: 0, r: 0, pages: 0, created: 0 });
   });
 
-  it("**ビットマップで埋まる範囲なら集計値を読まない**", () => {
-    const t = mixed();
-
-    t.store.readRange(daysBefore(2), daysBefore(1));
-
-    expect(Object.fromEntries(t.gets)).toEqual({ [BITS_KEY]: 1 });
-  });
-
-  it("範囲の両端を含む", () => {
-    const t = mixed();
-
-    expect([...t.store.readRange(daysBefore(3), daysBefore(2)).keys()].sort()).toEqual([
-      daysBefore(3),
-      daysBefore(2),
-    ]);
-  });
-
-  it.each([
-    ["ビットマップが知らない版", BITS_KEY, [daysBefore(3), daysBefore(2), daysBefore(40)]],
-    ["集計値が知らない版", DAILY_KEY, [daysBefore(2), daysBefore(1)]],
-  ] as const)("**%s なら、読める方だけから読む**", (_, key, expected) => {
-    const t = mixed();
-    const value = JSON.parse(t.storage.map.get(key) ?? "{}");
-    t.storage.map.set(key, JSON.stringify({ ...value, v: STORE_VERSION + 1 }));
-
-    const range = t.store.readRange(daysBefore(DAILY_DAYS - 1), TODAY);
-
-    expect([...range.keys()].sort()).toEqual([...expected].sort());
-  });
-
-  it("両方とも知らない版なら空。ビットマップが JSON として読めなければ集計値から読む", () => {
-    const t = mixed();
-    const newer = (key: string) =>
-      t.storage.map.set(
-        key,
-        JSON.stringify({ ...JSON.parse(t.storage.map.get(key) ?? "{}"), v: STORE_VERSION + 1 }),
-      );
-    newer(BITS_KEY);
-    newer(DAILY_KEY);
-    expect(t.store.readRange(daysBefore(DAILY_DAYS - 1), TODAY).size).toBe(0);
-
-    const u = mixed();
-    u.storage.map.set(BITS_KEY, "{");
-    expect([...u.store.readRange(daysBefore(DAILY_DAYS - 1), TODAY).keys()].sort()).toEqual(
-      [daysBefore(40), daysBefore(3), daysBefore(2)].sort(),
-    );
-  });
-
-  it("逆の範囲と実在しない日は例外", () => {
+  it("実在しない日は例外", () => {
     const { store } = setup();
-    expect(() => store.readRange(TODAY, daysBefore(1))).toThrow(RangeError);
-    expect(() => store.readRange("2026-02-30", TODAY)).toThrow(RangeError);
+
+    expect(() => store.readDay("2026-02-30")).toThrow(RangeError);
   });
 });

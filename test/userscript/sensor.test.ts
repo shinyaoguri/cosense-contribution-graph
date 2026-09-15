@@ -26,7 +26,7 @@ type Listener = (payload: { by?: string }) => void;
 /** 偽の Cosense・document・window・タイマー・fetch。記録した活動と取得したパスを残す。 */
 function setup(options: { project?: string; user?: string } = {}) {
   const recorded: Activity[] = [];
-  const folded: string[] = [];
+  const swept: string[] = [];
   const fetched: string[] = [];
   const warnings: string[] = [];
   const clock = { ms: at(9, 0, 5) };
@@ -60,8 +60,8 @@ function setup(options: { project?: string; user?: string } = {}) {
         recorded.push(activity);
         return "written";
       },
-      fold: (today) => {
-        folded.push(today);
+      sweep: (today) => {
+        swept.push(today);
         return "unchanged";
       },
     },
@@ -97,7 +97,7 @@ function setup(options: { project?: string; user?: string } = {}) {
     cosense,
     deps,
     recorded,
-    folded,
+    swept,
     fetched,
     warnings,
     clock,
@@ -190,7 +190,7 @@ describe("読み", () => {
     expect([...t.eventListeners.keys()]).toEqual([...INTERACTION_EVENTS]);
   });
 
-  it("**0 時をまたぐと新しい日に立てる。** 日が変わったら古い日を畳む", () => {
+  it("**0 時をまたぐと新しい日に立てる。** 日が変わったら古い記録を掃除する", () => {
     const t = setup();
     t.clock.ms = at(23, 59, 40, 13);
     startSensor(t.cosense, t.deps);
@@ -206,7 +206,7 @@ describe("読み", () => {
       ["2026-09-14", 0],
     ]);
     // 起動時と、日が変わったときの 2 回
-    expect(t.folded).toEqual(["2026-09-13", "2026-09-14"]);
+    expect(t.swept).toEqual(["2026-09-13", "2026-09-14"]);
     // **送信に知らせるのは日が変わったときだけ** (起動直後は読み込み時の送信が拾う)
     expect(t.dayChanges).toEqual(["2026-09-14"]);
   });

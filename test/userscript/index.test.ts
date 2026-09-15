@@ -10,9 +10,7 @@ import type { SettingsModel } from "../../src/userscript/settings.ts";
 import { MENU_TITLE } from "../../src/userscript/settings.ts";
 import type { SettingsHandlers } from "../../src/userscript/settings-dialog.ts";
 import { readSettings } from "../../src/userscript/settings-store.ts";
-import { createStore } from "../../src/userscript/store.ts";
-import { localDay } from "../../src/userscript/time.ts";
-import type { ViewModel } from "../../src/userscript/viewer.ts";
+import type { IntegratedView } from "../../src/userscript/viewer.ts";
 
 /** 偽の Cosense と依存。開いたダイアログ・localStorage・イベントを記録する。 */
 function setup(projectName = "project-a") {
@@ -24,10 +22,6 @@ function setup(projectName = "project-a") {
 
   const project = { name: projectName };
   const sensor = { started: 0, status: "counting" as CountingStatus };
-  const records = createStore(
-    { getItem: (key) => store.get(key) ?? null, setItem: (key, value) => store.set(key, value) },
-    () => undefined,
-  );
   const cosense: Cosense = {
     Project: project,
     Page: { id: null },
@@ -40,7 +34,7 @@ function setup(projectName = "project-a") {
   const revokes = { count: 0, outcome: "revoked" as RevokeOutcome };
   const clears = { count: 0, outcome: "cleared" as ClearResult };
   const triggers: string[] = [];
-  const views: { model: ViewModel; handlers: GraphDialogHandlers }[] = [];
+  const views: { view: IntegratedView; handlers: GraphDialogHandlers }[] = [];
   const settingsViews: { model: SettingsModel; handlers: SettingsHandlers }[] = [];
   const sending = {
     count: 0,
@@ -62,7 +56,7 @@ function setup(projectName = "project-a") {
         return sending.status();
       },
     },
-    graphDialog: { open: (model, handlers) => views.push({ model, handlers }) },
+    graphDialog: { open: (view, handlers) => views.push({ view, handlers }) },
     revoker: {
       revokeThisDevice: async () => {
         revokes.count++;
@@ -85,7 +79,6 @@ function setup(projectName = "project-a") {
       sensor.started++;
       return { stop: () => undefined, status: () => sensor.status };
     },
-    store: records,
     document: {
       get visibilityState() {
         return doc.visibilityState;
@@ -130,7 +123,6 @@ function setup(projectName = "project-a") {
     clock,
     items,
     store,
-    records,
     sensor,
     project,
     setVisibility,
@@ -204,10 +196,11 @@ describe("草を見る", () => {
 
     expect(t.sending.count).toBe(2);
     expect(t.views).toHaveLength(2);
-    const view = t.views[0]?.model;
-    expect(
-      view?.integrated.kind === "graphs" && view.integrated.projects.map((p) => p.url),
-    ).toEqual(["https://grass.soui.dev/v1/g/b.svg", "https://grass.soui.dev/v1/g/a.svg"]);
+    const view = t.views[0]?.view;
+    expect(view?.kind === "graphs" && view.projects.map((project) => project.url)).toEqual([
+      "https://grass.soui.dev/v1/g/b.svg",
+      "https://grass.soui.dev/v1/g/a.svg",
+    ]);
     // 送信はしない (読み込み時の 1 回だけ)
     expect(t.triggers).toEqual(["load"]);
   });
@@ -258,31 +251,12 @@ describe("草を見る", () => {
 
     await t.clickMenu(MENU_TITLE);
 
-    expect(t.views.map((view) => view.model.integrated)).toEqual([
+    expect(t.views.map((entry) => entry.view)).toEqual([
       {
         kind: "message",
         lines: ["草の一覧を作れませんでした。ページを開き直して、もう一度押してください。"],
       },
     ]);
-  });
-});
-
-describe("草を見る — このブラウザの記録", () => {
-  it("**押すたびにセンサーの記録を読み直し**、今日までの草を作る。未登録でも作る", async () => {
-    const t = setup("project-a");
-    const today = localDay(new Date(t.clock.ms));
-    start(t.cosense, t.deps);
-
-    await t.clickMenu(MENU_TITLE);
-    t.records.record({ kind: "write", project: "project-b", day: today, minute: 540 });
-    await t.clickMenu(MENU_TITLE);
-
-    expect(t.views.map((view) => view.model.local.projects.map((p) => p.label))).toEqual([
-      [],
-      ["project-b"],
-    ]);
-    expect(t.views[1]?.model.local.total.input.today).toBe(today);
-    expect(t.views[1]?.model.integrated.kind).toBe("message");
   });
 });
 

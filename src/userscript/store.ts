@@ -1,20 +1,18 @@
 /**
- * センサーの記録を localStorage に置く (design §9、段階 5)。送信 (段階 6) と DOM 注入の草 (段階 8) はここから読む。
+ * センサーの記録を localStorage に置く (design §9、段階 5)。読むのは送信 (段階 6) だけ。
  *
  * | キー | 中身 | 持つ日数 |
  * |---|---|---|
  * | `cosense-grass:bits` | 日 → プロジェクト名 → 書き・読みのビットマップ、編集したページ・新規作成したページの ID | 今日と前の 29 日 |
- * | `cosense-grass:daily` | 日 → プロジェクト名か `*` → 集計値 | 371 日 (53 週) |
  *
- * 草を描くときは `readRange` で範囲をまとめて読む (日ごとに `readDay` を呼ぶと、371 日で JSON を 742 回パースする)。
+ * **持つのは送れる範囲だけ** (ADR-0019)。草を描くのは Worker なので、送った後の記録をここに残す理由が無い。
+ * 1.0.0 までは 371 日ぶんの集計値 (`cosense-grass:daily`) も持っていた。`sweep` がそれを消す。
  *
  * - **キーはプロジェクト名。** ph は uid でソルトするが、サインイン前は uid が無く、別のアカウントで
  *   サインインし直せば変わる。ph は送る直前に導く。プロジェクト名はこのブラウザにだけ置く値なので、
  *   キーにしても外へ出る情報は増えない
  * - **合算 `*` はビットマップに持たない。** 読むときに各行の OR で作る。別に書くと食い違いうる。
  *   同じ分に 2 つのプロジェクトで活動しても 1 分に数える (design §5 と同じ理由)
- * - **ビットマップを持つ日は集計値に書かない。** 30 日より古くなった日だけを畳む。2 か所に書くと、
- *   片方の書き込みだけ容量超過で失敗したときに食い違う
  * - **書くたびに読み直す。** localStorage はオリジン単位で、別のプロジェクトのタブとも共有される。
  *   読む → OR → 書くを同期の 1 区間で済ませ、別のタブが間に書いた bit を消さない
  */
@@ -34,7 +32,11 @@ import { PH_ALL } from "../shared/ids.ts";
 
 export const BITS_KEY = "cosense-grass:bits";
 
-export const DAILY_KEY = "cosense-grass:daily";
+/**
+ * 1.0.0 までが日次集計を置いていたキー。**もう書かない** (ADR-0019)。
+ * 残っているブラウザから消すために名前だけ残す (`sweep` と `cleaner.ts` が使う)。
+ */
+export const LEGACY_DAILY_KEY = "cosense-grass:daily";
 
 /** 記録の形の版。**知らない版の記録があれば書かない** (新しい版のバンドルが別のタブで書いた形を壊さない)。 */
 export const STORE_VERSION = 1;
@@ -45,13 +47,10 @@ export const STORE_VERSION = 1;
  */
 export const BITS_DAYS = 30;
 
-/** 集計値を持つ日数。草は 53 週を描く。 */
-export const DAILY_DAYS = 371;
-
-export type StoreStorage = Pick<Storage, "getItem" | "setItem">;
+export type StoreStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 /** 1 日の集計値 (design §4)。`r` は書きと重なる分を除いた読み。 */
-export type Counts = {
+type Counts = {
   readonly w: number;
   readonly r: number;
   readonly pages: number;
@@ -96,7 +95,7 @@ type RowView = {
   readonly bits?: { readonly w: Bitmap; readonly r: Bitmap };
 };
 
-export type DayView = {
+type DayView = {
   /** 合算 (`*`) */
   readonly total: RowView;
   readonly projects: ReadonlyMap<string, RowView>;
@@ -105,14 +104,12 @@ export type DayView = {
 export type Store = {
   /** 活動を 1 つ記録する。**分の bit やページ ID が既に入っていれば書かない** (書き込みは分に 1 回まで)。 */
   record(activity: Activity): WriteOutcome;
-  /** 30 日より古い日のビットマップを集計値に畳み、371 日より古い集計値を消す。 */
-  fold(today: string): WriteOutcome;
-  readDay(day: string): DayView;
   /**
-   * `from` から `to` まで (両端を含む) の日を読む。**記録の無い日は Map に入れない。**
-   * 日ごとの値は `readDay` と同じ (ビットマップがあればそれから、無ければ集計値から)。
+   * 古い記録を掃除する。**ビットマップは 30 日ぶんだけ残す** (それより古い日は送れない)。
+   * あわせて 1.0.0 までの日次集計を消す (ADR-0019)。
    */
-  readRange(from: string, to: string): ReadonlyMap<string, DayView>;
+  sweep(today: string): WriteOutcome;
+  readDay(day: string): DayView;
 };
 
 const ZERO: Counts = { w: 0, r: 0, pages: 0, created: 0 };
@@ -211,43 +208,36 @@ export function createStore(storage: StoreStorage, warn: (message: string) => vo
 
   const loadBits = () => load(BITS_KEY, readBitsRow);
   const saveBits = (days: Map<string, Map<string, Row>>) => save(BITS_KEY, days, writeBitsRow);
-  const loadDaily = () => load(DAILY_KEY, readCounts);
-  const saveDaily = (days: Map<string, Map<string, Counts>>) => save(DAILY_KEY, days, (c) => c);
-
-  function readRange(from: string, to: string): ReadonlyMap<string, DayView> {
-    assertDay(from);
-    assertDay(to);
-    const start = toEpochDay(from);
-    const end = toEpochDay(to);
-    if (start > end) {
-      throw new RangeError(`範囲が逆: ${from} から ${to}`);
+  /**
+   * 1.0.0 までの日次集計を消す (ADR-0019)。**版で門番する** — 知らない版が書いたものは触らない
+   * (`load` と同じ約束)。消せたときだけ true。
+   */
+  function removeLegacyDaily(): boolean {
+    const raw = storage.getItem(LEGACY_DAILY_KEY);
+    if (raw === null) {
+      return false;
     }
-    const bits = loadBits();
-    // 集計値は、ビットマップで埋まらない日があるときだけ読む
-    let daily: Loaded<Counts> | undefined;
-    const days = new Map<string, DayView>();
-    for (let epochDay = start; epochDay <= end; epochDay++) {
-      const day = fromEpochDay(epochDay);
-      // **ビットマップがある日は集計値を見ない** (畳む途中で失敗して両方にある日も、ビットマップが正しい)
-      const rows = bits.kind === "ok" ? bits.days.get(day) : undefined;
-      if (rows && rows.size > 0) {
-        days.set(day, viewRows(rows));
-        continue;
-      }
-      daily ??= loadDaily();
-      const counts = daily.kind === "ok" ? daily.days.get(day) : undefined;
-      if (!counts || counts.size === 0) {
-        continue;
-      }
-      const projects = new Map<string, RowView>();
-      for (const [project, value] of counts) {
-        if (project !== PH_ALL) {
-          projects.set(project, { counts: value });
-        }
-      }
-      days.set(day, { total: { counts: counts.get(PH_ALL) ?? ZERO }, projects });
+    let version: unknown;
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      version = isObject(parsed) ? parsed.v : undefined;
+    } catch {
+      // 自分たちの書いた形になっていないので、版を問わず捨てる
+      version = undefined;
     }
-    return days;
+    if (typeof version === "number" && version > STORE_VERSION) {
+      return false;
+    }
+    try {
+      storage.removeItem(LEGACY_DAILY_KEY);
+      return true;
+    } catch (error) {
+      warnOnce(
+        `failed:${LEGACY_DAILY_KEY}`,
+        `${LEGACY_DAILY_KEY} を localStorage から消せなかった: ${String(error)}`,
+      );
+      return false;
+    }
   }
 
   return {
@@ -273,70 +263,31 @@ export function createStore(storage: StoreStorage, warn: (message: string) => vo
       return saveBits(bits.days);
     },
 
-    fold(today) {
+    sweep(today) {
       assertDay(today);
       const bitsFrom = toEpochDay(today) - (BITS_DAYS - 1);
-      const dailyFrom = toEpochDay(today) - (DAILY_DAYS - 1);
       const bits = loadBits();
-      const daily = loadDaily();
-      if (bits.kind === "unknown" || daily.kind === "unknown") {
+      if (bits.kind === "unknown") {
         return "blocked";
       }
-
+      // **レガシーの掃除でビットマップの掃除を止めない。** 消せなくても続ける
+      const removedLegacy = removeLegacyDaily();
       const oldDays = [...bits.days.keys()].filter((day) => toEpochDay(day) < bitsFrom);
-      let dailyChanged = false;
+      if (oldDays.length === 0) {
+        return removedLegacy ? "written" : "unchanged";
+      }
       for (const day of oldDays) {
-        const rows = bits.days.get(day);
-        if (!rows || toEpochDay(day) < dailyFrom) {
-          continue;
-        }
-        let target = daily.days.get(day);
-        if (!target) {
-          target = new Map();
-          daily.days.set(day, target);
-        }
-        const view = viewRows(rows);
-        for (const [project, counts] of [
-          [PH_ALL, view.total.counts] as const,
-          ...[...view.projects].map(([project, row]) => [project, row.counts] as const),
-        ]) {
-          const stored = target.get(project);
-          const merged = maxCounts(stored, counts);
-          if (!stored || !sameCounts(stored, merged)) {
-            target.set(project, merged);
-            dailyChanged = true;
-          }
-        }
+        bits.days.delete(day);
       }
-      for (const day of daily.days.keys()) {
-        if (toEpochDay(day) < dailyFrom) {
-          daily.days.delete(day);
-          dailyChanged = true;
-        }
-      }
-
-      // **集計値を先に書く。** ビットマップを消した後に集計値の書き込みが失敗すると、その日が失われる。
-      // 集計値だけ書けてビットマップを消せなかった場合は、次に畳むときに max でまとめ直すので二重にならない
-      if (dailyChanged && saveDaily(daily.days) === "failed") {
-        return "failed";
-      }
-      if (oldDays.length > 0) {
-        for (const day of oldDays) {
-          bits.days.delete(day);
-        }
-        if (saveBits(bits.days) === "failed") {
-          return "failed";
-        }
-      }
-      return dailyChanged || oldDays.length > 0 ? "written" : "unchanged";
+      return saveBits(bits.days);
     },
 
     readDay(day) {
       assertDay(day);
-      return readRange(day, day).get(day) ?? EMPTY_DAY;
+      const bits = loadBits();
+      const rows = bits.kind === "ok" ? bits.days.get(day) : undefined;
+      return rows && rows.size > 0 ? viewRows(rows) : EMPTY_DAY;
     },
-
-    readRange,
   };
 }
 
@@ -414,25 +365,6 @@ function viewRows(rows: ReadonlyMap<string, Row>): DayView {
   };
 }
 
-/** Worker の `daily` と同じく、w と合計をそれぞれ max で守る (design §5)。 */
-function maxCounts(stored: Counts | undefined, next: Counts): Counts {
-  if (!stored) {
-    return next;
-  }
-  const w = Math.max(stored.w, next.w);
-  const total = Math.max(stored.w + stored.r, next.w + next.r);
-  return {
-    w,
-    r: total - w,
-    pages: Math.max(stored.pages, next.pages),
-    created: Math.max(stored.created, next.created),
-  };
-}
-
-function sameCounts(a: Counts, b: Counts): boolean {
-  return a.w === b.w && a.r === b.r && a.pages === b.pages && a.created === b.created;
-}
-
 function readBitsRow(value: unknown): Row | undefined {
   if (!isObject(value)) {
     return undefined;
@@ -462,20 +394,6 @@ function readBitmap(value: unknown): Bitmap {
 
 function readIds(value: unknown): Set<string> {
   return new Set(Array.isArray(value) ? value.filter(isValidPageId) : []);
-}
-
-function readCounts(value: unknown): Counts | undefined {
-  if (!isObject(value)) {
-    return undefined;
-  }
-  const { w, r, pages, created } = value;
-  return isCount(w) && isCount(r) && isCount(pages) && isCount(created)
-    ? { w, r, pages, created }
-    : undefined;
-}
-
-function isCount(value: unknown): value is number {
-  return Number.isSafeInteger(value) && (value as number) >= 0;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

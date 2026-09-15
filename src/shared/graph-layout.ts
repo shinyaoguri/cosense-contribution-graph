@@ -1,13 +1,12 @@
 /**
  * 草のレイアウト (design §8)。**寸法・色・ラベルの位置を決めるだけで、SVG の文字列も DOM も作らない。**
  *
- * - Worker の `src/worker/svg.ts` は、これを `<img>` で読まれる SVG の文字列にする
- * - UserScript は、これから DOM の SVG を組み立ててツールチップを付ける (段階 8、Issue #73)
+ * 読むのは Worker の `src/worker/svg.ts` だけで、これを `<img>` で読まれる SVG の文字列にする。
+ * **UserScript は草を描かない** (ADR-0019)。1.0.0 までは同じレイアウトから DOM の SVG を組み立てていた。
+ * **このファイルを含む描画のモジュールは `src/worker/` へ移す予定** (Issue #110)。
  *
  * **色はスキームに任せる** (`src/shared/scheme.ts`)。ここはバランスを計算してスキームに渡すだけで、
  * どの色相になるかを知らない。凡例もスキームの `legendBalances` から組み立てる。
- *
- * **このファイルは DOM lib と workerd lib の両方で型検査される。** 環境に依らないコードだけを置く。
  */
 import { balanceOf, type Minutes } from "./balance.ts";
 import {

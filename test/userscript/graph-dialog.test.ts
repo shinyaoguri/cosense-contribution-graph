@@ -3,22 +3,15 @@ import {
   createGraphDialog,
   GRAPH_HEIGHT,
   GRAPH_WIDTH,
-  LOCAL_PROJECT_SCALE,
-  LOCAL_SUMMARY,
   type SendNowResult,
 } from "../../src/userscript/graph-dialog.ts";
 import { MENU_TITLE, SETTINGS_LABEL } from "../../src/userscript/settings.ts";
-import { createStore } from "../../src/userscript/store.ts";
 import {
-  describeLocal,
   INITIAL_PROJECT_GRAPHS,
-  LOCAL_TOTAL_LABEL,
-  type LocalView,
-  localRangeStart,
+  type IntegratedView,
   SEND_NOW_LABEL,
   type SyncView,
   TOTAL_LABEL,
-  type ViewModel,
 } from "../../src/userscript/viewer.ts";
 
 // jsdom 30 の <dialog> は open 属性しか無い。showModal と close を差し替える (sign-in-dialog.test.ts と同じ)
@@ -49,42 +42,23 @@ afterEach(() => {
 
 const url = (name: string) => `https://grass.soui.dev/v1/g/${name.padEnd(32, "0")}.svg`;
 
-const TODAY = "2026-09-15";
-
-/** このブラウザの記録。`projects` の名前ごとに、今日 1 分だけ書いた記録を作る */
-function localView(projects: readonly string[] = []): LocalView {
-  const map = new Map<string, string>();
-  const store = createStore(
-    { getItem: (key) => map.get(key) ?? null, setItem: (key, value) => map.set(key, value) },
-    () => undefined,
-  );
-  projects.forEach((project, i) => {
-    store.record({ kind: "write", project, day: TODAY, minute: i });
-  });
-  return describeLocal(store.readRange(localRangeStart(TODAY), TODAY), TODAY, "");
-}
-
 const SYNC: SyncView = { lines: ["このブラウザの記録は送信済みです。"], canSend: false };
 
 function graphs(
   projects: { label: string; sent: boolean }[],
-  local = localView(),
   totalSent = true,
   sync: SyncView = SYNC,
-): ViewModel {
+): IntegratedView {
   return {
-    integrated: {
-      kind: "graphs",
-      total: { label: TOTAL_LABEL, url: url("aa"), sent: totalSent },
-      projects: projects.map((p, i) => ({ ...p, url: url(`b${i}`) })),
-      sync,
-    },
-    local,
+    kind: "graphs",
+    total: { label: TOTAL_LABEL, url: url("aa"), sent: totalSent },
+    projects: projects.map((p, i) => ({ ...p, url: url(`b${i}`) })),
+    sync,
   };
 }
 
-function message(...lines: string[]): ViewModel {
-  return { integrated: { kind: "message", lines }, local: localView() };
+function message(...lines: string[]): IntegratedView {
+  return { kind: "message", lines };
 }
 
 function setup(
@@ -102,8 +76,8 @@ function setup(
     },
   });
   /** 「設定」のハンドラを付けて開く。呼ばれた回数は `settings.count` で見る */
-  const open = (model: ViewModel) =>
-    dialog.open(model, {
+  const open = (view: IntegratedView) =>
+    dialog.open(view, {
       openSettings: () => {
         settings.count++;
       },
@@ -114,11 +88,9 @@ function setup(
     });
   const find = () => document.querySelector("dialog");
   const sections = () => [...(find()?.querySelectorAll("section") ?? [])];
-  /** 畳んだ「このブラウザの記録」 */
-  const local = () => find()?.querySelector("details") ?? undefined;
   const buttons = (text: string) =>
     [...(find()?.querySelectorAll("button") ?? [])].filter((b) => b.textContent === text);
-  return { open, copied, settings, sent, find, buttons, sections, local };
+  return { open, copied, settings, sent, find, buttons, sections };
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -323,7 +295,7 @@ describe("createGraphDialog", () => {
     const t = setup();
 
     t.open(
-      graphs([], localView(), true, {
+      graphs([], true, {
         lines: ["送信済みです。", "自動で送ります。"],
         canSend: false,
       }),
@@ -344,7 +316,7 @@ describe("createGraphDialog", () => {
       Promise.resolve({ text: "送りました。", view: after, refresh: false }),
     );
     t.open(
-      graphs([], localView(), true, {
+      graphs([], true, {
         lines: ["まだ送れていない記録が 2 日分あります。"],
         canSend: true,
       }),
@@ -369,9 +341,7 @@ describe("createGraphDialog", () => {
     const t = setup(undefined, () =>
       Promise.resolve({ text: "送りました。", view: SYNC, refresh: true }),
     );
-    t.open(
-      graphs([{ label: "alpha", sent: true }], localView(), true, { lines: [], canSend: true }),
-    );
+    t.open(graphs([{ label: "alpha", sent: true }], true, { lines: [], canSend: true }));
     const created: HTMLImageElement[] = [];
     const original = document.createElement.bind(document);
     vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
@@ -401,7 +371,7 @@ describe("createGraphDialog", () => {
     const t = setup(undefined, () =>
       Promise.resolve({ text: "送りました。", view: SYNC, refresh: true }),
     );
-    t.open(graphs([], localView(), true, { lines: [], canSend: true }));
+    t.open(graphs([], true, { lines: [], canSend: true }));
 
     t.buttons(SEND_NOW_LABEL)[0]?.click();
     await settle();
@@ -409,97 +379,5 @@ describe("createGraphDialog", () => {
     await settle();
 
     expect(t.copied).toEqual([url("aa")]);
-  });
-
-  it("**統合の草を主にし、このブラウザの記録は畳む** (Issue #101)", () => {
-    const t = setup();
-
-    t.open(graphs([{ label: "alpha", sent: true }]));
-
-    // 表に出る section は統合だけ
-    expect(t.sections().map((section) => section.querySelector("h3")?.textContent)).toEqual([
-      "全端末を統合した記録",
-    ]);
-    const details = t.local();
-    expect(details?.open).toBe(false);
-    // summary は details の直下の最初の子 (そうでないと開く操作が効かない)
-    expect(details?.firstElementChild?.tagName.toLowerCase()).toBe("summary");
-    expect(details?.firstElementChild?.textContent).toBe(LOCAL_SUMMARY);
-    // 統合が先、畳んだ方が後
-    expect(t.sections()[0]?.compareDocumentPosition(details as Node)).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
-  });
-
-  it("**まだ 1 件も送れていないなら、このブラウザの記録を開いて出す** (見るものがこれしか無い。Issue #100)", () => {
-    const t = setup();
-
-    t.open(graphs([], localView(["alpha"]), false));
-
-    expect(t.local()?.open).toBe(true);
-    // 合算も「表示してみる」を押すまで読まない
-    expect(t.find()?.querySelectorAll("img")).toHaveLength(0);
-  });
-
-  it("**このブラウザの記録は DOM の SVG で描き、マスにツールチップを付ける。** プロジェクト別は小さく", () => {
-    const t = setup();
-    const local = localView(["alpha", "beta"]);
-
-    t.open(graphs([], local));
-
-    const section = t.local();
-    expect([...(section?.querySelectorAll("h4") ?? [])].map((h) => h.textContent)).toEqual([
-      LOCAL_TOTAL_LABEL,
-      "alpha",
-      "beta",
-    ]);
-    const svgs = [...(section?.querySelectorAll("svg") ?? [])];
-    expect(svgs).toHaveLength(3);
-    expect(svgs[0]?.getAttribute("aria-label")).toBe(`${LOCAL_TOTAL_LABEL} の草`);
-    const width = Number(svgs[0]?.getAttribute("width"));
-    expect(Number(svgs[1]?.getAttribute("width"))).toBeCloseTo(width * LOCAL_PROJECT_SCALE);
-    const titles = [...(svgs[0]?.querySelectorAll("rect > title") ?? [])].map((x) => x.textContent);
-    expect(titles).toHaveLength(365);
-    expect(titles.at(-1)).toBe(
-      `${TODAY} — 書き 2 分 / 読み 0 分 / 0 ページ編集 / 0 ページ新規作成`,
-    );
-    // 記録のある最も古い日より前は「計測開始前」(活動の無い日と区別する。Issue #80)
-    expect(titles[0]).toMatch(/計測開始前$/);
-    expect(section?.querySelectorAll("img")).toHaveLength(0);
-  });
-
-  it(`**このブラウザの記録もプロジェクト別は ${INITIAL_PROJECT_GRAPHS} 件まで**`, () => {
-    const t = setup();
-    const names = Array.from({ length: INITIAL_PROJECT_GRAPHS + 1 }, (_, i) => `p${i}`);
-
-    t.open(graphs([], localView(names)));
-
-    const section = () => t.local();
-    expect(section()?.querySelectorAll("svg")).toHaveLength(1 + INITIAL_PROJECT_GRAPHS);
-    t.buttons("ほか 1 件を表示")[0]?.click();
-    expect(section()?.querySelectorAll("svg")).toHaveLength(2 + INITIAL_PROJECT_GRAPHS);
-  });
-
-  it("**統合の方が理由の文言だけでも、このブラウザの記録は出す**", () => {
-    const t = setup();
-
-    t.open({
-      integrated: { kind: "message", lines: ["未登録"] },
-      local: localView(["alpha"]),
-    });
-
-    expect(t.sections()[0]?.textContent).toContain("未登録");
-    const details = t.local();
-    expect(details?.querySelectorAll("svg")).toHaveLength(2);
-    // 見るものがこれしか無いので開いて出す
-    expect(details?.open).toBe(true);
-  });
-
-  it("このブラウザにプロジェクトの記録が無ければそう書く", () => {
-    const t = setup();
-
-    t.open(graphs([]));
-
-    expect(t.local()?.textContent).toContain("このブラウザで数えたプロジェクトはまだありません");
   });
 });
