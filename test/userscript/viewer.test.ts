@@ -3,17 +3,12 @@ import { PH_ALL, phOf, publicIdOf } from "../../src/shared/ids.ts";
 import { MAX_TODAY_SENDS } from "../../src/userscript/outbox.ts";
 import type { SendStatus } from "../../src/userscript/sender.ts";
 import { SETTINGS_LABEL, SIGN_IN_LABEL } from "../../src/userscript/settings.ts";
-import { createStore } from "../../src/userscript/store.ts";
 import {
   AUTO_SEND_NOTE,
   describeIntegrated,
-  describeLocal,
   describeSync,
-  LOCAL_TOTAL_LABEL,
-  localRangeStart,
   SEND_NOW_LABEL,
   TOTAL_LABEL,
-  tooltipOf,
 } from "../../src/userscript/viewer.ts";
 import { graphUrl } from "../../src/userscript/worker-origin.ts";
 
@@ -198,10 +193,17 @@ describe("describeIntegrated", () => {
     expect(view.kind === "graphs" && view.projects).toEqual([]);
   });
 
+  // 草を描くのは Worker だけなので、未登録のブラウザではこの文言が唯一の中身になる (ADR-0019)
+  it("**未登録なら草は 1 枚も出ない。** すでに数えていることを伝える", () => {
+    const view = describeIntegrated({ kind: "not-enrolled" }, "alpha", NOW);
+
+    expect(view.kind === "message" && view.lines.join("\n")).toContain("活動はすでに数えていて");
+  });
+
   it.each([
     [
       "not-enrolled",
-      `このダイアログの下の「${SETTINGS_LABEL}」→「${SIGN_IN_LABEL}」から登録してください。`,
+      `このダイアログの下の「${SETTINGS_LABEL}」→「${SIGN_IN_LABEL}」から登録できます。`,
     ],
     ["newer-key", "新しい版の cosense-grass が登録した鍵"],
     ["newer-sent", "新しい版の cosense-grass が送信の記録を書いている"],
@@ -211,122 +213,5 @@ describe("describeIntegrated", () => {
 
     expect(view.kind).toBe("message");
     expect(view.kind === "message" && view.lines.join("\n")).toContain(text);
-  });
-});
-
-describe("describeLocal", () => {
-  const TODAY = "2026-09-15";
-
-  function records(
-    activities: readonly { project: string; day: string; w?: number; r?: number }[],
-  ) {
-    const map = new Map<string, string>();
-    const store = createStore(
-      { getItem: (key) => map.get(key) ?? null, setItem: (key, value) => map.set(key, value) },
-      () => undefined,
-    );
-    for (const { project, day, w = 0, r = 0 } of activities) {
-      for (let minute = 0; minute < w; minute++) {
-        store.record({ kind: "write", project, day, minute });
-      }
-      for (let minute = 0; minute < r; minute++) {
-        store.record({ kind: "read", project, day, minute: 600 + minute });
-      }
-    }
-    return store.readRange(localRangeStart(TODAY), TODAY);
-  }
-
-  it("**合算と、表示範囲に記録のあるプロジェクトの草を作る。** 今のプロジェクトが先頭、残りは分数の多い順", () => {
-    const days = records([
-      { project: "few", day: TODAY, r: 3 },
-      { project: "many", day: TODAY, w: 10 },
-      { project: "current", day: "2026-09-14", r: 1 },
-      { project: "tie-b", day: TODAY, r: 3 },
-    ]);
-
-    const view = describeLocal(days, TODAY, "current");
-
-    expect(view.total.label).toBe(LOCAL_TOTAL_LABEL);
-    expect(view.projects.map((p) => p.label)).toEqual([
-      "current (このプロジェクト)",
-      "many",
-      "few",
-      "tie-b",
-    ]);
-    expect(view.total.input.today).toBe(TODAY);
-    // few と tie-b の読みは同じ分なので、合算では 1 回に数える
-    expect(view.total.input.days.get(TODAY)).toEqual({ w: 10, r: 3 });
-    expect(view.projects[1]?.input.days.get(TODAY)).toEqual({ w: 10, r: 0 });
-    expect(view.projects[1]?.counts.get(TODAY)).toEqual({ w: 10, r: 0, pages: 0, created: 0 });
-  });
-
-  it("**プロジェクト別も合算の四分位と中心で塗る** (ADR-0007 決定 4)", () => {
-    const days = records([
-      { project: "a", day: TODAY, w: 30 },
-      { project: "b", day: "2026-09-14", r: 5 },
-    ]);
-
-    const view = describeLocal(days, TODAY, "a");
-
-    for (const graph of view.projects) {
-      expect(graph.input.scale).toEqual(view.total.input.scale);
-      expect(graph.input.center).toBe(view.total.input.center);
-    }
-  });
-
-  it("**四分位の母集団は表示範囲より古い日も含む。** 表示する日には入れない", () => {
-    // 表示範囲 (53 週) は 2025-09-16 から。371 日の範囲には入る
-    const old = "2025-09-12";
-    const withOld = records([
-      { project: "a", day: TODAY, w: 5 },
-      { project: "a", day: old, w: 100 },
-    ]);
-    const withoutOld = records([{ project: "a", day: TODAY, w: 5 }]);
-
-    const view = describeLocal(withOld, TODAY, "a");
-
-    expect(view.total.input.days.has(old)).toBe(false);
-    expect(view.projects.map((p) => p.label)).toEqual(["a (このプロジェクト)"]);
-    expect(view.total.input.scale).not.toEqual(
-      describeLocal(withoutOld, TODAY, "a").total.input.scale,
-    );
-  });
-
-  it("**計測開始 = 記録のある最も古い日。プロジェクト別も同じ日を使う** (Issue #80)", () => {
-    const days = records([
-      { project: "alpha", day: "2026-08-01", w: 1 },
-      { project: "beta", day: TODAY, w: 1 },
-    ]);
-
-    const view = describeLocal(days, TODAY, "alpha");
-
-    expect(view.total.input.startDay).toBe("2026-08-01");
-    // beta は 9/15 が初めてでも、計測していなかったのは 8/1 より前だけ
-    expect(view.projects.map((p) => p.input.startDay)).toEqual(["2026-08-01", "2026-08-01"]);
-  });
-
-  it("記録が 1 日も無ければ開始日は無い", () => {
-    const view = describeLocal(records([]), TODAY, "alpha");
-
-    expect(view.total.input.startDay).toBeUndefined();
-  });
-
-  it("表示範囲に記録の無いプロジェクトは並べない。記録が無ければ合算だけ", () => {
-    const view = describeLocal(records([{ project: "old", day: "2025-09-12", w: 5 }]), TODAY, "x");
-
-    expect(view.projects).toEqual([]);
-    expect(describeLocal(new Map(), TODAY, "x").total.input.days.size).toBe(0);
-  });
-});
-
-describe("tooltipOf", () => {
-  it("design §9 の形。記録の無い日は「記録なし」", () => {
-    expect(tooltipOf("2026-09-12", { w: 12, r: 38, pages: 7, created: 2 })).toBe(
-      "2026-09-12 — 書き 12 分 / 読み 38 分 / 7 ページ編集 / 2 ページ新規作成",
-    );
-    expect(tooltipOf("2026-09-13", undefined)).toBe("2026-09-13 — 記録なし");
-    expect(tooltipOf("2026-09-13", { w: 0, r: 0, pages: 0, created: 0 })).toBe(
-      "2026-09-13 — 記録なし",
-    );
   });
 });

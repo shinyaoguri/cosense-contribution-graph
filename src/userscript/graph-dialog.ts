@@ -3,33 +3,24 @@
  *
  * - **ページに挿さずダイアログにする。** Cosense の遷移で消えないので、再マウントが要らない (ADR-0003 の改訂)
  * - **草は常にライトで出す。** 素の `<dialog>` は Cosense のどのテーマでも白地に黒 (research §3 の 2026-09-15 の実測)
- * - 全端末を統合した草は共有 SVG を `<img>` で見る (ADR-0003)。**このブラウザから送れていないものは、押されるまで読まない**
- * - **このブラウザの記録は `<details>` に畳む** (Issue #101、ADR-0003 の 2026-09-15 の改訂)。
- *   同じ形の草を対等に 2 つ並べると、値が違うときにどちらが本当か読めない。
- *   `render.ts` で DOM の SVG にしてマスにツールチップを付けるので、**内訳を確かめる場として残す**。
- *   **統合の草を出せないときと、まだ草が無いときは開いて出す** (見るものがこれしか無い)
+ * - **出すのは Worker が作った共有 SVG の `<img>` だけ** (ADR-0019、Issue #109)。ここは草を描かない。
+ *   **このブラウザから送れていないものは、押されるまで読まない**
  * - 文言は `textContent`、ハンドラは `addEventListener` (`sign-in-dialog.ts` と同じ約束。research §1)
  * - キー入力・貼り付け・コピーをダイアログの外へ伝えない (Cosense のショートカットとコピーの処理に拾わせない)
- * - **同期の状態と「今すぐ送る」を統合の合算の草の直後に置く** (Issue #102)。押した後は
+ * - **同期の状態と「今すぐ送る」を合算の草の直後に置く** (Issue #102)。押した後は
  *   **ダイアログを開き直さず、状態行と表示中の画像だけ差し替える** (開き直すと畳みが戻り、画像を全部取り直す)
  * - **草の URL はコンソールにもログにも出さない** (publicId が分かると誰でも見られる)
  * - **「設定」はここから開く** (Issue #95)。ページメニューはこのダイアログの 1 項目だけにしたので、
  *   設定への入口はここが唯一。サインインは設定のダイアログの中のクリックで始まるので、
  *   ポップアップを開く同期区間は分断されない
  */
-import { layoutGraph } from "../shared/graph-layout.ts";
-import { renderGraphElement } from "./render.ts";
 import { MENU_TITLE, SETTINGS_LABEL } from "./settings.ts";
 import {
   type GraphEntry,
   INITIAL_PROJECT_GRAPHS,
   type IntegratedView,
-  type LocalGraph,
-  type LocalView,
   SEND_NOW_LABEL,
   type SyncView,
-  tooltipOf,
-  type ViewModel,
 } from "./viewer.ts";
 
 const STOPPED_EVENTS = ["keydown", "keyup", "keypress", "paste", "copy", "cut"] as const;
@@ -37,12 +28,6 @@ const STOPPED_EVENTS = ["keydown", "keyup", "keypress", "paste", "copy", "cut"] 
 /** 53 週の既定の SVG の寸法 (design §8)。先に確保して、読み込みでダイアログの大きさが変わらないようにする */
 export const GRAPH_WIDTH = 775;
 export const GRAPH_HEIGHT = 200;
-
-/** 畳んだ「このブラウザの記録」の見出し。**何が見られるかを言う** (「このブラウザの記録」だと統合と見分けが付かない) */
-export const LOCAL_SUMMARY = "このブラウザだけで数えた草 (日ごとの内訳)";
-
-/** このブラウザの記録のうち、プロジェクト別の草の倍率 (design §9「プロジェクト別の草を小さく並べる」) */
-export const LOCAL_PROJECT_SCALE = 0.6;
 
 export type GraphDialogDependencies = {
   /** `navigator.clipboard.writeText`。**クリックの処理から await を挟まずに呼ぶ** (Safari はユーザー操作の直後でないと拒む) */
@@ -67,7 +52,7 @@ export type GraphDialogHandlers = {
 };
 
 export type GraphDialog = {
-  open(model: ViewModel, handlers: GraphDialogHandlers): void;
+  open(view: IntegratedView, handlers: GraphDialogHandlers): void;
   close(): void;
 };
 
@@ -300,52 +285,8 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     return section;
   };
 
-  const localGraph = (entry: LocalGraph, scale: number) => {
-    const block = element("div");
-    const frame = element("div");
-    frame.style.overflowX = "auto";
-    frame.append(
-      renderGraphElement(doc, layoutGraph(entry.input), {
-        scale,
-        label: `${entry.label} の草`,
-        tooltip: (day) => tooltipOf(day, entry.counts.get(day)),
-      }),
-    );
-    block.append(element("h4", entry.label), frame);
-    return block;
-  };
-
-  /**
-   * このブラウザの記録は内訳なので畳む。**中身は閉じていても作る** — 今までも毎回描いていたので畳んで重くならず、
-   * `toggle` で作ると開いた直後の 1 フレームだけ空になる。
-   */
-  const local = (view: LocalView, open: boolean) => {
-    const details = element("details");
-    if (open) {
-      details.open = true;
-    }
-    // **summary は details の直下の最初の子**にする (そうでないと開く操作が効かない)
-    details.append(element("summary", LOCAL_SUMMARY));
-    details.append(
-      element(
-        "p",
-        "このブラウザで数えた記録から描いた草です。ほかの端末の記録は含みません。マスにカーソルを載せると、その日の分数とページ数が出ます。",
-      ),
-      localGraph(view.total, 1),
-    );
-    if (view.projects.length === 0) {
-      details.append(element("p", "このブラウザで数えたプロジェクトはまだありません。"));
-      return details;
-    }
-    appendLimited(details, view.projects, (entry) => localGraph(entry, LOCAL_PROJECT_SCALE));
-    return details;
-  };
-
-  /** 統合の草を出せない・まだ 1 件も送れていないなら、見るものがこのブラウザの記録しか無いので開いて出す */
-  const localOpen = (view: IntegratedView) => view.kind === "message" || !view.total.sent;
-
   return {
-    open(model, handlers) {
+    open(view, handlers) {
       close();
       frames = [];
       const node = element("dialog");
@@ -360,11 +301,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
         }
       });
 
-      node.append(
-        element("h2", MENU_TITLE),
-        integrated(model.integrated, handlers),
-        local(model.local, localOpen(model.integrated)),
-      );
+      node.append(element("h2", MENU_TITLE), integrated(view, handlers));
       const buttonLine = element("p");
       buttonLine.append(
         button("閉じる", close),
