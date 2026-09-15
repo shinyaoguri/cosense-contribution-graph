@@ -10,7 +10,7 @@
  */
 import type { SendStatus } from "./sender.ts";
 import type { SettingsRead } from "./settings-store.ts";
-import { DEVICES_URL } from "./worker-origin.ts";
+import { ACCOUNT_URL } from "./worker-origin.ts";
 
 export const SETTINGS_MENU_TITLE = "草の設定";
 
@@ -61,7 +61,7 @@ export const REVOKE_LABEL = "この端末の登録を取り消す";
 export const REVOKE_CONFIRM =
   "この端末の登録を取り消します。これまでの記録は消えず、この端末からは送れなくなります。取り消しますか?";
 
-export const DEVICES_LABEL = "登録した端末の一覧を見る (別のタブで開きます)";
+export const DEVICES_LABEL = "端末の一覧・共有 URL・データの削除 (別のタブで開きます)";
 
 export const PURGE_LABEL = "保存されているデータをすべて削除する";
 
@@ -88,7 +88,7 @@ export function describeSettings(status: SendStatus, settings: SettingsRead): Se
     revoke:
       status.kind === "enrolled" ? { label: REVOKE_LABEL, confirm: REVOKE_CONFIRM } : undefined,
     purge: { label: PURGE_LABEL, confirm: PURGE_CONFIRM },
-    devices: { label: DEVICES_LABEL, url: DEVICES_URL },
+    devices: { label: DEVICES_LABEL, url: ACCOUNT_URL },
   };
 }
 

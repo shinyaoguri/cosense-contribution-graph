@@ -117,7 +117,7 @@ src/userscript/
   settings-dialog.ts        「草の設定」のダイアログ (段階 8)
   settings-store.ts         localStorage (設定)
 (worker)
-  devices.ts                /auth/devices の一覧と失効 (ADR-0017)
+  account.ts                /account の一覧・失効・共有 URL・全削除 (ADR-0017・0018)
   session.ts                サインイン済みを 30 分覚える cookie (ADR-0017)
 scripts/build-userscript.mjs esbuild でバンドルする (配布ページへの反映は手動。ADR-0013 決定 3)
 ```
@@ -646,15 +646,22 @@ GET /v1/delete.gif?v=1&u=<uid>&d=<kid>&confirm=1&t=&sig=        全レコード�
 - UserScript は**サーバが消してから**このブラウザの記録 (`bits` / `daily` / `sent` / `settings`) と鍵を消す。
   **未登録なら送らず、このブラウザの記録だけ消す**
 
-### `GET /auth/devices` — 登録した端末の一覧と失効
+### `GET /account` — 管理のページ
 
-**サインインした本人だけが開けるページ** (ADR-0017、2026-09-15、`src/worker/devices.ts`)。
+**サインインした本人だけが開けるページ** (ADR-0017・0018、2026-09-15、`src/worker/account.ts`)。
 UserScript からは読めない (CSP に受信方向が無い) ので、Worker のオリジンで人が開く。
+**管理はここに集約し、Cosense 側にはそのブラウザでしかできないことだけを残す** (ADR-0018)。
 
-- **GET は一覧** (kid と登録日時だけ。uid も公開鍵も出さない)、**POST は 1 台の失効**。POST の後は 303 で GET に戻す
+- **GET は一覧** — 端末 (kid と登録日時。uid も公開鍵も出さない)、合算の共有 URL、全削除のフォーム
+- **POST は失効 (`action` 無し) か全削除 (`action=delete`)**。失効の後は 303 で GET に戻す
+- **全削除は合言葉を打たせる** (`word=削除`)。画像ビーコンの `confirm=1` の代わり
 - セッションは `__Host-grass-session` (30 分、`src/worker/session.ts`)。`/auth/callback` の成功時にだけ発行する
 - 守りは **`SameSite=Lax` + CSP の `form-action 'self'` + セッションに結び付けた CSRF トークン**の 3 つ
 - **スクリプトを 1 行も載せない** (CSP は `script-src 'none'`)
+- **プロジェクト別の共有 URL は出せない** (サーバはプロジェクト名を持たない。ADR-0007)
+
+`/auth/start?to=account` で始めると、サインインの後にこのページへ戻る。
+**戻り先は cookie の `mode` として署名され**、`mode=account` では登録トークンを発行しない (ADR-0018)。
 
 ### `GET /v1/probe.gif` — 送信の疎通確認
 

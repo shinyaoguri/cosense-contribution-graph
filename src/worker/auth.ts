@@ -5,14 +5,23 @@
  * **callback**: cookie と state を確かめ、code を ID トークンに交換し、検証して uid を導き、登録トークンを発行して
  * ポップアップの HTML (postMessage とコードの表示) を返す。
  *
- * - **redirect_uri は `PUBLIC_ORIGIN` から作る。** リクエストの Host からは作らない。start は戻り先のパラメータを持たない
+ * - **redirect_uri は `PUBLIC_ORIGIN` から作る。** リクエストの Host からは作らない
+ * - **戻り先は `?to=account` だけ** (ADR-0018)。任意の URL は受けず、**cookie に入れて署名する**ので、
+ *   callback の URL を作り替えても戻り先は変えられない
  * - **cookie と state が通るまで Google に fetch しない**
  * - **callback の応答は成功でも失敗でも往復の cookie を消す。** 開き直しても Google に行かずに止まる
  * - **成功のときだけ、30 分のセッション cookie を付ける** (`session.ts`、ADR-0017)。
  *   `/auth/devices` で端末の一覧を見るためだけに使う。記録の送信には一切使わない
  * - ログは `{"event":"auth","step","status","reason","detail"}` だけ。code・state・cookie・ID トークン・sub・uid・トークンは出さない
  */
-import { AUTH_CALLBACK_PATH, AUTH_START_PATH, encodeAuthCode } from "../shared/auth.ts";
+import {
+  ACCOUNT_PATH,
+  AUTH_CALLBACK_PATH,
+  AUTH_START_PATH,
+  AUTH_TO_ACCOUNT,
+  AUTH_TO_PARAM,
+  encodeAuthCode,
+} from "../shared/auth.ts";
 import { decodeBase64url, encodeBase64url } from "../shared/base64url.ts";
 import { clearAuthCookie, newAuthSession, openAuthCookie, sealAuthCookie } from "./auth-cookie.ts";
 import { type AuthFailure, authPageResponse } from "./auth-page.ts";
@@ -62,6 +71,7 @@ type Reason =
   | "token-rejected"
   | "token-unavailable"
   | "session-failed"
+  | "account"
   | "token-response"
   | "jwks"
   | "idtoken"
@@ -75,13 +85,18 @@ export async function handleAuthStart(url: URL, deps: AuthDeps): Promise<Respons
     log("start", 500, "config");
     return plainResponse(500);
   }
-  // 別のホスト (workers.dev) で始めると cookie が callback のホストに届かない。クエリは持ち越さない
+  const toAccount = url.searchParams.get(AUTH_TO_PARAM) === AUTH_TO_ACCOUNT;
+  // 別のホスト (workers.dev) で始めると cookie が callback のホストに届かない。戻り先だけ持ち越す
   if (url.origin !== deps.publicOrigin) {
     log("start", 302, "origin");
-    return redirect(`${deps.publicOrigin}${AUTH_START_PATH}`);
+    const target = new URL(AUTH_START_PATH, deps.publicOrigin);
+    if (toAccount) {
+      target.searchParams.set(AUTH_TO_PARAM, AUTH_TO_ACCOUNT);
+    }
+    return redirect(target.href);
   }
 
-  const session = newAuthSession(deps.now());
+  const session = newAuthSession(deps.now(), toAccount ? "account" : "popup");
   const verifier = encodeBase64url(session.verifier);
   const challenge = new Uint8Array(
     await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier)),
@@ -169,8 +184,18 @@ export async function handleAuthCallback(
     return fail(403, "idtoken", "failed", verified.reason);
   }
 
-  let issued: { token: string };
   const uid = await uidOf(deps.secret, verified.sub);
+
+  // **管理のページへ戻すときは登録トークンを発行しない** (端末を登録するのは Cosense からだけ。ADR-0018)
+  if (session.mode === "account") {
+    log("callback", 302, "account");
+    const response = redirect(`${deps.publicOrigin}${ACCOUNT_PATH}`);
+    response.headers.append("set-cookie", clearAuthCookie());
+    response.headers.append("set-cookie", await sealSession(deps.secret, uid, nowMs));
+    return response;
+  }
+
+  let issued: { token: string };
   try {
     issued = await issueEnrollToken(deps.db, uid, nowMs);
   } catch {

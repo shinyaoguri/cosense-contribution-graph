@@ -1,4 +1,4 @@
-import { AUTH_CALLBACK_PATH, AUTH_START_PATH } from "../shared/auth.ts";
+import { ACCOUNT_PATH, AUTH_CALLBACK_PATH, AUTH_START_PATH } from "../shared/auth.ts";
 import { centerOf } from "../shared/balance.ts";
 import { INGEST_PATH } from "../shared/beacon.ts";
 import { ENROLL_PATH } from "../shared/enroll.ts";
@@ -8,11 +8,11 @@ import { PROBE_PATH } from "../shared/probe.ts";
 import { PURGE_PATH } from "../shared/purge.ts";
 import { REVOKE_PATH } from "../shared/revoke.ts";
 import { buildScale } from "../shared/scale.ts";
+import { type AccountDeps, handleAccount } from "./account.ts";
 import { handlePurge } from "./admin.ts";
 import { type AuthDeps, handleAuthCallback, handleAuthStart } from "./auth.ts";
 import { deleteExpiredEnrollTokens, deleteOldDaybits } from "./cron.ts";
 import { DEMO_TODAY, demoData } from "./demo.ts";
-import { DEVICES_PATH, type DevicesDeps, handleDevices } from "./devices.ts";
 import { handleEnroll, handleRevoke } from "./enroll.ts";
 import { renderStoredGraph } from "./graph-data.ts";
 import { googleKeys } from "./idtoken.ts";
@@ -26,7 +26,7 @@ import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
  * Worker のエントリ。
  *
  * 経路は `/v1/p.gif` (記録の受け口)、`/v1/enroll.gif` (デバイスの登録)、`/v1/revoke.gif` (デバイスの失効)、
- * `/v1/delete.gif` (全データの削除)、`/auth/devices` (端末の一覧と失効)、`/v1/g/{publicId}.svg`、
+ * `/v1/delete.gif` (全データの削除)、`/account` (端末の一覧と失効・共有 URL・全削除)、`/v1/g/{publicId}.svg`、
  * `/v1/probe.gif` (送信の疎通確認)、`/auth/start` と `/auth/callback` (Google サインイン)。
  * グラフは `demo` ならデモを、それ以外は D1 の記録から描く。
  */
@@ -48,9 +48,9 @@ const GOOGLE_KEYS = googleKeys({ fetch: (url) => fetch(url), now: () => Date.now
 export default {
   async fetch(request, env): Promise<Response> {
     const url = new URL(request.url);
-    // **POST を受けるのは端末の一覧だけ** (失効のフォーム。ADR-0017)
-    if (url.pathname === DEVICES_PATH && request.method === "POST") {
-      return handleDevices(request, devicesDeps(env));
+    // **POST を受けるのは管理のページだけ** (失効と全削除のフォーム。ADR-0017・0018)
+    if (url.pathname === ACCOUNT_PATH && request.method === "POST") {
+      return handleAccount(request, accountDeps(env));
     }
     // curl -I などの HEAD も受ける。本文はランタイムが落とす
     if (request.method !== "GET" && request.method !== "HEAD") {
@@ -96,8 +96,8 @@ export default {
         now: () => Date.now(),
       });
     }
-    if (url.pathname === DEVICES_PATH) {
-      return handleDevices(request, devicesDeps(env));
+    if (url.pathname === ACCOUNT_PATH) {
+      return handleAccount(request, accountDeps(env));
     }
     if (url.pathname === AUTH_START_PATH || url.pathname === AUTH_CALLBACK_PATH) {
       // **GET だけ。** HEAD で code を交換させない・登録トークンを発行させない
@@ -157,8 +157,13 @@ function authDeps(env: Env): AuthDeps {
   };
 }
 
-function devicesDeps(env: Env): DevicesDeps {
-  return { db: env.DB, secret: env.WORKER_SECRET, now: () => Date.now() };
+function accountDeps(env: Env): AccountDeps {
+  return {
+    db: env.DB,
+    secret: env.WORKER_SECRET,
+    publicOrigin: env.PUBLIC_ORIGIN,
+    now: () => Date.now(),
+  };
 }
 
 function renderDemo(search: URLSearchParams): string {

@@ -15,8 +15,15 @@ import { isValidUid, UID_BYTES } from "./ids.ts";
 export const AUTH_START_PATH = "/auth/start";
 export const AUTH_CALLBACK_PATH = "/auth/callback";
 
-/** 登録した端末の一覧と失効 (ADR-0017)。**UserScript はリンクを出すだけ**で、中身は読めない */
-export const AUTH_DEVICES_PATH = "/auth/devices";
+/**
+ * 管理のページ (ADR-0017・0018)。端末の一覧と失効、共有 URL、全データの削除。
+ * **UserScript はリンクを出すだけ**で、中身は読めない
+ */
+export const ACCOUNT_PATH = "/account";
+
+/** `/auth/start?to=account` で、サインインの後に管理のページへ戻す (ADR-0018)。 */
+export const AUTH_TO_PARAM = "to";
+export const AUTH_TO_ACCOUNT = "account";
 
 /** ポップアップが postMessage を送る先。**`"*"` にしない** (コードを他のオリジンへ渡さない) */
 export const AUTH_OPENER_ORIGIN = "https://scrapbox.io";

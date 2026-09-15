@@ -1,6 +1,8 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { DEVICES_PATH, handleDevices } from "../../src/worker/devices.ts";
+import { ACCOUNT_PATH } from "../../src/shared/auth.ts";
+import { PH_ALL, publicIdOf } from "../../src/shared/ids.ts";
+import { DELETE_CONFIRM_WORD, handleAccount } from "../../src/worker/account.ts";
 import { csrfToken, sealSession } from "../../src/worker/session.ts";
 import { createSigner, NOW, randomUid } from "./beacon-helpers.ts";
 
@@ -8,15 +10,20 @@ const SECRET = "test-secret";
 const ORIGIN = "https://example.com";
 const NOW_SECONDS = NOW / 1000;
 
-const deps = (now = NOW) => ({ db: env.DB, secret: SECRET, now: () => now });
+const deps = (now = NOW) => ({
+  db: env.DB,
+  secret: SECRET,
+  publicOrigin: ORIGIN,
+  now: () => now,
+});
 
 async function cookieFor(uid: string, nowMs = NOW): Promise<string> {
   return (await sealSession(SECRET, uid, nowMs)).split(";")[0] ?? "";
 }
 
 function get(cookie?: string, now = NOW): Promise<Response> {
-  return handleDevices(
-    new Request(`${ORIGIN}${DEVICES_PATH}`, {
+  return handleAccount(
+    new Request(`${ORIGIN}${ACCOUNT_PATH}`, {
       headers: cookie === undefined ? {} : { cookie },
     }),
     deps(now),
@@ -24,8 +31,8 @@ function get(cookie?: string, now = NOW): Promise<Response> {
 }
 
 function post(body: Record<string, string>, cookie?: string): Promise<Response> {
-  return handleDevices(
-    new Request(`${ORIGIN}${DEVICES_PATH}`, {
+  return handleAccount(
+    new Request(`${ORIGIN}${ACCOUNT_PATH}`, {
       method: "POST",
       headers: {
         "content-type": "application/x-www-form-urlencoded",
@@ -130,7 +137,7 @@ describe("失効", () => {
     const res = await post({ kid: signer.kid, csrf }, cookie);
 
     expect(res.status).toBe(303);
-    expect(res.headers.get("location")).toBe(DEVICES_PATH);
+    expect(res.headers.get("location")).toBe(ACCOUNT_PATH);
     expect(await keyCount(uid)).toBe(0);
   });
 
@@ -195,11 +202,143 @@ describe("失効", () => {
   });
 });
 
+describe("共有 URL", () => {
+  it("**合算の草の URL を出す。プロジェクト別は出せないと案内する**", async () => {
+    const uid = randomUid();
+    const publicId = await publicIdOf(uid, PH_ALL);
+    await env.DB.prepare("INSERT INTO graphs (public_id, uid, ph) VALUES (?, ?, ?)")
+      .bind(publicId, uid, PH_ALL)
+      .run();
+
+    const html = await (await get(await cookieFor(uid))).text();
+
+    expect(html).toContain(`${ORIGIN}/v1/g/${publicId}.svg`);
+    expect(html).toContain("草を見る");
+  });
+
+  it("まだ草が無ければその旨を出す", async () => {
+    const html = await (await get(await cookieFor(randomUid()))).text();
+
+    expect(html).toContain("まだ草がありません");
+  });
+});
+
+describe("全データの削除", () => {
+  /** 5 つの表すべてに行を入れる */
+  async function seed(uid: string, kid: string, publicKey: Uint8Array<ArrayBuffer>) {
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO keys (uid, kid, pubkey, created) VALUES (?, ?, ?, ?)").bind(
+        uid,
+        kid,
+        publicKey,
+        NOW_SECONDS,
+      ),
+      env.DB.prepare("INSERT INTO graphs (public_id, uid, ph) VALUES (?, ?, ?)").bind(
+        await publicIdOf(uid, PH_ALL),
+        uid,
+        PH_ALL,
+      ),
+      env.DB.prepare(
+        "INSERT INTO daily (uid, ph, day, w, r, pages, created) VALUES (?, ?, ?, 1, 1, 1, 1)",
+      ).bind(uid, PH_ALL, "2026-09-14"),
+      env.DB.prepare(
+        "INSERT INTO daybits (uid, ph, day, wbits, rbits) VALUES (?, ?, ?, ?, ?)",
+      ).bind(uid, PH_ALL, "2026-09-14", new Uint8Array(180), new Uint8Array(180)),
+      env.DB.prepare("INSERT INTO enroll_tokens (token_hash, uid, expires) VALUES (?, ?, ?)").bind(
+        `hash-${uid}`,
+        uid,
+        NOW_SECONDS + 300,
+      ),
+    ]);
+  }
+
+  async function rowCount(uid: string): Promise<number> {
+    let total = 0;
+    for (const table of ["keys", "graphs", "daily", "daybits", "enroll_tokens"]) {
+      const row = await env.DB.prepare(`SELECT count(*) AS n FROM ${table} WHERE uid = ?`)
+        .bind(uid)
+        .first<{ n: number }>();
+      total += row?.n ?? 0;
+    }
+    return total;
+  }
+
+  it("**合言葉を入れると 5 つの表から消える**", async () => {
+    const uid = randomUid();
+    const signer = await createSigner();
+    await seed(uid, signer.kid, signer.publicKey);
+    const csrf = await csrfToken(SECRET, { uid, issuedAt: NOW_SECONDS });
+
+    const res = await post(
+      { action: "delete", word: DELETE_CONFIRM_WORD, csrf },
+      await cookieFor(uid),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("削除しました");
+    expect(await rowCount(uid)).toBe(0);
+  });
+
+  it("**合言葉が違えば消えない**", async () => {
+    const uid = randomUid();
+    const signer = await createSigner();
+    await seed(uid, signer.kid, signer.publicKey);
+    const csrf = await csrfToken(SECRET, { uid, issuedAt: NOW_SECONDS });
+
+    const res = await post({ action: "delete", word: "けす", csrf }, await cookieFor(uid));
+
+    expect(res.status).toBe(400);
+    expect(await rowCount(uid)).toBe(5);
+  });
+
+  it("**CSRF トークンが無ければ消えない**", async () => {
+    const uid = randomUid();
+    const signer = await createSigner();
+    await seed(uid, signer.kid, signer.publicKey);
+
+    const res = await post(
+      { action: "delete", word: DELETE_CONFIRM_WORD, csrf: "wrong" },
+      await cookieFor(uid),
+    );
+
+    expect(res.status).toBe(403);
+    expect(await rowCount(uid)).toBe(5);
+  });
+
+  it("**ほかの人のデータは消えない**", async () => {
+    const uid = randomUid();
+    const other = randomUid();
+    const mine = await createSigner();
+    const theirs = await createSigner();
+    await seed(uid, mine.kid, mine.publicKey);
+    await seed(other, theirs.kid, theirs.publicKey);
+    const csrf = await csrfToken(SECRET, { uid, issuedAt: NOW_SECONDS });
+
+    await post({ action: "delete", word: DELETE_CONFIRM_WORD, csrf }, await cookieFor(uid));
+
+    expect(await rowCount(other)).toBe(5);
+  });
+
+  it("**サインインしていなければ消えない**", async () => {
+    const uid = randomUid();
+    const signer = await createSigner();
+    await seed(uid, signer.kid, signer.publicKey);
+    const csrf = await csrfToken(SECRET, { uid, issuedAt: NOW_SECONDS });
+
+    const res = await post({ action: "delete", word: DELETE_CONFIRM_WORD, csrf });
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("/auth/start");
+    expect(await rowCount(uid)).toBe(5);
+  });
+});
+
 describe("設定が足りない", () => {
   it("secret が空なら 500", async () => {
-    const res = await handleDevices(new Request(`${ORIGIN}${DEVICES_PATH}`), {
+    const res = await handleAccount(new Request(`${ORIGIN}${ACCOUNT_PATH}`), {
       db: env.DB,
       secret: "",
+      publicOrigin: ORIGIN,
       now: () => NOW,
     });
 
