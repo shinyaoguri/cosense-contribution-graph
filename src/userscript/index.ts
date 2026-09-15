@@ -9,7 +9,7 @@
  * ほかに、手で再確認するための**送信の疎通確認** (Issue #31) のメニューを載せている。
  * タブを隠したときに疎通確認を自動で送るのは、本物の送信が入ったので消した (Issue #67)。
  * **記録の疎通確認** (Issue #36) のメニューは、試験用の公開鍵を消したときに一緒に消した (Issue #54)。
- * 「草の設定」のデバイスの失効と全データの削除は段階 8 の残り (Issue #79)。
+ * 「草の設定」には**この端末の失効**も載せている (段階 8、Issue #79)。全データの削除は残り。
  */
 import { generateSigningKeyPair } from "../shared/sign.ts";
 import { AUTH_POPUP_FEATURES, AUTH_POPUP_NAME, createSignIn } from "./auth.ts";
@@ -18,6 +18,7 @@ import { requestImage } from "./image.ts";
 import { createIndexedDbDeviceStore } from "./keys.ts";
 import { describeResult, type ProbeResult, runProbe } from "./probe.ts";
 import { describeSensorReport } from "./report.ts";
+import { createRevoker, REVOKE_TEXT, type Revoker } from "./revoke.ts";
 import { createSender, type Sender } from "./sender.ts";
 import { type Sensor, type SensorCosense, startExclusive, startSensor } from "./sensor.ts";
 import { describeSettings, SETTINGS_MENU_TITLE } from "./settings.ts";
@@ -65,6 +66,8 @@ export type Dependencies = {
   readonly sender: Pick<Sender, "trigger" | "status">;
   readonly graphDialog: Pick<GraphDialog, "open">;
   readonly settingsDialog: Pick<SettingsDialog, "open">;
+  /** この端末の登録を取り消す */
+  readonly revoker: Revoker;
   /** 設定の読み書き。**開くたびに読み直す** (別のタブで変えた値を拾う) */
   readonly settings: Pick<SettingsAccess, "read">;
   /** センサーを始める。同じタブで動いている前のセンサーは止める */
@@ -123,6 +126,7 @@ async function runSettingsMenu(deps: Dependencies): Promise<void> {
         }
       });
     },
+    revoke: async () => REVOKE_TEXT[await deps.revoker.revokeThisDevice()],
   });
 }
 
@@ -211,6 +215,7 @@ if (typeof window !== "undefined" && window.scrapbox) {
   });
   start(cosense, {
     sender,
+    revoker: createRevoker({ keys, sendImage: (url) => requestImage(url), now: () => new Date() }),
     settings,
     settingsDialog: createSettingsDialog(window.document, {
       setCountRead: (value) => settings.setCountRead(value),

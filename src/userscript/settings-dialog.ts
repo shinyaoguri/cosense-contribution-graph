@@ -25,6 +25,8 @@ export type SettingsDialogDependencies = {
 export type SettingsHandlers = {
   /** サインインを始める。**押した同期区間で呼ばれる** */
   signIn(): void;
+  /** この端末の登録を取り消す。返した文言をそのまま出す */
+  revoke(): Promise<string>;
 };
 
 export type SettingsDialog = {
@@ -88,7 +90,47 @@ export function createSettingsDialog(
       );
       section.append(line);
     }
+    if (model.revoke) {
+      section.append(revoke(model.revoke, handlers));
+    }
     return section;
+  };
+
+  /** 押すと確かめてから取り消す。**確認を挟まずに消さない** (押し間違いで登録が飛ぶ) */
+  const revoke = (
+    { label, confirm }: NonNullable<SettingsModel["revoke"]>,
+    handlers: SettingsHandlers,
+  ) => {
+    const line = element("p");
+    const status = element("span");
+    status.setAttribute("role", "status");
+    const start = button(label, () => {
+      const question = element("span", ` ${confirm} `);
+      const yes = button("取り消す", () => {
+        yes.disabled = true;
+        no.disabled = true;
+        status.textContent = " 取り消しています…";
+        handlers.revoke().then(
+          (message) => {
+            question.remove();
+            status.textContent = ` ${message}`;
+          },
+          () => {
+            question.remove();
+            status.textContent = " 取り消せませんでした。ページを開き直してやり直してください。";
+          },
+        );
+      });
+      const no = button("やめる", () => {
+        question.remove();
+        start.disabled = false;
+      });
+      question.append(yes, no);
+      start.disabled = true;
+      start.after(question);
+    });
+    line.append(start, status);
+    return line;
   };
 
   const countRead = (model: SettingsModel) => {

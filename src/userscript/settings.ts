@@ -4,8 +4,8 @@
  *
  * - **サインインはここに集約する。** 未登録なら最初にこれを出す (design §9)。ページメニューからは外した
  * - 登録の状態は `sender.status()` から作る。**IndexedDB の読み方を 2 か所に書かない**
- * - **ほかの端末の一覧と失効はここに出せない。** CSP に受信方向が無く、UserScript からサーバの `keys` を読めない
- *   (ADR-0001・0003)。この端末の失効は Issue #79 の後続、ほかの端末は Worker のサインイン済みページで扱う
+ * - **ほかの端末の一覧はここに出せない。** CSP に受信方向が無く、UserScript からサーバの `keys` を読めない
+ *   (ADR-0001・0003)。出せるのはこの端末の kid と、その失効だけ。ほかの端末は Worker のサインイン済みページで扱う
  */
 import type { SendStatus } from "./sender.ts";
 import type { SettingsRead } from "./settings-store.ts";
@@ -37,6 +37,8 @@ export type SettingsModel = {
   readonly countRead: CountReadState;
   /** サインインのボタン。押しても直らない状態 (知らない版・保存領域が開けない) では出さない */
   readonly signIn?: { readonly label: string };
+  /** この端末の失効。登録済みのときだけ出す */
+  readonly revoke?: { readonly label: string; readonly confirm: string };
 };
 
 export const SIGN_IN_LABEL = "サインインしてこの端末を登録";
@@ -44,6 +46,11 @@ export const SIGN_IN_LABEL = "サインインしてこの端末を登録";
 const SIGN_IN_AGAIN_LABEL = "サインインし直す";
 
 export const COUNT_READ_LABEL = "読んだ時間も数える";
+
+export const REVOKE_LABEL = "この端末の登録を取り消す";
+
+export const REVOKE_CONFIRM =
+  "この端末の登録を取り消します。これまでの記録は消えず、この端末からは送れなくなります。取り消しますか?";
 
 export const COUNT_READ_NOTE =
   "off にすると、書いた時間だけを数えます。この設定はこのブラウザだけに効き、既に記録・送信したものは消えません。";
@@ -59,6 +66,8 @@ export function describeSettings(status: SendStatus, settings: SettingsRead): Se
         : undefined,
     },
     signIn: signInLabel(status),
+    revoke:
+      status.kind === "enrolled" ? { label: REVOKE_LABEL, confirm: REVOKE_CONFIRM } : undefined,
   };
 }
 
