@@ -1,0 +1,11 @@
+{
+  // 手元で走らせるコマンド。**node の型が要る**ので、DOM も workerd も入れない
+  // (tsconfig.userscript.json は types: [] で DOM、test/tsconfig.json は workerd)。
+  // Node 24+ は .ts をそのまま実行できるので、ビルドは挟まない。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["es2023"],
+    "types": ["node"]
+  },
+  "include": ["scripts/**/*.ts", "test/scripts/**/*.ts"]
+}

@@ -17,6 +17,7 @@
     // vitest / build で初めて落ちることになる
     "../vitest.config.ts",
     "../vitest.worker.config.ts",
-    "../vitest.userscript.config.ts"
+    "../vitest.userscript.config.ts",
+    "../vitest.scripts.config.ts"
   ]
 }

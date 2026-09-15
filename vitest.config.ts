@@ -7,6 +7,10 @@ import { defineConfig } from "vitest/config";
 // 明記しているので、同じ project には混ぜられない。
 export default defineConfig({
   test: {
-    projects: ["vitest.worker.config.ts", "vitest.userscript.config.ts"],
+    projects: [
+      "vitest.worker.config.ts",
+      "vitest.userscript.config.ts",
+      "vitest.scripts.config.ts",
+    ],
   },
 });

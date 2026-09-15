@@ -10,13 +10,14 @@
   "scripts": {
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "typecheck": "wrangler types --check && tsc -p tsconfig.worker.json && tsc -p tsconfig.userscript.json && tsc -p test/tsconfig.json",
+    "typecheck": "wrangler types --check && tsc -p tsconfig.worker.json && tsc -p tsconfig.userscript.json && tsc -p test/tsconfig.json && tsc -p tsconfig.scripts.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "knip": "knip",
     "dev": "wrangler dev --test-scheduled",
     "typegen": "wrangler types",
     "build:userscript": "node scripts/build-userscript.mjs",
+    "paste": "node scripts/paste-distribution.ts",
     "build": "wrangler deploy --dry-run && npm run build:userscript",
     "check": "npm run lint && npm run typecheck && npm run knip && npm test && npm run build"
   },
