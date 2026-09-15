@@ -8,9 +8,13 @@
  * - 文言は `textContent`、ハンドラは `addEventListener` (`sign-in-dialog.ts` と同じ約束。research §1)
  * - キー入力・貼り付け・コピーをダイアログの外へ伝えない (Cosense のショートカットとコピーの処理に拾わせない)
  * - **草の URL はコンソールにもログにも出さない** (publicId が分かると誰でも見られる)
+ * - **「草の設定」はここから開く** (Issue #95)。ページメニューはこのダイアログの 1 項目だけにしたので、
+ *   設定への入口はここが唯一。サインインは設定のダイアログの中のクリックで始まるので、
+ *   ポップアップを開く同期区間は分断されない
  */
 import { layoutGraph } from "../shared/graph-layout.ts";
 import { renderGraphElement } from "./render.ts";
+import { SETTINGS_LABEL } from "./settings.ts";
 import {
   type GraphEntry,
   INITIAL_PROJECT_GRAPHS,
@@ -37,8 +41,13 @@ export type GraphDialogDependencies = {
   readonly writeText: (text: string) => Promise<void>;
 };
 
+export type GraphDialogHandlers = {
+  /** 「草の設定」を開く。**このダイアログを閉じてから呼ばれる** (2 枚重ねない) */
+  openSettings(): void;
+};
+
 export type GraphDialog = {
-  open(model: ViewModel): void;
+  open(model: ViewModel, handlers: GraphDialogHandlers): void;
   close(): void;
 };
 
@@ -230,7 +239,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
   };
 
   return {
-    open(model) {
+    open(model, handlers) {
       close();
       const node = element("dialog");
       // 長い説明文で画面の幅いっぱいに広がらないよう、草の幅に余白を足したところで止める
@@ -246,7 +255,15 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
 
       node.append(element("h2", DIALOG_TITLE), integrated(model.integrated), local(model.local));
       const buttonLine = element("p");
-      buttonLine.append(button("閉じる", close));
+      buttonLine.append(
+        button("閉じる", close),
+        doc.createTextNode(" "),
+        // 閉じてから開く。設定のダイアログは自分で状況を読み直す
+        button(SETTINGS_LABEL, () => {
+          close();
+          handlers.openSettings();
+        }),
+      );
       node.append(buttonLine);
 
       doc.body.append(node);

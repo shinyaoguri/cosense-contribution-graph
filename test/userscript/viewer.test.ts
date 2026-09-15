@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { PH_ALL, phOf, publicIdOf } from "../../src/shared/ids.ts";
 import type { SendStatus } from "../../src/userscript/sender.ts";
-import { SETTINGS_MENU_TITLE, SIGN_IN_LABEL } from "../../src/userscript/settings.ts";
+import { SETTINGS_LABEL, SIGN_IN_LABEL } from "../../src/userscript/settings.ts";
 import { createStore } from "../../src/userscript/store.ts";
 import {
   describeIntegrated,
@@ -90,7 +90,7 @@ describe("describeIntegrated", () => {
   it.each([
     [
       "not-enrolled",
-      `ページメニューの「${SETTINGS_MENU_TITLE}」→「${SIGN_IN_LABEL}」から登録してください。`,
+      `このダイアログの下の「${SETTINGS_LABEL}」→「${SIGN_IN_LABEL}」から登録してください。`,
     ],
     ["newer-key", "新しい版の cosense-grass が登録した鍵"],
     ["newer-sent", "新しい版の cosense-grass が送信の記録を書いている"],

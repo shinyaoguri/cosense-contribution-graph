@@ -4,13 +4,15 @@
  *
  * **センサー** (段階 5、Issue #49) が活動を数えて localStorage に記録し、**登録した鍵で署名して送る** (段階 6、Issue #67)。
  * 送るのは読み込み時・日付の変更・タブを隠したとき・登録の成功のとき (`sender.ts`)。
- * **合算とプロジェクト別の草を見る**メニュー (段階 8、Issue #73) と、**草の設定**のメニュー (段階 8、Issue #79) を載せている。
+ *
+ * **ページメニューに足すのは「草を見る」の 1 項目だけ** (Issue #95)。ほかのスクリプトと並ぶ場所なので占有を最小にし、
+ * **「草の設定」はそのダイアログから開く** (段階 8、Issue #73・#79)。
  * サインイン (段階 4、Issue #61) は単独のメニューをやめ、「草の設定」に集約した (design §9)。
- * ほかに、手で再確認するための**送信の疎通確認** (Issue #31) のメニューを載せている。
- * タブを隠したときに疎通確認を自動で送るのは、本物の送信が入ったので消した (Issue #67)。
- * **記録の疎通確認** (Issue #36) のメニューは、試験用の公開鍵を消したときに一緒に消した (Issue #54)。
- * 「草の設定」には**この端末の切り離し**と**このブラウザの記録の削除**も載せている (段階 8、Issue #79)。
+ * 「草の設定」には**この端末の切り離し**と**このブラウザの記録の削除**も載せている。
  * サーバのデータの管理 (端末の一覧・共有 URL・全削除) は Worker の `/account` (ADR-0018、Issue #88)。
+ *
+ * 開発用だった**送信の疎通確認** (Issue #31) と**センサーの記録** (Issue #36) のメニューは、v1 を配るのに合わせて消した (Issue #95)。
+ * 疎通確認は本物の送信が入って役目を終えている。Worker 側の `/v1/probe.gif` は残っているので、手で叩けば確かめられる。
  */
 import { generateSigningKeyPair } from "../shared/sign.ts";
 import { AUTH_POPUP_FEATURES, AUTH_POPUP_NAME, createSignIn } from "./auth.ts";
@@ -18,12 +20,10 @@ import { CLEAR_TEXT, type Cleaner, createCleaner } from "./cleaner.ts";
 import { createGraphDialog, type GraphDialog } from "./graph-dialog.ts";
 import { requestImage } from "./image.ts";
 import { createIndexedDbDeviceStore } from "./keys.ts";
-import { describeResult, type ProbeResult, runProbe } from "./probe.ts";
-import { describeSensorReport } from "./report.ts";
 import { createRevoker, REVOKE_TEXT, type Revoker } from "./revoke.ts";
 import { createSender, type Sender } from "./sender.ts";
 import { type Sensor, type SensorCosense, startExclusive, startSensor } from "./sensor.ts";
-import { describeSettings, SETTINGS_MENU_TITLE } from "./settings.ts";
+import { describeSettings } from "./settings.ts";
 import { createSettingsDialog, type SettingsDialog } from "./settings-dialog.ts";
 import { createSettings, type SettingsAccess } from "./settings-store.ts";
 import { createDialogView } from "./sign-in-dialog.ts";
@@ -38,12 +38,12 @@ import {
 } from "./viewer.ts";
 
 /**
- * 配布バンドルの版。
+ * 配布バンドルの版。**配布ページ `/cosense-grass/v1` に対応する** (Issue #95)。
  *
  * **破壊的変更のときは配布ページを分ける** (README のバージョン運用)。
  * 同一パスの中身を差し替えてよいのはバグ修正だけ。
  */
-export const USERSCRIPT_VERSION = "0.0.0";
+export const USERSCRIPT_VERSION = "1.0.0";
 
 /** UserScript から使う `window.scrapbox` のうち、ここで触る部分だけ (research §2)。 */
 export type Cosense = SensorCosense & {
@@ -52,16 +52,9 @@ export type Cosense = SensorCosense & {
   };
 };
 
-export const SENSOR_MENU_TITLE = "草: センサーの記録";
-
-export const PROBE_MENU_TITLE = "草: 送信の疎通確認";
-
-/** 1 日分のビットマップ (180 バイト)、分割のしきい値 (design §9)、Cloudflare の上限の近く。 */
-export const PROBE_SIZES = [240, 8_000, 15_000] as const;
-
 export type Dependencies = {
   /**
-   * サインインしてこの端末を登録する。**メニューの onClick から同期で呼ぶ** (ポップアップを開くのに
+   * サインインしてこの端末を登録する。**「草の設定」の onClick から同期で呼ぶ** (ポップアップを開くのに
    * クリックの直後である必要がある)
    */
   readonly signIn: () => Promise<string>;
@@ -77,36 +70,17 @@ export type Dependencies = {
   /** センサーを始める。同じタブで動いている前のセンサーは止める */
   readonly startSensor: () => Sensor;
   readonly store: Pick<Store, "readDay" | "readRange">;
-  readonly runProbe: (length: number) => Promise<ProbeResult>;
-  readonly log: (message: string) => void;
-  readonly alert: (message: string) => void;
   readonly document: Pick<Document, "addEventListener" | "visibilityState">;
   readonly now: () => Date;
-  /**
-   * ページが Service Worker の制御下か。**制御下だと Cosense の Service Worker が画像を作り直すので、
-   * Referer が届く** (research §1)。強制再読み込みで開いたページは制御下にならない
-   */
-  readonly serviceWorkerControlled: () => boolean;
 };
 
 export function start(cosense: Cosense, deps: Dependencies): void {
-  const sensor = deps.startSensor();
+  deps.startSensor();
 
+  // **足すのはこの 1 項目だけ。** 「草の設定」はこのダイアログから開く (Issue #95)
   cosense.PageMenu.addItem({
     title: VIEW_MENU_TITLE,
     onClick: () => void runViewMenu(cosense, deps),
-  });
-  cosense.PageMenu.addItem({
-    title: SETTINGS_MENU_TITLE,
-    onClick: () => void runSettingsMenu(deps),
-  });
-  cosense.PageMenu.addItem({
-    title: SENSOR_MENU_TITLE,
-    onClick: () => void runSensorMenu(cosense, deps, sensor),
-  });
-  cosense.PageMenu.addItem({
-    title: PROBE_MENU_TITLE,
-    onClick: () => void runMenu(cosense, deps),
   });
 
   void deps.sender.trigger("load");
@@ -118,8 +92,8 @@ export function start(cosense: Cosense, deps: Dependencies): void {
   });
 }
 
-/** 押すたびに登録の状態と設定を読み直す (別のタブで登録・変更したものを拾う) */
-async function runSettingsMenu(deps: Dependencies): Promise<void> {
+/** 開くたびに登録の状態と設定を読み直す (別のタブで登録・変更したものを拾う) */
+async function runSettingsDialog(deps: Dependencies): Promise<void> {
   const status = await deps.sender.status();
   deps.settingsDialog.open(describeSettings(status, deps.settings.read()), {
     // ポップアップを開くのは signIn の同期区間。登録できたら、貯まっていた記録と今日の分を送る
@@ -150,48 +124,11 @@ async function runViewMenu(cosense: Cosense, deps: Dependencies): Promise<void> 
   // 状況を待った後の時刻で読む (日付をまたいでも、今日の列と記録が食い違わない)
   const today = localDay(deps.now());
   const local = describeLocal(deps.store.readRange(localRangeStart(today), today), today, project);
-  deps.graphDialog.open({ integrated, local });
-}
-
-async function runSensorMenu(cosense: Cosense, deps: Dependencies, sensor: Sensor): Promise<void> {
-  const sending = await deps.sender.status();
-  const report = describeSensorReport({
-    sending,
-    title: SENSOR_MENU_TITLE,
-    now: deps.now(),
-    project: cosense.Project.name,
-    status: sensor.status(),
-    store: deps.store,
-  });
-  deps.log(report.console);
-  deps.alert(report.alert);
-}
-
-async function runMenu(cosense: Cosense, deps: Dependencies): Promise<void> {
-  const controlled = deps.serviceWorkerControlled();
-  const rows: { size: string; result: string }[] = [];
-  // 大きい URL を同時に飛ばさないよう、順に送る
-  for (const size of PROBE_SIZES) {
-    rows.push({ size: `${size} 文字`, result: describeResult(await deps.runProbe(size)) });
-  }
-
-  console.table(rows);
-  deps.alert(
-    [
-      `${PROBE_MENU_TITLE} (${cosense.Project.name}, ${formatTime(deps.now().toISOString())})`,
-      describeController(controlled),
-      "",
-      ...rows.map((row) => `${row.size}: ${row.result}`),
-    ].join("\n"),
+  deps.graphDialog.open(
+    { integrated, local },
+    // 押された時点で草のダイアログは閉じている。設定は自分で状況を読み直す
+    { openSettings: () => void runSettingsDialog(deps) },
   );
-}
-
-function describeController(controlled: boolean): string {
-  return controlled ? "Service Worker: 制御下" : "Service Worker: 制御外";
-}
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleString("ja-JP");
 }
 
 declare global {
@@ -263,11 +200,7 @@ if (typeof window !== "undefined" && window.scrapbox) {
         }),
       ),
     store,
-    runProbe: (length) => runProbe(length),
-    log: (message) => console.info(message),
-    alert: (message) => window.alert(message),
     document: window.document,
     now: () => new Date(),
-    serviceWorkerControlled: () => Boolean(window.navigator.serviceWorker?.controller),
   });
 }

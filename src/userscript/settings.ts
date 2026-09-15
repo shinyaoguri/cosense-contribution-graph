@@ -12,7 +12,7 @@ import type { SendStatus } from "./sender.ts";
 import type { SettingsRead } from "./settings-store.ts";
 import { ACCOUNT_URL } from "./worker-origin.ts";
 
-export const SETTINGS_MENU_TITLE = "草の設定";
+export const SETTINGS_LABEL = "草の設定";
 
 export const SETTINGS_DIALOG_TITLE = "cosense-grass: 草の設定";
 
