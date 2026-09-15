@@ -34,8 +34,9 @@ jobs:
       contents: read
       issues: write
     env:
-      # **見張るページは今は dev だけ** (追従させる相手は main)。リリース版 (v1…) を作るときに、
-      # 比べる相手 (タグなど) と一緒にページの増やし方を決める
+      # **見張るページは今は dev だけ** (追従させる相手は main)。
+      # **`v1` は 2026-09-15 に公開したが、ここには足していない** — リリース版は main に追従しない
+      # (破壊的変更は v2 へ上げる。ADR-0005) ので、比べる相手が main ではない。決めどころは Issue #98
       PAGE: dev
       LABEL: "distribution: stale"
     steps:
