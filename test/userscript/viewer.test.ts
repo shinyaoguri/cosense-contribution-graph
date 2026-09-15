@@ -181,6 +181,25 @@ describe("describeLocal", () => {
     );
   });
 
+  it("**計測開始 = 記録のある最も古い日。プロジェクト別も同じ日を使う** (Issue #80)", () => {
+    const days = records([
+      { project: "alpha", day: "2026-08-01", w: 1 },
+      { project: "beta", day: TODAY, w: 1 },
+    ]);
+
+    const view = describeLocal(days, TODAY, "alpha");
+
+    expect(view.total.input.startDay).toBe("2026-08-01");
+    // beta は 9/15 が初めてでも、計測していなかったのは 8/1 より前だけ
+    expect(view.projects.map((p) => p.input.startDay)).toEqual(["2026-08-01", "2026-08-01"]);
+  });
+
+  it("記録が 1 日も無ければ開始日は無い", () => {
+    const view = describeLocal(records([]), TODAY, "alpha");
+
+    expect(view.total.input.startDay).toBeUndefined();
+  });
+
   it("表示範囲に記録の無いプロジェクトは並べない。記録が無ければ合算だけ", () => {
     const view = describeLocal(records([{ project: "old", day: "2025-09-12", w: 5 }]), TODAY, "x");
 

@@ -32,6 +32,12 @@ export type GraphInput = {
   readonly scale: Scale;
   /** 同じ母集団から取ったバランスの中心。 */
   readonly center: number;
+  /**
+   * 記録のある最も古い日 (計測開始とみなす。Issue #80)。
+   * **これより前のマスは「計測していなかった」として塗らない** — 活動の無い日と区別する (ADR-0012)。
+   * 表示範囲より前なら印は出ない (全マスが計測済みなので区別する必要が無い)
+   */
+  readonly startDay?: string;
   readonly params: Params;
 };
 
@@ -55,8 +61,17 @@ export type GraphLayout = {
   readonly textColor: string;
   /** 月 → 曜日 → 凡例の軸の順 */
   readonly labels: readonly Label[];
-  /** 格子のマス。日付の古い順 (`gridCells` の順) */
-  readonly grid: readonly (Swatch & { readonly day: string; readonly minutes: Minutes })[];
+  /**
+   * 格子のマス。日付の古い順 (`gridCells` の順)。
+   * `beforeStart` のマスは**塗らず、点線の枠だけ**で描く (計測開始前。Issue #80)
+   */
+  readonly grid: readonly (Swatch & {
+    readonly day: string;
+    readonly minutes: Minutes;
+    readonly beforeStart: boolean;
+  })[];
+  /** 計測開始前のマスの枠の色。`beforeStart` が 1 つも無ければ描かない */
+  readonly mutedColor: string;
   /** 凡例のマス。2 次元なら Level の行ごとにバランスの列の順 */
   readonly legend: readonly Swatch[];
 };
@@ -79,6 +94,12 @@ const FONT_FAMILY =
 const TEXT_COLOR: Record<Theme, string> = { light: "#57606a", dark: "#9198a1" };
 
 const LEGEND_LEVELS = [1, 2, 3, 4] as const;
+
+/** 計測開始前のマスの枠 (design §8)。文字色より薄くして、記録のあるマスと取り違えないようにする */
+const MUTED_COLOR: Record<Theme, string> = { light: "#d0d7de", dark: "#3d444d" };
+
+/** 凡例の左に出す注記 (Issue #80)。**寸法を増やさないので、凡例の行の空きに置く** */
+export const START_NOTE = "点線は計測開始前";
 
 // write モードは全マスのバランスを 0 とみなすので、凡例もバランス 0 の 1 列になる
 const WRITE_MODE_BALANCES: readonly number[] = [0];
@@ -178,6 +199,7 @@ export function layoutGraph(input: GraphInput): GraphLayout {
 
   const grid = cells.map((cell: GridCell) => {
     const minutes = input.days.get(cell.day) ?? { w: 0, r: 0 };
+    const beforeStart = input.startDay !== undefined && cell.day < input.startDay;
     const total = minutes.w + minutes.r;
     const level = levelOf(total, input.scale);
     // write モードは全マスのバランスを 0 とみなす。スキームごとの特別扱いを要らなくするため
@@ -188,8 +210,10 @@ export function layoutGraph(input: GraphInput): GraphLayout {
       fill: scheme.cell({ level, balance, total }, params.theme),
       day: cell.day,
       minutes,
+      beforeStart,
     };
   });
+  const hasBeforeStart = grid.some((cell) => cell.beforeStart);
 
   const legendX = PADDING + contentWidth - legend.width;
   const legendY = gridY + gridHeight + LEGEND_GAP;
@@ -204,7 +228,9 @@ export function layoutGraph(input: GraphInput): GraphLayout {
     fontFamily: FONT_FAMILY,
     fontSize: FONT_SIZE,
     textColor: TEXT_COLOR[params.theme],
+    mutedColor: MUTED_COLOR[params.theme],
     labels: [
+      ...(hasBeforeStart ? [label(PADDING, legendY + LABEL_BASELINE, START_NOTE)] : []),
       ...monthLabels(cells).map((month) =>
         label(gridX + month.position * STEP, PADDING + LABEL_BASELINE, month.text),
       ),

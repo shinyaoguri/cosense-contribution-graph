@@ -16,13 +16,14 @@ import { buildScale } from "../../src/shared/scale.ts";
 import { DEMO_TODAY, demoData } from "../../src/worker/demo.ts";
 import { renderGraph } from "../../src/worker/svg.ts";
 
-function demo(params: Partial<Params>, today = DEMO_TODAY): string {
+function demo(params: Partial<Params>, today = DEMO_TODAY, startDay?: string): string {
   const { days, population } = demoData();
   return renderGraph({
     today,
     days,
     scale: buildScale(population.map((d) => d.w + d.r)),
     center: centerOf(population),
+    startDay,
     params: { ...DEFAULT_PARAMS, ...params },
   });
 }
@@ -70,6 +71,11 @@ const CASES: readonly (readonly [string, () => string, string])[] = [
     "9a1a1b9f3308e7d70c0478040b79bf27acae59d944dc0afdf490b851f0195e66",
   ],
   ["母集団が空", empty, "0c16a2a38b02a93443d32a87218ac2a7c3cc504d8168a59688e9d1276451a408"],
+  [
+    "計測開始の印 (Issue #80)",
+    () => demo({}, DEMO_TODAY, "2026-06-01"),
+    "fc62fe8a3a29aab33acb21831c26c7905503467ac7b3bef9b71fc24594738a56",
+  ],
   [
     "今日が日曜",
     () => demo({}, "2026-09-13"),

@@ -22,6 +22,11 @@ type StoredGraph = {
   readonly days: ReadonlyMap<string, Minutes>;
   /** `ph = '*'` の全期間 */
   readonly population: readonly Minutes[];
+  /**
+   * 記録のある最も古い日 (Issue #80)。**`ph = '*'` の全期間から取る。**
+   * プロジェクト別は表示範囲しか読まないので、そこから取ると「範囲の端」を計測開始と取り違える
+   */
+  readonly startDay?: string;
 };
 
 async function loadGraph(
@@ -62,10 +67,15 @@ async function loadGraph(
   }
 
   const minutes = (row: DayRow): Minutes => ({ w: row.w, r: row.r });
+  const startDay = populationRows.reduce<string | undefined>(
+    (oldest, row) => (oldest === undefined || row.day < oldest ? row.day : oldest),
+    undefined,
+  );
   return {
     today,
     days: new Map(displayRows.map((row) => [row.day, minutes(row)])),
     population: populationRows.map(minutes),
+    startDay,
   };
 }
 
@@ -85,6 +95,7 @@ export async function renderStoredGraph(
     days: graph.days,
     scale: buildScale(graph.population.map((d) => d.w + d.r)),
     center: centerOf(graph.population),
+    startDay: graph.startDay,
     params,
   });
 }

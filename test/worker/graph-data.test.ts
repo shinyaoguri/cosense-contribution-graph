@@ -115,6 +115,28 @@ describe("共有 SVG を D1 から描く", () => {
     expect(svg).not.toBe(utcToday);
   });
 
+  it("**記録のある最も古い日より前のマスに計測開始の印を出す** (Issue #80)", async () => {
+    const uid = randomUid();
+    const publicId = await store(uid, PH_ALL, [["2026-09-14", 40, 0]]);
+
+    const svg = await renderStoredGraph(env.DB, publicId, DEFAULT_PARAMS, NOW);
+
+    expect(svg).toContain("stroke-dasharray");
+    expect(svg).toContain("点線は計測開始前");
+  });
+
+  it("**開始日は * の全期間から取る** (プロジェクト別で範囲の端を開始と取り違えない)", async () => {
+    const uid = randomUid();
+    // 合算は 53 週より前から記録がある。プロジェクト別は表示範囲の中だけ
+    await store(uid, PH_ALL, whole);
+    const publicId = await store(uid, PH, [["2026-09-14", 40, 0]]);
+
+    const svg = await renderStoredGraph(env.DB, publicId, DEFAULT_PARAMS, NOW);
+
+    expect(svg).not.toContain("stroke-dasharray");
+    expect(svg).not.toContain("点線は計測開始前");
+  });
+
   it("graphs に無い publicId は undefined", async () => {
     expect(await renderStoredGraph(env.DB, "0".repeat(32), DEFAULT_PARAMS, NOW)).toBeUndefined();
   });

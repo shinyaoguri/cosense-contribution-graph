@@ -31,6 +31,16 @@ function toSvg(layout: GraphLayout): string {
   const { width, height, cellSize, cellRadius } = layout;
   const rect = (swatch: { readonly x: number; readonly y: number; readonly fill: string }) =>
     `<rect x="${swatch.x}" y="${swatch.y}" width="${cellSize}" height="${cellSize}" rx="${cellRadius}" fill="${swatch.fill}"/>`;
+  // **計測開始前は塗らず点線の枠だけ** (活動の無い日と区別する。Issue #80)
+  const cell = (swatch: {
+    readonly x: number;
+    readonly y: number;
+    readonly fill: string;
+    readonly beforeStart: boolean;
+  }) =>
+    swatch.beforeStart
+      ? `<rect x="${swatch.x}" y="${swatch.y}" width="${cellSize}" height="${cellSize}" rx="${cellRadius}" fill="none" stroke="${layout.mutedColor}" stroke-dasharray="1 1"/>`
+      : rect(swatch);
   const labels = layout.labels
     .map((label) => {
       const anchorAttr = label.anchor === "end" ? ' text-anchor="end"' : "";
@@ -42,7 +52,7 @@ function toSvg(layout: GraphLayout): string {
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
     `<g data-part="labels" font-family="${layout.fontFamily}" font-size="${layout.fontSize}" fill="${layout.textColor}">${labels}</g>` +
-    `<g data-part="grid">${layout.grid.map(rect).join("")}</g>` +
+    `<g data-part="grid">${layout.grid.map(cell).join("")}</g>` +
     `<g data-part="legend">${layout.legend.map(rect).join("")}</g>` +
     "</svg>"
   );
