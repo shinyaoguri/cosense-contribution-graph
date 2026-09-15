@@ -1,5 +1,7 @@
 /**
- * 送信の疎通確認 `GET /v1/probe.gif` の取り決め (design §6)。Worker と UserScript の両方が使う。
+ * 送信の疎通確認 `GET /v1/probe.gif` の取り決め (design §6)。
+ * **使うのは Worker だけ** (UserScript 側の呼び出しは Issue #95 で消した)。
+ * 幅を読む `readProbeWidth` は、手で叩いて確かめるときの読み方として残してある。
  *
  * **記録しない。** 乱数の中身とそのハッシュを送り、Worker が観測した結果を GIF の幅で返す。
  * 画像の本文は JS から読めないが、`naturalWidth` は読める (ADR-0001)。

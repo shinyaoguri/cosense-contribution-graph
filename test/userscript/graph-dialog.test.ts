@@ -6,6 +6,7 @@ import {
   GRAPH_WIDTH,
   LOCAL_PROJECT_SCALE,
 } from "../../src/userscript/graph-dialog.ts";
+import { SETTINGS_LABEL } from "../../src/userscript/settings.ts";
 import { createStore } from "../../src/userscript/store.ts";
 import {
   describeLocal,
@@ -77,26 +78,55 @@ function message(...lines: string[]): ViewModel {
 
 function setup(writeText: (text: string) => Promise<void> = () => Promise.resolve()) {
   const copied: string[] = [];
+  const settings = { count: 0 };
   const dialog = createGraphDialog(document, {
     writeText: (text) => {
       copied.push(text);
       return writeText(text);
     },
   });
+  /** 「草の設定」のハンドラを付けて開く。呼ばれた回数は `settings.count` で見る */
+  const open = (model: ViewModel) =>
+    dialog.open(model, {
+      openSettings: () => {
+        settings.count++;
+      },
+    });
   const find = () => document.querySelector("dialog");
   const sections = () => [...(find()?.querySelectorAll("section") ?? [])];
   const buttons = (text: string) =>
     [...(find()?.querySelectorAll("button") ?? [])].filter((b) => b.textContent === text);
-  return { dialog, copied, find, buttons, sections };
+  return { open, copied, settings, find, buttons, sections };
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("createGraphDialog", () => {
+  it("**「草の設定」を押すと、このダイアログを閉じてから開く** (2 枚重ねない。Issue #95)", () => {
+    const t = setup();
+    t.open(graphs([]));
+
+    const button = t.buttons(SETTINGS_LABEL)[0];
+    expect(button).toBeDefined();
+    button?.click();
+
+    expect(t.settings.count).toBe(1);
+    // 閉じてから呼ぶので、ハンドラから見てダイアログは残っていない
+    expect(t.find()).toBeNull();
+  });
+
+  it("**「草の設定」は押されるまで開かない**", () => {
+    const t = setup();
+
+    t.open(graphs([]));
+
+    expect(t.settings.count).toBe(0);
+  });
+
   it("**理由の文言だけのときは画像を出さない**", () => {
     const t = setup();
 
-    t.dialog.open(message("この端末は未登録", "登録してください"));
+    t.open(message("この端末は未登録", "登録してください"));
 
     const node = t.find();
     expect(node?.hasAttribute("open")).toBe(true);
@@ -110,7 +140,7 @@ describe("createGraphDialog", () => {
   it("**送れた草は img で出す。** 大きさ・alt・遅延読み込み・Referer を送らない指定が付き、属性のハンドラは無い", () => {
     const t = setup();
 
-    t.dialog.open(graphs([{ label: "alpha", sent: true }]));
+    t.open(graphs([{ label: "alpha", sent: true }]));
 
     const images = [...(t.find()?.querySelectorAll("img") ?? [])];
     expect(images.map((img) => img.getAttribute("src"))).toEqual([url("aa"), url("b0")]);
@@ -130,7 +160,7 @@ describe("createGraphDialog", () => {
 
   it("**読めなかった画像は文言に置き換える**", () => {
     const t = setup();
-    t.dialog.open(graphs([]));
+    t.open(graphs([]));
 
     t.find()?.querySelector("img")?.dispatchEvent(new Event("error"));
 
@@ -140,7 +170,7 @@ describe("createGraphDialog", () => {
 
   it("**このブラウザから送れていない草は、押されるまで読まない**", () => {
     const t = setup();
-    t.dialog.open(graphs([{ label: "beta", sent: false }]));
+    t.open(graphs([{ label: "beta", sent: false }]));
 
     expect(
       [...(t.find()?.querySelectorAll("img") ?? [])].map((i) => i.getAttribute("src")),
@@ -160,7 +190,7 @@ describe("createGraphDialog", () => {
       label: `p${i}`,
       sent: true,
     }));
-    t.dialog.open(graphs(projects));
+    t.open(graphs(projects));
 
     expect(t.find()?.querySelectorAll("img")).toHaveLength(1 + INITIAL_PROJECT_GRAPHS);
 
@@ -176,14 +206,14 @@ describe("createGraphDialog", () => {
 
   it("記録したプロジェクトが無ければそう書く", () => {
     const t = setup();
-    t.dialog.open(graphs([]));
+    t.open(graphs([]));
 
     expect(t.find()?.textContent).toContain("直近 30 日に記録したプロジェクトはまだありません");
   });
 
   it("**コピーは押した処理の中で同期に呼び**、できたらそう書く", async () => {
     const t = setup();
-    t.dialog.open(graphs([{ label: "alpha", sent: true }]));
+    t.open(graphs([{ label: "alpha", sent: true }]));
 
     t.buttons("URL をコピー")[1]?.click();
 
@@ -195,7 +225,7 @@ describe("createGraphDialog", () => {
 
   it("**コピーできなければ、選べる欄に URL を出す** (押し直しても欄は 1 つ)", async () => {
     const t = setup(() => Promise.reject(new Error("denied")));
-    t.dialog.open(graphs([]));
+    t.open(graphs([]));
 
     t.buttons("URL をコピー")[0]?.click();
     await settle();
@@ -211,7 +241,7 @@ describe("createGraphDialog", () => {
 
   it("**キー入力・貼り付け・コピーをダイアログの外へ伝えない**", () => {
     const t = setup();
-    t.dialog.open(graphs([]));
+    t.open(graphs([]));
     const seen: string[] = [];
     for (const type of ["keydown", "keyup", "keypress", "paste", "copy", "cut"]) {
       document.body.addEventListener(type, () => seen.push(type));
@@ -226,8 +256,8 @@ describe("createGraphDialog", () => {
 
   it("**開き直すと前のダイアログを消す。** 閉じる・Esc で消える", () => {
     const t = setup();
-    t.dialog.open(graphs([]));
-    t.dialog.open(message("2 回目"));
+    t.open(graphs([]));
+    t.open(message("2 回目"));
 
     expect(document.querySelectorAll("dialog")).toHaveLength(1);
     expect(t.find()?.textContent).toContain("2 回目");
@@ -235,7 +265,7 @@ describe("createGraphDialog", () => {
     t.buttons("閉じる")[0]?.click();
     expect(document.querySelectorAll("dialog")).toHaveLength(0);
 
-    t.dialog.open(graphs([]));
+    t.open(graphs([]));
     // Esc はブラウザが close を呼ぶ
     t.find()?.close();
     expect(document.querySelectorAll("dialog")).toHaveLength(0);
@@ -247,7 +277,7 @@ describe("createGraphDialog", () => {
     );
     const t = setup(() => Promise.reject(new Error("denied")));
 
-    t.dialog.open(
+    t.open(
       graphs([
         { label: "alpha", sent: true },
         { label: "beta", sent: false },
@@ -270,7 +300,7 @@ describe("createGraphDialog", () => {
   it("**全端末を統合した記録を上に、このブラウザの記録を下に置く**", () => {
     const t = setup();
 
-    t.dialog.open(graphs([{ label: "alpha", sent: true }]));
+    t.open(graphs([{ label: "alpha", sent: true }]));
 
     expect(t.sections().map((section) => section.querySelector("h3")?.textContent)).toEqual([
       "全端末を統合した記録",
@@ -282,7 +312,7 @@ describe("createGraphDialog", () => {
     const t = setup();
     const local = localView(["alpha", "beta"]);
 
-    t.dialog.open(graphs([], local));
+    t.open(graphs([], local));
 
     const section = t.sections()[1];
     expect([...(section?.querySelectorAll("h4") ?? [])].map((h) => h.textContent)).toEqual([
@@ -309,7 +339,7 @@ describe("createGraphDialog", () => {
     const t = setup();
     const names = Array.from({ length: INITIAL_PROJECT_GRAPHS + 1 }, (_, i) => `p${i}`);
 
-    t.dialog.open(graphs([], localView(names)));
+    t.open(graphs([], localView(names)));
 
     const section = () => t.sections()[1];
     expect(section()?.querySelectorAll("svg")).toHaveLength(1 + INITIAL_PROJECT_GRAPHS);
@@ -320,7 +350,7 @@ describe("createGraphDialog", () => {
   it("**統合の方が理由の文言だけでも、このブラウザの記録は出す**", () => {
     const t = setup();
 
-    t.dialog.open({
+    t.open({
       integrated: { kind: "message", lines: ["未登録"] },
       local: localView(["alpha"]),
     });
@@ -332,7 +362,7 @@ describe("createGraphDialog", () => {
   it("このブラウザにプロジェクトの記録が無ければそう書く", () => {
     const t = setup();
 
-    t.dialog.open(graphs([]));
+    t.open(graphs([]));
 
     expect(t.sections()[1]?.textContent).toContain(
       "このブラウザで数えたプロジェクトはまだありません",

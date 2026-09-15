@@ -12,7 +12,8 @@ type ImageLike = Pick<HTMLImageElement, "referrerPolicy" | "src" | "naturalWidth
   onerror: (() => void) | null;
 };
 
-export type ImageOptions = {
+/** 呼ぶ側はどれも既定でよい (差し替えるのはテストだけ)。 */
+type ImageOptions = {
   readonly timeoutMs?: number;
   /** テストで偽の画像に差し替える */
   readonly createImage?: () => ImageLike;
