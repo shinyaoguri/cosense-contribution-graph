@@ -1,14 +1,15 @@
 /**
  * 草のレイアウト (design §8)。**寸法・色・ラベルの位置を決めるだけで、SVG の文字列も DOM も作らない。**
  *
- * 読むのは Worker の `src/worker/svg.ts` だけで、これを `<img>` で読まれる SVG の文字列にする。
- * **UserScript は草を描かない** (ADR-0019)。1.0.0 までは同じレイアウトから DOM の SVG を組み立てていた。
- * **このファイルを含む描画のモジュールは `src/worker/` へ移す予定** (Issue #110)。
+ * 読むのは `src/worker/svg.ts` だけで、これを `<img>` で読まれる SVG の文字列にする。
+ * **草を描くのは Worker だけ** (ADR-0019)。1.0.0 までは UserScript も同じレイアウトから DOM の SVG を
+ * 組み立てていたので `src/shared/` に置いていた。
  *
- * **色はスキームに任せる** (`src/shared/scheme.ts`)。ここはバランスを計算してスキームに渡すだけで、
+ * **色はスキームに任せる** (`./scheme.ts`)。ここはバランスを計算してスキームに渡すだけで、
  * どの色相になるかを知らない。凡例もスキームの `legendBalances` から組み立てる。
  */
 
+import { balanceOf, type Minutes } from "./balance.ts";
 import {
   CELL,
   DAYS,
@@ -19,8 +20,7 @@ import {
   type Params,
   STEP,
   WEEKDAY_LABELS,
-} from "../worker/graph/grid.ts";
-import { balanceOf, type Minutes } from "./balance.ts";
+} from "./grid.ts";
 import { levelOf, type Scale } from "./scale.ts";
 import { type ColorScheme, schemeOf, type Theme } from "./scheme.ts";
 

@@ -2,14 +2,14 @@
  * 配色の差し替え口 (design §7)。
  *
  * **スキームは「Level・バランス・合計分数・テーマ」を受け取って色を返すだけの純粋な部品。**
- * 描画側 (Worker の SVG、段階 8 の DOM 注入) はスキームの中身を知らない。
+ * 描画側 (`svg.ts` と `layout.ts`) はスキームの中身を知らない。
  *
  * 配色を足すときは次の 2 通りのどちらかで作り、下の `SCHEMES` に 1 行足す。
  * - **色を変えたいだけ** なら、`bandScheme()` に 16 進の表を渡す (`blue-pink` がこれ)
  * - **規則で色を計算したい** なら、`ColorScheme` を直接実装する (`blue-yellow` がこれ)
  *
- * 足したスキームは `test/shared/scheme.test.ts` の契約テストに自動で通される。
- * 両 lib で型検査され、両環境でテストされる。
+ * 足したスキームは `test/worker/graph/scheme.test.ts` の契約テストに自動で通される。
+ * **使うのは Worker だけ** (ADR-0019)。
  */
 import type { Level } from "./scale.ts";
 import { bluePink } from "./schemes/blue-pink.ts";

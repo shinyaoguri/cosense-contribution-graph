@@ -4,7 +4,7 @@ import {
   hueOf,
   levelColor,
   SATURATION_MINUTES,
-} from "../../src/shared/schemes/blue-yellow.ts";
+} from "../../../src/worker/graph/schemes/blue-yellow.ts";
 
 // 規則で色を計算するスキーム (青 ↔ 緑 ↔ 黄)。スキームに共通の性質は scheme.test.ts が見る
 

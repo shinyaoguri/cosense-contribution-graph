@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { Minutes } from "../../src/shared/balance.ts";
-import { fromEpochDay, toEpochDay } from "../../src/shared/epoch-day.ts";
-import { type GraphInput, layoutGraph, START_NOTE } from "../../src/shared/graph-layout.ts";
-import { buildScale } from "../../src/shared/scale.ts";
-import { DAYS, DEFAULT_PARAMS, MAX_WEEKS } from "../../src/worker/graph/grid.ts";
+import { fromEpochDay, toEpochDay } from "../../../src/shared/epoch-day.ts";
+import type { Minutes } from "../../../src/worker/graph/balance.ts";
+import { DAYS, DEFAULT_PARAMS, MAX_WEEKS } from "../../../src/worker/graph/grid.ts";
+import { type GraphInput, layoutGraph, START_NOTE } from "../../../src/worker/graph/layout.ts";
+import { buildScale } from "../../../src/worker/graph/scale.ts";
 
 const TODAY = "2026-09-15";
 

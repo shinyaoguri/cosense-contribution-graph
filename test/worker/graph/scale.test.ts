@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildScale, levelOf, MIN_MINUTES, quantile } from "../../src/shared/scale.ts";
+import { buildScale, levelOf, MIN_MINUTES, quantile } from "../../../src/worker/graph/scale.ts";
 
 // 期待値はすべて手で計算してある (線形補間 type 7、フェンス Q3 + 1.5 × IQR)
 

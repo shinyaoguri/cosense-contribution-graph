@@ -5,7 +5,7 @@ import {
   isSchemeName,
   SCHEMES,
   type Theme,
-} from "../../src/shared/scheme.ts";
+} from "../../../src/worker/graph/scheme.ts";
 
 // **全スキームの契約テスト。** 登録表 SCHEMES に配色を足すと、ここで自動的に確かめられる
 

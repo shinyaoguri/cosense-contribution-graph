@@ -4,10 +4,10 @@
  * `<img>` 経由で描画されるので完全に非インタラクティブで、外部フォントも外部 CSS も読めない。
  * すべてインラインで自己完結させる。
  *
- * **寸法・色・ラベルの位置は `src/shared/graph-layout.ts` が決める。** ここはそれを文字列にするだけ。
- * UserScript も同じレイアウトから DOM の草を描くので、共有 SVG と見た目が食い違わない。
+ * **寸法・色・ラベルの位置は `src/worker/graph/layout.ts` が決める。** ここはそれを文字列にするだけ。
+ * **草を描くのはこの経路だけ** (ADR-0019)。UserScript は数えて送るだけで、描かない。
  */
-import { type GraphInput, type GraphLayout, layoutGraph } from "../shared/graph-layout.ts";
+import { type GraphInput, type GraphLayout, layoutGraph } from "./graph/layout.ts";
 
 /** 疎通確認と見た目の確認のために予約した publicId。 */
 export const DEMO_PUBLIC_ID = "demo";

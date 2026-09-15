@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { bandScheme } from "../../src/shared/schemes/bands.ts";
-import { bluePink } from "../../src/shared/schemes/blue-pink.ts";
+import { bandScheme } from "../../../src/worker/graph/schemes/bands.ts";
+import { bluePink } from "../../../src/worker/graph/schemes/blue-pink.ts";
 
 // 表で色を指定するスキーム。スキームに共通の性質は scheme.test.ts が見る
 

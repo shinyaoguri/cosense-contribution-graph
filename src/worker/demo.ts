@@ -3,8 +3,9 @@
  *
  * **決定論的に作る。** 乱数を使うと ETag もテストの期待値も毎回変わる。
  */
-import type { Minutes } from "../shared/balance.ts";
+
 import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
+import type { Minutes } from "./graph/balance.ts";
 import { DAYS, MAX_WEEKS } from "./graph/grid.ts";
 
 /**

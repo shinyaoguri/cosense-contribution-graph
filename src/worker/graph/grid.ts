@@ -5,7 +5,7 @@
  * 今日の列はサーバの日本時間で決まり、マシンのタイムゾーンに依らない。
  */
 import { fromEpochDay, toEpochDay, weekdayOf } from "../../shared/epoch-day.ts";
-import { DEFAULT_SCHEME, type SchemeName, type Theme } from "../../shared/scheme.ts";
+import { DEFAULT_SCHEME, type SchemeName, type Theme } from "./scheme.ts";
 
 /** 行は曜日の 7 行。日曜始まり (design §8)。 */
 export const DAYS = 7;

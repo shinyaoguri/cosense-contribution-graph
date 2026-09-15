@@ -1,16 +1,16 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { balanceOf, centerOf } from "../../src/shared/balance.ts";
-import { buildScale, levelOf } from "../../src/shared/scale.ts";
+import { DEMO_TODAY, demoData } from "../../src/worker/demo.ts";
+import { balanceOf, centerOf } from "../../src/worker/graph/balance.ts";
+import { DEFAULT_PARAMS, gridCells, MAX_WEEKS } from "../../src/worker/graph/grid.ts";
+import { buildScale, levelOf } from "../../src/worker/graph/scale.ts";
 import {
   DEFAULT_SCHEME,
   SCHEMES,
   type SchemeName,
   schemeOf,
   type Theme,
-} from "../../src/shared/scheme.ts";
-import { DEMO_TODAY, demoData } from "../../src/worker/demo.ts";
-import { DEFAULT_PARAMS, gridCells, MAX_WEEKS } from "../../src/worker/graph/grid.ts";
+} from "../../src/worker/graph/scheme.ts";
 import { renderGraph } from "../../src/worker/svg.ts";
 
 const SCHEME_NAMES = Object.keys(SCHEMES) as SchemeName[];
