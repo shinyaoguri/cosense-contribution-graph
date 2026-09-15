@@ -67,7 +67,7 @@ export async function authPageResponse(
       ? `<p>サインインしました。Cosense に戻ります。</p>
 <p>Cosense で「コードを貼ってください」と表示されたら、次のコードを貼ってください。</p>
 <code id="result" data-code="${escapeHtml(page.code)}">${escapeHtml(page.code)}</code>
-<p><small>このコードは Cosense の草の設定にだけ貼ってください。他のサイトや人には渡さないでください。5 分で使えなくなります。</small></p>`
+<p><small>このコードは Cosense の「cosense-grass」→「設定」にだけ貼ってください。他のサイトや人には渡さないでください。5 分で使えなくなります。</small></p>`
       : `<p id="result" data-error="${page.failure}">${FAILURE_TEXT[page.failure]}</p>`;
 
   const html = `<!doctype html>

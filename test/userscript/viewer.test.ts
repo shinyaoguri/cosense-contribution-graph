@@ -15,11 +15,15 @@ import { graphUrl } from "../../src/userscript/worker-origin.ts";
 
 const UID = "AAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
-async function enrolled(projects: readonly { name: string; sent: boolean }[]): Promise<SendStatus> {
+async function enrolled(
+  projects: readonly { name: string; sent: boolean }[],
+  totalSent = true,
+): Promise<SendStatus> {
   return {
     kind: "enrolled",
     kid: "0123456789abcdef",
     graphUrl: graphUrl(await publicIdOf(UID, PH_ALL)),
+    totalSent,
     projects: await Promise.all(
       projects.map(async ({ name, sent }) => ({
         name,
@@ -33,6 +37,15 @@ async function enrolled(projects: readonly { name: string; sent: boolean }[]): P
 }
 
 describe("describeIntegrated", () => {
+  it("**合算も送れたかで `sent` を決める** (登録しただけでは共有 SVG が無い。Issue #100)", async () => {
+    const view = describeIntegrated(await enrolled([{ name: "alpha", sent: false }], false), "");
+
+    expect(view.kind).toBe("graphs");
+    if (view.kind !== "graphs") return;
+    // false なら画像を読まず、押されてから読む (404 のリクエストを出さない)
+    expect(view.total.sent).toBe(false);
+  });
+
   it("**合算を先頭に、今のプロジェクトを次に、残りは状況の順に並べる**", async () => {
     const status = await enrolled([
       { name: "alpha", sent: true },

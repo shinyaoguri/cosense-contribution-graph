@@ -213,7 +213,7 @@ describe("共有 URL", () => {
     const html = await (await get(await cookieFor(uid))).text();
 
     expect(html).toContain(`${ORIGIN}/v1/g/${publicId}.svg`);
-    expect(html).toContain("草を見る");
+    expect(html).toContain("ページメニュー「cosense-grass」にプロジェクト名つきで並びます");
   });
 
   it("まだ草が無ければその旨を出す", async () => {

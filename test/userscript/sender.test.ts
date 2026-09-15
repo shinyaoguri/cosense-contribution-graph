@@ -241,7 +241,7 @@ describe("createSender — 鍵と状態", () => {
     await t.sender.trigger("load");
     await t.sender.trigger("hidden");
     expect(t.warnings).toHaveLength(1);
-    expect(t.warnings[0]).toContain("「草の設定」から登録してください");
+    expect(t.warnings[0]).toContain("「cosense-grass」→「設定」から登録してください");
   });
 
   it("**鍵はきっかけのたびに読み直す** (別のタブで登録した鍵を拾う)", async () => {

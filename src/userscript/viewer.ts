@@ -1,5 +1,8 @@
 /**
- * 「草を見る」に並べる草を決める (design §9「表示」、段階 8、Issue #73)。**DOM を触らない純粋な部分**で、描くのは `graph-dialog.ts`。
+ * 草のダイアログに並べる草を決める (design §9「表示」、段階 8、Issue #73)。**DOM を触らない純粋な部分**で、描くのは `graph-dialog.ts`。
+ *
+ * **統合の草が主で、このブラウザの記録は内訳** (Issue #101)。ダイアログは統合の草を先に出し、
+ * ローカルの草は畳んだ中に置く。**同じ形の草を対等に 2 つ並べない** (どちらが本当か読めない)。
  *
  * **全端末を統合した記録** (`describeIntegrated`)
  * - 草の URL は `sender.status()` の値をそのまま使う。**publicId の導き方を 2 か所に書かない** (#72)
@@ -22,8 +25,6 @@ import { buildScale } from "../shared/scale.ts";
 import type { SendStatus } from "./sender.ts";
 import { SETTINGS_LABEL, SIGN_IN_LABEL } from "./settings.ts";
 import { type Counts, DAILY_DAYS, type DayView } from "./store.ts";
-
-export const VIEW_MENU_TITLE = "草を見る";
 
 /** 最初に出すプロジェクト別の草の数。統合の方は、開くたびの Worker へのリクエストと D1 の読み取りを抑える */
 export const INITIAL_PROJECT_GRAPHS = 5;
@@ -96,7 +97,8 @@ export function describeIntegrated(status: SendStatus, currentProject: string): 
       const others = status.projects.filter((project) => project.name !== currentProject);
       return {
         kind: "graphs",
-        total: { label: TOTAL_LABEL, url: status.graphUrl, sent: true },
+        // **合算も送れたかを見る** (Issue #100)。登録しただけで 1 件も送っていないと 404 になる
+        total: { label: TOTAL_LABEL, url: status.graphUrl, sent: status.totalSent },
         projects: [
           ...current.map((project) => ({
             label: currentLabel(project.name),
