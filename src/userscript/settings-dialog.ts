@@ -97,6 +97,14 @@ export function createSettingsDialog(
     if (model.revoke) {
       section.append(danger(model.revoke, handlers.revoke, "取り消す"));
     }
+    // ほかの端末は Worker のページで扱う (CSP で一覧をここに出せない。ADR-0017)
+    const line = element("p");
+    const link = element("a", model.devices.label);
+    link.href = model.devices.url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    line.append(link);
+    section.append(line);
     return section;
   };
 

@@ -116,6 +116,9 @@ src/userscript/
   settings.ts               「草の設定」に何を出すかを決める (段階 8)
   settings-dialog.ts        「草の設定」のダイアログ (段階 8)
   settings-store.ts         localStorage (設定)
+(worker)
+  devices.ts                /auth/devices の一覧と失効 (ADR-0017)
+  session.ts                サインイン済みを 30 分覚える cookie (ADR-0017)
 scripts/build-userscript.mjs esbuild でバンドルする (配布ページへの反映は手動。ADR-0013 決定 3)
 ```
 
@@ -643,6 +646,16 @@ GET /v1/delete.gif?v=1&u=<uid>&d=<kid>&confirm=1&t=&sig=        全レコード�
 - UserScript は**サーバが消してから**このブラウザの記録 (`bits` / `daily` / `sent` / `settings`) と鍵を消す。
   **未登録なら送らず、このブラウザの記録だけ消す**
 
+### `GET /auth/devices` — 登録した端末の一覧と失効
+
+**サインインした本人だけが開けるページ** (ADR-0017、2026-09-15、`src/worker/devices.ts`)。
+UserScript からは読めない (CSP に受信方向が無い) ので、Worker のオリジンで人が開く。
+
+- **GET は一覧** (kid と登録日時だけ。uid も公開鍵も出さない)、**POST は 1 台の失効**。POST の後は 303 で GET に戻す
+- セッションは `__Host-grass-session` (30 分、`src/worker/session.ts`)。`/auth/callback` の成功時にだけ発行する
+- 守りは **`SameSite=Lax` + CSP の `form-action 'self'` + セッションに結び付けた CSRF トークン**の 3 つ
+- **スクリプトを 1 行も載せない** (CSP は `script-src 'none'`)
+
 ### `GET /v1/probe.gif` — 送信の疎通確認
 
 ```
@@ -1113,7 +1126,8 @@ IndexedDB も同様なので、同じブラウザなら鍵は 1 つで足りる�
 - **登録済みデバイスの一覧と失効ボタン。** 今のデバイスには印を付ける。
   **この端末の失効は済み** (2026-09-15、Issue #79)。確認を挟んでから `/v1/revoke.gif` を送り、ローカルの鍵も消す。
   **一覧はこのダイアログに出せない** — CSP に受信方向が無く、UserScript からサーバの `keys` を読めない (ADR-0001・0003)。
-  この端末の kid はダイアログに出し、ほかの端末の一覧と失効は Worker のサインイン済みページで扱う (2026-09-15 の決定、Issue #79)
+  この端末の kid はダイアログに出し、**ほかの端末の一覧と失効は Worker の `/auth/devices` で扱う** (ADR-0017)。
+  ダイアログからはそのページへのリンクを出す。**済み** (2026-09-15、Issue #79)
 - 共有 URL の一覧。全体用とプロジェクト別をそれぞれコピーできる。**段階 8 までは「草: センサーの記録」の alert に出す** (2026-09-15、Issue #67)。
   **「草を見る」のダイアログでもコピーできる** (2026-09-15、Issue #73)。
   プロジェクト別の publicId は uid からしか導けず UserScript の中にしか無いので、このブラウザで直近 30 日に記録したプロジェクトを並べる。

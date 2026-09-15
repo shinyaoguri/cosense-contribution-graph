@@ -5,10 +5,12 @@
  * - **サインインはここに集約する。** 未登録なら最初にこれを出す (design §9)。ページメニューからは外した
  * - 登録の状態は `sender.status()` から作る。**IndexedDB の読み方を 2 か所に書かない**
  * - **ほかの端末の一覧はここに出せない。** CSP に受信方向が無く、UserScript からサーバの `keys` を読めない
- *   (ADR-0001・0003)。出せるのはこの端末の kid と、その失効だけ。ほかの端末は Worker のサインイン済みページで扱う
+ *   (ADR-0001・0003)。出せるのはこの端末の kid と、その失効だけ。
+ *   ほかの端末は Worker のサインイン済みページ (`/auth/devices`) へのリンクで渡す (ADR-0017)
  */
 import type { SendStatus } from "./sender.ts";
 import type { SettingsRead } from "./settings-store.ts";
+import { DEVICES_URL } from "./worker-origin.ts";
 
 export const SETTINGS_MENU_TITLE = "草の設定";
 
@@ -41,6 +43,8 @@ export type SettingsModel = {
   readonly revoke?: DangerAction;
   /** 全データの削除。**未登録でも出す** (このブラウザの記録は消せる) */
   readonly purge: DangerAction;
+  /** ほかの端末の一覧と失効。**Worker のページを開くリンク** (ADR-0017) */
+  readonly devices: { readonly label: string; readonly url: string };
 };
 
 /** 押す前に確かめる操作。 */
@@ -56,6 +60,8 @@ export const REVOKE_LABEL = "この端末の登録を取り消す";
 
 export const REVOKE_CONFIRM =
   "この端末の登録を取り消します。これまでの記録は消えず、この端末からは送れなくなります。取り消しますか?";
+
+export const DEVICES_LABEL = "登録した端末の一覧を見る (別のタブで開きます)";
 
 export const PURGE_LABEL = "保存されているデータをすべて削除する";
 
@@ -82,6 +88,7 @@ export function describeSettings(status: SendStatus, settings: SettingsRead): Se
     revoke:
       status.kind === "enrolled" ? { label: REVOKE_LABEL, confirm: REVOKE_CONFIRM } : undefined,
     purge: { label: PURGE_LABEL, confirm: PURGE_CONFIRM },
+    devices: { label: DEVICES_LABEL, url: DEVICES_URL },
   };
 }
 

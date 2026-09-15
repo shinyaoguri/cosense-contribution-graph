@@ -7,7 +7,9 @@
  *
  * - **redirect_uri は `PUBLIC_ORIGIN` から作る。** リクエストの Host からは作らない。start は戻り先のパラメータを持たない
  * - **cookie と state が通るまで Google に fetch しない**
- * - **callback の応答は成功でも失敗でも cookie を消す。** 開き直しても Google に行かずに止まる
+ * - **callback の応答は成功でも失敗でも往復の cookie を消す。** 開き直しても Google に行かずに止まる
+ * - **成功のときだけ、30 分のセッション cookie を付ける** (`session.ts`、ADR-0017)。
+ *   `/auth/devices` で端末の一覧を見るためだけに使う。記録の送信には一切使わない
  * - ログは `{"event":"auth","step","status","reason","detail"}` だけ。code・state・cookie・ID トークン・sub・uid・トークンは出さない
  */
 import { AUTH_CALLBACK_PATH, AUTH_START_PATH, encodeAuthCode } from "../shared/auth.ts";
@@ -17,6 +19,7 @@ import { type AuthFailure, authPageResponse } from "./auth-page.ts";
 import { issueEnrollToken } from "./enroll.ts";
 import { type GoogleKeys, verifyIdToken } from "./idtoken.ts";
 import { plainResponse } from "./responses.ts";
+import { sealSession } from "./session.ts";
 import { uidOf } from "./uid.ts";
 
 export const GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
@@ -58,6 +61,7 @@ type Reason =
   | "code"
   | "token-rejected"
   | "token-unavailable"
+  | "session-failed"
   | "token-response"
   | "jwks"
   | "idtoken"
@@ -174,12 +178,19 @@ export async function handleAuthCallback(
   }
 
   log("callback", 200, "issued");
-  return withClearedCookie(
+  const response = withClearedCookie(
     await authPageResponse(
       { kind: "issued", code: encodeAuthCode({ uid, token: issued.token }) },
       200,
     ),
   );
+  // **端末の一覧を見るためだけのセッション。** ここで失敗しても登録は済んでいるので、ページはそのまま返す
+  try {
+    response.headers.append("set-cookie", await sealSession(deps.secret, uid, nowMs));
+  } catch {
+    log("callback", 200, "session-failed");
+  }
+  return response;
 }
 
 type Exchanged =

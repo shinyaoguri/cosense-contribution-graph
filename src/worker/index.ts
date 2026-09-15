@@ -12,6 +12,7 @@ import { handlePurge } from "./admin.ts";
 import { type AuthDeps, handleAuthCallback, handleAuthStart } from "./auth.ts";
 import { deleteExpiredEnrollTokens, deleteOldDaybits } from "./cron.ts";
 import { DEMO_TODAY, demoData } from "./demo.ts";
+import { DEVICES_PATH, type DevicesDeps, handleDevices } from "./devices.ts";
 import { handleEnroll, handleRevoke } from "./enroll.ts";
 import { renderStoredGraph } from "./graph-data.ts";
 import { googleKeys } from "./idtoken.ts";
@@ -25,7 +26,7 @@ import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
  * Worker のエントリ。
  *
  * 経路は `/v1/p.gif` (記録の受け口)、`/v1/enroll.gif` (デバイスの登録)、`/v1/revoke.gif` (デバイスの失効)、
- * `/v1/delete.gif` (全データの削除)、`/v1/g/{publicId}.svg`、
+ * `/v1/delete.gif` (全データの削除)、`/auth/devices` (端末の一覧と失効)、`/v1/g/{publicId}.svg`、
  * `/v1/probe.gif` (送信の疎通確認)、`/auth/start` と `/auth/callback` (Google サインイン)。
  * グラフは `demo` ならデモを、それ以外は D1 の記録から描く。
  */
@@ -46,12 +47,15 @@ const GOOGLE_KEYS = googleKeys({ fetch: (url) => fetch(url), now: () => Date.now
 
 export default {
   async fetch(request, env): Promise<Response> {
+    const url = new URL(request.url);
+    // **POST を受けるのは端末の一覧だけ** (失効のフォーム。ADR-0017)
+    if (url.pathname === DEVICES_PATH && request.method === "POST") {
+      return handleDevices(request, devicesDeps(env));
+    }
     // curl -I などの HEAD も受ける。本文はランタイムが落とす
     if (request.method !== "GET" && request.method !== "HEAD") {
       return notFound();
     }
-
-    const url = new URL(request.url);
     if (url.pathname === INGEST_PATH) {
       // **記録は GET だけ。** HEAD で書き込ませない
       if (request.method !== "GET") {
@@ -91,6 +95,9 @@ export default {
         resolveKey: d1KeyResolver(env.DB),
         now: () => Date.now(),
       });
+    }
+    if (url.pathname === DEVICES_PATH) {
+      return handleDevices(request, devicesDeps(env));
     }
     if (url.pathname === AUTH_START_PATH || url.pathname === AUTH_CALLBACK_PATH) {
       // **GET だけ。** HEAD で code を交換させない・登録トークンを発行させない
@@ -148,6 +155,10 @@ function authDeps(env: Env): AuthDeps {
     fetch: (url, init) => fetch(url, init),
     now: () => Date.now(),
   };
+}
+
+function devicesDeps(env: Env): DevicesDeps {
+  return { db: env.DB, secret: env.WORKER_SECRET, now: () => Date.now() };
 }
 
 function renderDemo(search: URLSearchParams): string {
