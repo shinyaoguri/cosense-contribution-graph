@@ -2,6 +2,10 @@
 # 配布ページ (Cosense の公開プロジェクト /cosense-grass) の script.js が、手元で作ったバンドルと
 # バイト単位で一致するかを見る (Issue #47)。同じ commit から作ったバンドルは一致する。
 #
+# **比べる前に、手元のバンドルから末尾の改行 1 つを落とす** (Issue #105)。Cosense はページを行の配列で
+# 持つので、配信される script.js には末尾の改行が無い。落とさずに比べると**どれだけ正しく貼っても
+# 永久に「違う」と言い続ける** (実際 #60 はそれで開いたままだった)。
+#
 #   scripts/check-distribution.sh <page> <bundle>
 #
 # 終了コード: 0 = 一致 / 1 = 違う (配布ページが古い) / 2 = 取得できなかった (見張りの失敗)
@@ -41,7 +45,6 @@ bytes() {
 # 利用者に届くまでの遅れは見ない (利用者が同じキャッシュを通るかは未確認)
 url="${base}/${page}/script.js"
 fetched="$(mktemp)"
-trap 'rm -f "$fetched"' EXIT
 
 status="$(curl -sS --max-time 30 -o "$fetched" -w '%{http_code}' "${url}?nocache=$(date +%s)")" || {
   echo "NG: ${url} を取得できなかった" >&2
@@ -53,8 +56,13 @@ if [[ "$status" != "200" && ! ( "$url" == file://* && "$status" == "000" ) ]]; t
   exit 2
 fi
 
-bundle_sha="$(sha256 "$bundle")"
-bundle_bytes="$(bytes "$bundle")"
+# 末尾の改行 1 つだけを落とした姿で比べる (上記)
+normalized="$(mktemp)"
+trap 'rm -f "$fetched" "$normalized"' EXIT
+perl -0pe 's/\n\z//' "$bundle" >"$normalized"
+
+bundle_sha="$(sha256 "$normalized")"
+bundle_bytes="$(bytes "$normalized")"
 page_sha="$(sha256 "$fetched")"
 page_bytes="$(bytes "$fetched")"
 
@@ -67,7 +75,7 @@ else
 fi
 
 echo "$message"
-echo "  バンドル     ${bundle_sha} (${bundle_bytes} バイト)"
+echo "  バンドル     ${bundle_sha} (${bundle_bytes} バイト。末尾の改行を落とした姿)"
 echo "  配布ページ   ${page_sha} (${page_bytes} バイト) ${url}"
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
@@ -86,7 +94,7 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     echo
     echo "| | SHA-256 | バイト |"
     echo "|---|---|---|"
-    echo "| main から作ったバンドル | \`${bundle_sha}\` | ${bundle_bytes} |"
+    echo "| main から作ったバンドル (末尾の改行を落とした姿) | \`${bundle_sha}\` | ${bundle_bytes} |"
     echo "| [${page}](${url}) | \`${page_sha}\` | ${page_bytes} |"
   } >>"$GITHUB_STEP_SUMMARY"
 fi
