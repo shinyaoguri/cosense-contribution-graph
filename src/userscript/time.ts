@@ -11,6 +11,12 @@ export function localDay(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+/** ローカル時刻の `HH:MM`。 */
+export function localClock(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 /** ローカル時刻の 0:00 からの分。 */
 export function localMinute(date: Date): number {
   return date.getHours() * 60 + date.getMinutes();

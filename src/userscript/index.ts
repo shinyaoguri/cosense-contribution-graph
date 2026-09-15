@@ -3,7 +3,8 @@
  * バンドルの入口 (ADR-0005)。
  *
  * **センサー** (段階 5、Issue #49) が活動を数えて localStorage に記録し、**登録した鍵で署名して送る** (段階 6、Issue #67)。
- * 送るのは読み込み時・日付の変更・タブを隠したとき・登録の成功のとき (`sender.ts`)。
+ * 送るのは読み込み時・日付の変更・タブを隠したとき・登録の成功のとき、
+ * それに**草のダイアログの「今すぐ送る」を押したとき** (`sender.ts`、Issue #102)。
  *
  * **ページメニューに足すのは `cosense-grass` の 1 項目だけ** (Issue #95)。ほかのスクリプトと並ぶ場所なので
  * 占有を最小にし、**どのスクリプトのものかが分かる名前で名乗る** (Issue #101)。
@@ -21,6 +22,7 @@ import { CLEAR_TEXT, type Cleaner, createCleaner } from "./cleaner.ts";
 import { createGraphDialog, type GraphDialog } from "./graph-dialog.ts";
 import { requestImage } from "./image.ts";
 import { createIndexedDbDeviceStore } from "./keys.ts";
+import { SEND_TEXT, SEND_TEXT_FALLBACK } from "./outbox.ts";
 import { createRevoker, REVOKE_TEXT, type Revoker } from "./revoke.ts";
 import { createSender, type Sender } from "./sender.ts";
 import { type Sensor, type SensorCosense, startExclusive, startSensor } from "./sensor.ts";
@@ -33,6 +35,7 @@ import { localDay } from "./time.ts";
 import {
   describeIntegrated,
   describeLocal,
+  describeSync,
   type IntegratedView,
   localRangeStart,
 } from "./viewer.ts";
@@ -114,7 +117,7 @@ async function runViewMenu(cosense: Cosense, deps: Dependencies): Promise<void> 
   const project = cosense.Project.name;
   let integrated: IntegratedView;
   try {
-    integrated = describeIntegrated(await deps.sender.status(), project);
+    integrated = describeIntegrated(await deps.sender.status(), project, deps.now());
   } catch {
     integrated = {
       kind: "message",
@@ -126,8 +129,20 @@ async function runViewMenu(cosense: Cosense, deps: Dependencies): Promise<void> 
   const local = describeLocal(deps.store.readRange(localRangeStart(today), today), today, project);
   deps.graphDialog.open(
     { integrated, local },
-    // 押された時点で草のダイアログは閉じている。設定は自分で状況を読み直す
-    { openSettings: () => void runSettingsDialog(deps) },
+    {
+      // 押された時点で草のダイアログは閉じている。設定は自分で状況を読み直す
+      openSettings: () => void runSettingsDialog(deps),
+      // **送った後に状況を読み直す。** ダイアログを開き直さず、状態行だけ差し替えてもらう
+      sendNow: async () => {
+        const outcome = await deps.sender.trigger("manual");
+        return {
+          text: SEND_TEXT[outcome] ?? SEND_TEXT_FALLBACK,
+          view: describeSync(await deps.sender.status(), deps.now()),
+          // サーバの記録が変わったときだけ取り直す (変わっていなければ同じ絵になる)
+          refresh: outcome === "written",
+        };
+      },
+    },
   );
 }
 

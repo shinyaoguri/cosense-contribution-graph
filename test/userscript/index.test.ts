@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CLEAR_TEXT, type ClearResult } from "../../src/userscript/cleaner.ts";
 import type { GraphDialogHandlers } from "../../src/userscript/graph-dialog.ts";
 import { type Cosense, type Dependencies, start } from "../../src/userscript/index.ts";
+import { SEND_TEXT, type SendOutcome } from "../../src/userscript/outbox.ts";
 import { REVOKE_TEXT, type RevokeOutcome } from "../../src/userscript/revoke.ts";
 import type { SendStatus } from "../../src/userscript/sender.ts";
 import type { CountingStatus } from "../../src/userscript/sensor.ts";
@@ -43,6 +44,7 @@ function setup(projectName = "project-a") {
   const settingsViews: { model: SettingsModel; handlers: SettingsHandlers }[] = [];
   const sending = {
     count: 0,
+    outcome: "nothing" as SendOutcome,
     status: async (): Promise<SendStatus> => ({ kind: "not-enrolled" }),
   };
   const deps: Dependencies = {
@@ -53,7 +55,7 @@ function setup(projectName = "project-a") {
     sender: {
       trigger: async (kind) => {
         triggers.push(kind);
-        return "nothing";
+        return sending.outcome;
       },
       status: () => {
         sending.count++;
@@ -192,7 +194,8 @@ describe("草を見る", () => {
         { name: "b", graphUrl: "https://grass.soui.dev/v1/g/b.svg", sent: false },
       ],
       todaySends: 0,
-      pendingDays: 0,
+      pendingPastDays: 0,
+      todayPending: false,
     });
     start(t.cosense, t.deps);
 
@@ -207,6 +210,45 @@ describe("草を見る", () => {
     ).toEqual(["https://grass.soui.dev/v1/g/b.svg", "https://grass.soui.dev/v1/g/a.svg"]);
     // 送信はしない (読み込み時の 1 回だけ)
     expect(t.triggers).toEqual(["load"]);
+  });
+
+  it("**「今すぐ送る」は manual で送り、結果の文言と読み直した状態を返す** (Issue #102)", async () => {
+    const t = setup("b");
+    t.sending.outcome = "written";
+    t.sending.status = async () => ({
+      kind: "enrolled",
+      kid: "0123456789abcdef",
+      graphUrl: "https://grass.soui.dev/v1/g/total.svg",
+      totalSent: true,
+      projects: [],
+      todaySends: 1,
+      pendingPastDays: 0,
+      todayPending: false,
+    });
+    start(t.cosense, t.deps);
+    await t.clickMenu(MENU_TITLE);
+
+    const result = await t.views[0]?.handlers.sendNow();
+
+    expect(t.triggers).toEqual(["load", "manual"]);
+    expect(result?.text).toBe(SEND_TEXT.written);
+    // 送れたので、表示中の草を取り直してよい
+    expect(result?.refresh).toBe(true);
+    expect(result?.view.lines[0]).toBe("このブラウザの記録は送信済みです。");
+    // 押した後にもう一度状況を読む (ダイアログは開き直さない)
+    expect(t.sending.count).toBe(2);
+  });
+
+  it("**サーバの記録が変わらなければ草を取り直さない**", async () => {
+    const t = setup("b");
+    t.sending.outcome = "nothing";
+    start(t.cosense, t.deps);
+    await t.clickMenu(MENU_TITLE);
+
+    const result = await t.views[0]?.handlers.sendNow();
+
+    expect(result?.text).toBe(SEND_TEXT.nothing);
+    expect(result?.refresh).toBe(false);
   });
 
   it("**状況を読めなくてもダイアログは開き、そう書く**", async () => {

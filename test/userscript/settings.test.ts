@@ -19,7 +19,8 @@ const ENROLLED: SendStatus = {
   totalSent: true,
   projects: [],
   todaySends: 0,
-  pendingDays: 0,
+  pendingPastDays: 0,
+  todayPending: false,
 };
 
 const settings = (countRead: boolean, newer = false): SettingsRead => ({

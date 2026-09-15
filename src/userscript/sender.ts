@@ -1,7 +1,7 @@
 /**
  * センサーの記録を、登録した鍵で署名して `/v1/p.gif` に送る (design §9「送信」、段階 6)。
  *
- * **定期送信はしない** (ADR-0010)。きっかけは次の 4 つ。
+ * **定期送信はしない** (ADR-0010)。きっかけは次の 5 つ。
  *
  * | きっかけ | 送るもの |
  * |---|---|
@@ -9,12 +9,15 @@
  * | 日付の変更 | 前日以前の未送信の日 (前日を含む) |
  * | タブを隠したとき | 前日以前の未送信の日と、今日 (当日の送信が 4 回未満のとき) |
  * | 登録の成功 | 前日以前の未送信の日と、今日 |
+ * | **「今すぐ送る」** | 前日以前の未送信の日と、今日 (Issue #102) |
  *
  * - **1 回の実行はロックの中で直列にする** (Web Locks。別のタブ・別の版のバンドルと重ならない)。
  *   待った側は送信済みの記録を読み直すので、同じ中身を 2 回送らない。OR なので重なっても無害
  * - **鍵はきっかけのたびに読み直す** (別のタブで登録した鍵を拾う)。未登録なら送らない
  * - 16 (変化なし) と 17 (書いた) はどちらも送信済み。**画像にならない・応答が無い・幅が想定外なら、そこで打ち切って送信済みにしない**
  * - 続けて失敗したら、自動のきっかけでは `min(15 分 × 2^(n−1), 24 時間)` 送らない (同じ 400 を送り続けない)。登録の成功で解除
+ * - **手動 (`manual`) は抑制を免れ、失敗しても `failure.n` を増やさない。** 押したら 1 回は試す。
+ *   増やすと「送れないから押し直す」が自動の送信を指数的に止めてしまう (5 回で 4 時間)
  * - **uid・ph・kid・URL・プロジェクト名・例外のメッセージはログに出さない**
  */
 import { buildIngestUrl, readIngestWidth } from "../shared/beacon.ts";
@@ -28,6 +31,8 @@ import {
   collectEntries,
   countTodaySend,
   entryDigest,
+  includesToday,
+  MAX_TODAY_SENDS,
   MAX_URL_LENGTH,
   readSent,
   rememberSent,
@@ -40,9 +45,6 @@ import { MENU_TITLE, SETTINGS_LABEL } from "./settings.ts";
 import type { Store } from "./store.ts";
 import { localDay } from "./time.ts";
 import { graphUrl, WORKER_ORIGIN } from "./worker-origin.ts";
-
-/** 当日分を送る回数の上限 (design §9・§15 の仮値)。失敗も数える */
-export const MAX_TODAY_SENDS = 4;
 
 const BACKOFF_BASE_MS = 15 * 60_000;
 const BACKOFF_MAX_MS = 24 * 60 * 60_000;
@@ -82,8 +84,14 @@ export type SendStatus =
         readonly sent: boolean;
       }[];
       readonly todaySends: number;
-      /** まだ送れていないエントリのある日 (今日を含む) */
-      readonly pendingDays: number;
+      /**
+       * まだ送れていないエントリのある**前日以前**の日数。
+       * **今日と分ける** (Issue #102) — 今日を送るのはタブを隠したときと登録直後だけなので、
+       * 開いた瞬間の今日はほぼ常に未送信で、混ぜると毎回「未送信あり」になる
+       */
+      readonly pendingPastDays: number;
+      /** 今日に未送信のエントリがあるか。**これは正常な状態** */
+      readonly todayPending: boolean;
       readonly last?: SentRecord["last"];
       /** 抑制中なら、次に自動で送る時刻 (ミリ秒) */
       readonly backoffUntil?: number;
@@ -176,7 +184,8 @@ export function createSender(deps: SenderDependencies): Sender {
         totalSent: sentPhs.has(PH_ALL),
         projects,
         todaySends: sent.days[today]?.n ?? 0,
-        pendingDays: pendingDays.size,
+        pendingPastDays: [...pendingDays].filter((day) => day !== today).length,
+        todayPending: pendingDays.has(today),
         ...(sent.last ? { last: sent.last } : {}),
         ...(backoffUntil !== undefined && backoffUntil > now.getTime() ? { backoffUntil } : {}),
       };
@@ -193,8 +202,10 @@ async function send(kind: Trigger, deps: SenderDependencies): Promise<SendOutcom
   }
   let sent: SentRecord = read;
 
+  // **人が押したときと登録直後は抑制しない。** 押したら 1 回は試す
   if (
     kind !== "enrolled" &&
+    kind !== "manual" &&
     sent.failure &&
     startedAt.getTime() - sent.failure.at < backoffMs(sent.failure.n)
   ) {
@@ -215,11 +226,7 @@ async function send(kind: Trigger, deps: SenderDependencies): Promise<SendOutcom
   }
   const { uid, kid, privateKey } = device.record;
 
-  const entries = await collectEntries(
-    deps.store,
-    uid,
-    candidateDays(today, kind === "hidden" || kind === "enrolled"),
-  );
+  const entries = await collectEntries(deps.store, uid, candidateDays(today, includesToday(kind)));
   const digests = await Promise.all(entries.map((entry) => entryDigest(uid, entry)));
   const currentByDay = new Map<string, string[]>();
   for (const [i, entry] of entries.entries()) {
@@ -293,10 +300,16 @@ async function send(kind: Trigger, deps: SenderDependencies): Promise<SendOutcom
   }
 
   const failed = outcome !== "written" && outcome !== "unchanged";
+  // **手動の失敗は数えない。** 押し直すたびに自動の抑制が伸びると、直らないまま自動送信まで止まる
+  const keepFailure = failed && kind === "manual" ? sent.failure : undefined;
   const { failure: _previous, ...rest } = sent;
   sent = {
     ...rest,
-    ...(failed ? { failure: { n: (sent.failure?.n ?? 0) + 1, at: deps.now().getTime() } } : {}),
+    ...(failed && kind !== "manual"
+      ? { failure: { n: (sent.failure?.n ?? 0) + 1, at: deps.now().getTime() } }
+      : keepFailure
+        ? { failure: keepFailure }
+        : {}),
     last: { at: deps.now().getTime(), trigger: kind, outcome, requests, entries: pending.length },
   };
   writeSent(deps.storage, sent, today);

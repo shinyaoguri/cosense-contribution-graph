@@ -5,6 +5,7 @@ import {
   GRAPH_WIDTH,
   LOCAL_PROJECT_SCALE,
   LOCAL_SUMMARY,
+  type SendNowResult,
 } from "../../src/userscript/graph-dialog.ts";
 import { MENU_TITLE, SETTINGS_LABEL } from "../../src/userscript/settings.ts";
 import { createStore } from "../../src/userscript/store.ts";
@@ -14,6 +15,8 @@ import {
   LOCAL_TOTAL_LABEL,
   type LocalView,
   localRangeStart,
+  SEND_NOW_LABEL,
+  type SyncView,
   TOTAL_LABEL,
   type ViewModel,
 } from "../../src/userscript/viewer.ts";
@@ -61,16 +64,20 @@ function localView(projects: readonly string[] = []): LocalView {
   return describeLocal(store.readRange(localRangeStart(TODAY), TODAY), TODAY, "");
 }
 
+const SYNC: SyncView = { lines: ["このブラウザの記録は送信済みです。"], canSend: false };
+
 function graphs(
   projects: { label: string; sent: boolean }[],
   local = localView(),
   totalSent = true,
+  sync: SyncView = SYNC,
 ): ViewModel {
   return {
     integrated: {
       kind: "graphs",
       total: { label: TOTAL_LABEL, url: url("aa"), sent: totalSent },
       projects: projects.map((p, i) => ({ ...p, url: url(`b${i}`) })),
+      sync,
     },
     local,
   };
@@ -80,9 +87,14 @@ function message(...lines: string[]): ViewModel {
   return { integrated: { kind: "message", lines }, local: localView() };
 }
 
-function setup(writeText: (text: string) => Promise<void> = () => Promise.resolve()) {
+function setup(
+  writeText: (text: string) => Promise<void> = () => Promise.resolve(),
+  sendNow: () => Promise<SendNowResult> = () =>
+    Promise.resolve({ text: "送りました。", view: SYNC, refresh: false }),
+) {
   const copied: string[] = [];
   const settings = { count: 0 };
+  const sent = { count: 0 };
   const dialog = createGraphDialog(document, {
     writeText: (text) => {
       copied.push(text);
@@ -95,6 +107,10 @@ function setup(writeText: (text: string) => Promise<void> = () => Promise.resolv
       openSettings: () => {
         settings.count++;
       },
+      sendNow: () => {
+        sent.count++;
+        return sendNow();
+      },
     });
   const find = () => document.querySelector("dialog");
   const sections = () => [...(find()?.querySelectorAll("section") ?? [])];
@@ -102,7 +118,7 @@ function setup(writeText: (text: string) => Promise<void> = () => Promise.resolv
   const local = () => find()?.querySelector("details") ?? undefined;
   const buttons = (text: string) =>
     [...(find()?.querySelectorAll("button") ?? [])].filter((b) => b.textContent === text);
-  return { open, copied, settings, find, buttons, sections, local };
+  return { open, copied, settings, sent, find, buttons, sections, local };
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -301,6 +317,98 @@ describe("createGraphDialog", () => {
     for (const spy of spies) {
       expect(spy).not.toHaveBeenCalled();
     }
+  });
+
+  it("**同期の状態を合算の草の直後に出し、送るものが無ければボタンを無効にする** (Issue #102)", () => {
+    const t = setup();
+
+    t.open(
+      graphs([], localView(), true, {
+        lines: ["送信済みです。", "自動で送ります。"],
+        canSend: false,
+      }),
+    );
+
+    const send = t.buttons(SEND_NOW_LABEL)[0];
+    expect(send?.disabled).toBe(true);
+    const texts = [...(t.sections()[0]?.querySelectorAll("p") ?? [])].map((p) => p.textContent);
+    expect(texts).toContain("送信済みです。");
+    expect(texts).toContain("自動で送ります。");
+    // 押していないので呼ばれない
+    expect(t.sent.count).toBe(0);
+  });
+
+  it("**押すと送り、結果の文言と新しい状態に差し替える**", async () => {
+    const after: SyncView = { lines: ["このブラウザの記録は送信済みです。"], canSend: false };
+    const t = setup(undefined, () =>
+      Promise.resolve({ text: "送りました。", view: after, refresh: false }),
+    );
+    t.open(
+      graphs([], localView(), true, {
+        lines: ["まだ送れていない記録が 2 日分あります。"],
+        canSend: true,
+      }),
+    );
+
+    const send = t.buttons(SEND_NOW_LABEL)[0];
+    send?.click();
+    // 待っている間は押せない
+    expect(send?.disabled).toBe(true);
+    await settle();
+
+    expect(t.sent.count).toBe(1);
+    expect(t.find()?.textContent).toContain("送りました。");
+    const texts = [...(t.sections()[0]?.querySelectorAll("p") ?? [])].map((p) => p.textContent);
+    expect(texts).toContain("このブラウザの記録は送信済みです。");
+    expect(texts).not.toContain("まだ送れていない記録が 2 日分あります。");
+    // 新しい状態で押せなくなる
+    expect(send?.disabled).toBe(true);
+  });
+
+  it("**送れたら表示中の草を取り直す。** 新しい絵が読めてから差し替える (失敗しても古い絵を残す)", async () => {
+    const t = setup(undefined, () =>
+      Promise.resolve({ text: "送りました。", view: SYNC, refresh: true }),
+    );
+    t.open(
+      graphs([{ label: "alpha", sent: true }], localView(), true, { lines: [], canSend: true }),
+    );
+    const created: HTMLImageElement[] = [];
+    const original = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const node = original(tag);
+      if (tag === "img") created.push(node as HTMLImageElement);
+      return node;
+    });
+
+    t.buttons(SEND_NOW_LABEL)[0]?.click();
+    await settle();
+
+    // 表示中の 2 枚ぶんを、キャッシュを外すクエリ付きで取り直す
+    expect(created.map((img) => img.getAttribute("src"))).toEqual([
+      expect.stringMatching(/\/aa0+\.svg\?r=\d+$/),
+      expect.stringMatching(/\/b00+\.svg\?r=\d+$/),
+    ]);
+    // 読めるまでは古い絵のまま
+    expect(
+      [...(t.find()?.querySelectorAll("img") ?? [])].map((i) => i.getAttribute("src")),
+    ).toEqual([url("aa"), url("b0")]);
+
+    created[0]?.dispatchEvent(new Event("load"));
+    expect(t.find()?.querySelector("img")?.getAttribute("src")).toMatch(/\?r=\d+$/);
+  });
+
+  it("**取り直しのクエリはコピーする URL に混ぜない** (他人に渡すもの)", async () => {
+    const t = setup(undefined, () =>
+      Promise.resolve({ text: "送りました。", view: SYNC, refresh: true }),
+    );
+    t.open(graphs([], localView(), true, { lines: [], canSend: true }));
+
+    t.buttons(SEND_NOW_LABEL)[0]?.click();
+    await settle();
+    t.buttons("URL をコピー")[0]?.click();
+    await settle();
+
+    expect(t.copied).toEqual([url("aa")]);
   });
 
   it("**統合の草を主にし、このブラウザの記録は畳む** (Issue #101)", () => {

@@ -4,6 +4,12 @@
  * **統合の草が主で、このブラウザの記録は内訳** (Issue #101)。ダイアログは統合の草を先に出し、
  * ローカルの草は畳んだ中に置く。**同じ形の草を対等に 2 つ並べない** (どちらが本当か読めない)。
  *
+ * **同期の状態** (`describeSync`)
+ * - 分かるのは「このブラウザから送信済みか」だけ。**サーバには問い合わせられない** (CSP に受信方向が無い。ADR-0001)
+ * - **前日以前と今日を分ける** (Issue #102)。今日を送るのはタブを隠したときと登録直後だけなので、
+ *   開いた瞬間の今日はほぼ常に未送信。混ぜると開くたびに「未送信あり」が出て、警告が効かなくなる
+ * - **`last` は「最後に送った」ではなく「最後に試した」。** `outcome` で言い分ける
+ *
  * **全端末を統合した記録** (`describeIntegrated`)
  * - 草の URL は `sender.status()` の値をそのまま使う。**publicId の導き方を 2 か所に書かない** (#72)
  * - 並べられるプロジェクトは、このブラウザで直近 30 日に記録したものだけ。サーバはプロジェクト名を持たないので、
@@ -22,9 +28,11 @@ import { centerOf, type Minutes } from "../shared/balance.ts";
 import { DAYS, DEFAULT_PARAMS, fromEpochDay, MAX_WEEKS, toEpochDay } from "../shared/graph.ts";
 import type { GraphInput } from "../shared/graph-layout.ts";
 import { buildScale } from "../shared/scale.ts";
+import { MAX_TODAY_SENDS, type SentRecord, type Trigger } from "./outbox.ts";
 import type { SendStatus } from "./sender.ts";
 import { SETTINGS_LABEL, SIGN_IN_LABEL } from "./settings.ts";
 import { type Counts, DAILY_DAYS, type DayView } from "./store.ts";
+import { localClock, localDay } from "./time.ts";
 
 /** 最初に出すプロジェクト別の草の数。統合の方は、開くたびの Worker へのリクエストと D1 の読み取りを抑える */
 export const INITIAL_PROJECT_GRAPHS = 5;
@@ -39,6 +47,13 @@ export type GraphEntry = {
   readonly sent: boolean;
 };
 
+/** 統合の草に、このブラウザの記録が入っているか (Issue #102) */
+export type SyncView = {
+  readonly lines: readonly string[];
+  /** 「今すぐ送る」を押せるか。**押せない理由は `lines` の中にある** */
+  readonly canSend: boolean;
+};
+
 export type IntegratedView =
   | { readonly kind: "message"; readonly lines: readonly string[] }
   | {
@@ -46,6 +61,7 @@ export type IntegratedView =
       readonly total: GraphEntry;
       /** 今のプロジェクトが先頭 (記録があれば) */
       readonly projects: readonly GraphEntry[];
+      readonly sync: SyncView;
     };
 
 export type LocalGraph = {
@@ -66,6 +82,20 @@ export type ViewModel = {
   readonly local: LocalView;
 };
 
+export const SEND_NOW_LABEL = "今すぐ送る";
+
+/** **押す必要が普段ないことを言う。** これが読めれば「今すぐ送る」は非常用だと分かる */
+export const AUTO_SEND_NOTE =
+  "ページを開いたとき・日付が変わったとき・タブを離れたときに自動で送ります。";
+
+const TRIGGER_TEXT: Record<Trigger, string> = {
+  load: "ページを開いたとき",
+  "day-change": "日付が変わったとき",
+  hidden: "タブを離れたとき",
+  enrolled: "端末を登録したとき",
+  manual: `「${SEND_NOW_LABEL}」`,
+};
+
 export const TOTAL_LABEL = "合算 (UserScript を入れた全プロジェクト)";
 
 export const LOCAL_TOTAL_LABEL = "合算 (このブラウザで数えた全プロジェクト)";
@@ -73,7 +103,61 @@ export const LOCAL_TOTAL_LABEL = "合算 (このブラウザで数えた全プ�
 /** このブラウザの草で読む日数。草は 53 週を描き、四分位の母集団は集計値を持つ 371 日ぶん */
 const LOCAL_DAYS = DAILY_DAYS;
 
-export function describeIntegrated(status: SendStatus, currentProject: string): IntegratedView {
+/**
+ * 統合の草に、このブラウザの記録が入っているか。`now` は「最後に送った」の書き方を決めるのに使う。
+ */
+export function describeSync(status: SendStatus, now: Date): SyncView {
+  if (status.kind !== "enrolled") {
+    return { lines: ["この端末からは記録を送れません。"], canSend: false };
+  }
+  const limited = status.todaySends >= MAX_TODAY_SENDS;
+  const lines = [
+    status.pendingPastDays > 0
+      ? `まだ送れていない記録が ${status.pendingPastDays} 日分あります。`
+      : "このブラウザの記録は送信済みです。",
+    !status.todayPending
+      ? "今日の分も送信済みです。"
+      : limited
+        ? `今日の分は送信の上限 (1 日 ${MAX_TODAY_SENDS} 回) に達したので、次にページを開いたときに送られます。`
+        : "今日の分はまだ送っていません (タブを離れると自動で送ります)。",
+  ];
+  const last = lastLine(status.last, now);
+  if (last !== undefined) {
+    lines.push(last);
+  }
+  if (status.backoffUntil !== undefined) {
+    lines.push(
+      `続けて送信に失敗したので、自動の送信を ${stamp(new Date(status.backoffUntil), now)} まで止めています。「${SEND_NOW_LABEL}」はすぐ試します。`,
+    );
+  }
+  lines.push(AUTO_SEND_NOTE);
+  // **上限だけで塞がない。** 上限に達していても、前日以前の未送信は送れる
+  return { lines, canSend: status.pendingPastDays > 0 || (status.todayPending && !limited) };
+}
+
+/** `last` は結果を問わず書かれるので、送れたときと試しただけのときを言い分ける */
+function lastLine(last: SentRecord["last"], now: Date): string | undefined {
+  if (last === undefined) {
+    return undefined;
+  }
+  const at = stamp(new Date(last.at), now);
+  if (last.outcome === "written" || last.outcome === "unchanged") {
+    return `最後に送ったのは ${at} (${TRIGGER_TEXT[last.trigger] ?? "自動"})。`;
+  }
+  return `最後に試したのは ${at} ですが、送れませんでした。`;
+}
+
+/** 今日なら時刻だけ、別の日なら日付も (「14:32」だけだと昨日か今日か分からない) */
+function stamp(at: Date, now: Date): string {
+  const clock = localClock(at);
+  return localDay(at) === localDay(now) ? clock : `${at.getMonth() + 1}/${at.getDate()} ${clock}`;
+}
+
+export function describeIntegrated(
+  status: SendStatus,
+  currentProject: string,
+  now: Date,
+): IntegratedView {
   switch (status.kind) {
     case "not-enrolled":
       return message(
@@ -97,6 +181,7 @@ export function describeIntegrated(status: SendStatus, currentProject: string): 
       const others = status.projects.filter((project) => project.name !== currentProject);
       return {
         kind: "graphs",
+        sync: describeSync(status, now),
         // **合算も送れたかを見る** (Issue #100)。登録しただけで 1 件も送っていないと 404 になる
         total: { label: TOTAL_LABEL, url: status.graphUrl, sent: status.totalSent },
         projects: [
