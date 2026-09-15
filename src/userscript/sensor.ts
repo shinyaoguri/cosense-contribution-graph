@@ -3,7 +3,8 @@
  * 送るのは `sender.ts` (段階 6)。センサーは日付が変わったことを `onDayChange` で知らせるだけ。
  *
  * - **読み。** 20 秒ごとに、見えていて・フォーカスがあり・直近 3 分以内に操作があれば、今の分に r を立てる。
- *   `document.hasFocus()` が無いと、開きっぱなしのタブを全部数えてブラウザの起動時間になる
+ *   `document.hasFocus()` が無いと、開きっぱなしのタブを全部数えてブラウザの起動時間になる。
+ *   **「草の設定」で off にされていれば数えない** (`countRead`。段階 8、Issue #79)
  * - **書き。** `lines:changed` の `by === "edit"` だけで今の分に w を立てる (ADR-0006)。他人の編集は `remote`
  *
  * **数えるのは、自分のページに import の 1 行があるプロジェクトだけ** (ADR-0007 決定 5)。配布モジュールは
@@ -62,6 +63,11 @@ export type SensorDependencies = {
    * 通信自体の失敗は例外にする (次のポーリングで確かめ直す)
    */
   readonly fetchText: (path: string) => Promise<string | undefined>;
+  /**
+   * 読みを数えるか (design §9「設定 UI」)。**数えるたびに読み直す**ので、別のタブで設定を変えても
+   * 次の判定から効く。書きは止めない (草が空になる方が分かりにくい)
+   */
+  readonly countRead: () => boolean;
   readonly warn: (message: string) => void;
   /** 動いている間にローカルの日付が変わった (起動直後は呼ばない)。前日分を送るきっかけ */
   readonly onDayChange?: (today: string) => void;
@@ -149,7 +155,8 @@ export function startSensor(cosense: SensorCosense, deps: SensorDependencies): S
         deps.document.visibilityState !== "visible" ||
         !deps.document.hasFocus() ||
         now.getTime() - lastInteraction > IDLE_MS ||
-        !COUNTED_LAYOUTS.has(cosense.Layout)
+        !COUNTED_LAYOUTS.has(cosense.Layout) ||
+        !deps.countRead()
       ) {
         return;
       }

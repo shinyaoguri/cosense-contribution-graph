@@ -112,7 +112,7 @@ export function createSender(deps: SenderDependencies): Sender {
         warned.add(outcome);
         deps.warn(
           outcome === "not-enrolled"
-            ? "この端末は未登録なので記録を送っていません。ページメニューの「草: サインインしてこの端末を登録」から登録してください"
+            ? "この端末は未登録なので記録を送っていません。ページメニューの「草の設定」から登録してください"
             : outcome === "newer-key"
               ? "新しい版の cosense-grass が登録した鍵なので、この版からは送りません"
               : "この端末の鍵で署名できないので記録を送っていません。サインインし直してください",

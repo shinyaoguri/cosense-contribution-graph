@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SIGN_IN_MENU_TITLE } from "../../src/userscript/auth.ts";
+
 import {
   type Cosense,
   type Dependencies,
@@ -11,6 +11,9 @@ import {
 import type { ProbeResult } from "../../src/userscript/probe.ts";
 import type { SendStatus } from "../../src/userscript/sender.ts";
 import type { CountingStatus } from "../../src/userscript/sensor.ts";
+import { SETTINGS_MENU_TITLE, type SettingsModel } from "../../src/userscript/settings.ts";
+import type { SettingsHandlers } from "../../src/userscript/settings-dialog.ts";
+import { readSettings } from "../../src/userscript/settings-store.ts";
 import { createStore } from "../../src/userscript/store.ts";
 import { localDay } from "../../src/userscript/time.ts";
 import { VIEW_MENU_TITLE, type ViewModel } from "../../src/userscript/viewer.ts";
@@ -49,6 +52,7 @@ function setup(projectName = "project-a", controlled = true) {
   const signIns = { count: 0, outcome: "added" };
   const triggers: string[] = [];
   const views: ViewModel[] = [];
+  const settingsViews: { model: SettingsModel; handlers: SettingsHandlers }[] = [];
   const sending = {
     count: 0,
     status: async (): Promise<SendStatus> => ({ kind: "not-enrolled" }),
@@ -69,6 +73,12 @@ function setup(projectName = "project-a", controlled = true) {
       },
     },
     graphDialog: { open: (model) => views.push(model) },
+    settingsDialog: {
+      open: (model, handlers) => settingsViews.push({ model, handlers }),
+    },
+    settings: {
+      read: () => readSettings({ getItem: (key) => store.get(key) ?? null }),
+    },
     startSensor: () => {
       sensor.started++;
       return { stop: () => undefined, status: () => sensor.status };
@@ -130,29 +140,32 @@ function setup(projectName = "project-a", controlled = true) {
     signIns,
     triggers,
     views,
+    settingsViews,
     sending,
   };
 }
 
 describe("ページメニュー", () => {
-  it("「草を見る」と、「草: センサーの記録」と、送信の疎通確認と、サインインを足す", () => {
+  it("「草を見る」と、「草の設定」と、「草: センサーの記録」と、送信の疎通確認を足す。**サインインの単独メニューは置かない**", () => {
     const t = setup();
 
     start(t.cosense, t.deps);
 
     expect(t.items.map((i) => i.title)).toEqual([
       VIEW_MENU_TITLE,
+      SETTINGS_MENU_TITLE,
       SENSOR_MENU_TITLE,
       PROBE_MENU_TITLE,
-      SIGN_IN_MENU_TITLE,
     ]);
   });
 
-  it("**サインインは押した同期区間で 1 回だけ呼ぶ** (ポップアップを開くのにクリックの直後である必要がある)", () => {
+  it("**サインインは「草の設定」の handlers から 1 回だけ呼ぶ** (ポップアップを開くのにクリックの直後である必要がある)", async () => {
     const t = setup();
     start(t.cosense, t.deps);
 
-    t.items.find((i) => i.title === SIGN_IN_MENU_TITLE)?.onClick();
+    await t.clickMenu(SETTINGS_MENU_TITLE);
+    t.settingsViews[0]?.handlers.signIn();
+
     expect(t.signIns.count).toBe(1);
   });
 
@@ -319,13 +332,14 @@ describe("送信のきっかけ", () => {
   it("**登録できたら enrolled で送る**。取り消したときは送らない", async () => {
     const t = setup();
     start(t.cosense, t.deps);
+    await t.clickMenu(SETTINGS_MENU_TITLE);
 
-    t.items.find((i) => i.title === SIGN_IN_MENU_TITLE)?.onClick();
+    t.settingsViews[0]?.handlers.signIn();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(t.triggers).toEqual(["load", "enrolled"]);
 
     t.signIns.outcome = "cancelled";
-    t.items.find((i) => i.title === SIGN_IN_MENU_TITLE)?.onClick();
+    t.settingsViews[0]?.handlers.signIn();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(t.triggers).toEqual(["load", "enrolled"]);
   });

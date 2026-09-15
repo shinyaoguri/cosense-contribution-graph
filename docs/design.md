@@ -111,7 +111,9 @@ src/userscript/
   viewer.ts                 「草を見る」に並べる草を決める (段階 8)
   graph-dialog.ts           「草を見る」のダイアログ。全端末を統合した草を img で並べる (段階 8)
   render.ts                 このブラウザの記録から描く草とツールチップ
-  settings.ts               設定 UI
+  settings.ts               「草の設定」に何を出すかを決める (段階 8)
+  settings-dialog.ts        「草の設定」のダイアログ (段階 8)
+  settings-store.ts         localStorage (設定)
 scripts/build-userscript.mjs esbuild でバンドルする (配布ページへの反映は手動。ADR-0013 決定 3)
 ```
 
@@ -206,7 +208,8 @@ COOP は `unsafe-none` なので opener が切れない (`research.md` §7)。
 
 **UserScript 側 (手順 1・6) も実装した** (2026-09-15、`src/userscript/auth.ts`、Issue #61)。
 
-- 段階 8 の設定 UI ができるまでは、ページメニューの「草: サインインしてこの端末を登録」から始める。**押した同期区間で**
+- ページメニューの「草の設定」→「サインインしてこの端末を登録」から始める (2026-09-15、Issue #79。
+  それまでは「草: サインインしてこの端末を登録」の単独メニューだった)。**押した同期区間で**
   `window.open(".../auth/start", "cosense-grass-auth", "popup,width=480,height=640")` を呼び、同じ区間で `message` のリスナーを付ける
   (Cosense のページメニューはクリックの処理中に `onClick` を呼ぶ。research §2)
 - `message` は **`origin === "https://grass.soui.dev"` と `source === popup`** を確かめ、`type` と `v` を見てから `parseAuthCode` に渡す。
@@ -966,7 +969,7 @@ write は `scrapbox.on("lines:changed", ({by}) => ...)` の `by === "edit"` の�
 | localStorage | `cosense-grass:bits` | 日 → プロジェクト名 → `{w, r, pages, created}`。w / r は base64url のビットマップ、pages / created はページ ID の配列。**今日と前の 29 日** |
 | localStorage | `cosense-grass:daily` | 日 → プロジェクト名か `*` → `{w, r, pages, created}` の数。**30 日より古くなった日を畳む。** 371 日 (53 週) |
 | localStorage | `cosense-grass:sent` | `{v: 1, days: {日: {e: 送れたエントリのダイジェスト, n: 当日の送信回数}}, failure?, last?}`。今日と前の 29 日 (2026-09-15、Issue #67) |
-| localStorage | `settings` | read 計上の on/off など |
+| localStorage | `cosense-grass:settings` | `{v: 1, countRead}`。read 計上の on/off (2026-09-15、`src/userscript/settings-store.ts`、Issue #79) |
 
 **プロジェクト名はローカルだけに持つ。** サーバへ送るのは `ph` だけ。
 
@@ -1079,15 +1082,21 @@ IndexedDB も同様なので、同じブラウザなら鍵は 1 つで足りる�
 
 ### 設定 UI
 
-**未着手 (#79)。** 共有 URL の一覧だけは「草を見る」とレポートで出している。
+**ページメニュー「草の設定」のダイアログに、サインインと read 計上の on/off まで入れた**
+(2026-09-15、`src/userscript/settings.ts`・`settings-dialog.ts`、Issue #79)。
+デバイスの失効と全データの削除は残り。
 
 - **Google でサインイン。** 未サインインなら最初にこれだけを出す
-- **登録済みデバイスの一覧と失効ボタン。** 今のデバイスには印を付ける
+- **登録済みデバイスの一覧と失効ボタン。** 今のデバイスには印を付ける。
+  **一覧はこのダイアログに出せない** — CSP に受信方向が無く、UserScript からサーバの `keys` を読めない (ADR-0001・0003)。
+  この端末の kid はダイアログに出し、ほかの端末の一覧と失効は Worker のサインイン済みページで扱う (2026-09-15 の決定、Issue #79)
 - 共有 URL の一覧。全体用とプロジェクト別をそれぞれコピーできる。**段階 8 までは「草: センサーの記録」の alert に出す** (2026-09-15、Issue #67)。
   **「草を見る」のダイアログでもコピーできる** (2026-09-15、Issue #73)。
   プロジェクト別の publicId は uid からしか導けず UserScript の中にしか無いので、このブラウザで直近 30 日に記録したプロジェクトを並べる。
   まだ 1 件も送れていないプロジェクトの URL は 404 になるのでそう添える
-- read 計上の on/off。全体で 1 つ。プロジェクト単位にはしない
+- read 計上の on/off。全体で 1 つ。プロジェクト単位にはしない。**済み** (2026-09-15、Issue #79)。
+  off でも**書きは数える** (草が空になる方が分かりにくい)。センサーは数えるたびに設定を読み直すので、別のタブで変えても次の判定から効く。
+  **知らない版の設定があるときは変えさせない**が、読む方は `countRead` を尊重する (数えないでほしい、という意思表示を版で覆さない)
 - 全データの削除
 
 ### 導入前の活動は遡らない

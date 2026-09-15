@@ -35,7 +35,7 @@ function setup(options: { project?: string; user?: string } = {}) {
   const lineListeners = new Set<Listener>();
   const timers = new Map<number, () => void>();
   const pendingFetches: { resolve: (text: string | undefined) => void; reject: () => void }[] = [];
-  const state = { recordThrows: false };
+  const state = { recordThrows: false, countRead: true };
   const dayChanges: string[] = [];
 
   const cosense: SensorCosense & {
@@ -87,6 +87,7 @@ function setup(options: { project?: string; user?: string } = {}) {
       fetched.push(path);
       return new Promise((resolve, reject) => pendingFetches.push({ resolve, reject }));
     },
+    countRead: () => state.countRead,
     warn: (message) => warnings.push(message),
     onDayChange: (today) => dayChanges.push(today),
   };
@@ -208,6 +209,46 @@ describe("読み", () => {
     expect(t.folded).toEqual(["2026-09-13", "2026-09-14"]);
     // **送信に知らせるのは日が変わったときだけ** (起動直後は読み込み時の送信が拾う)
     expect(t.dayChanges).toEqual(["2026-09-14"]);
+  });
+});
+
+describe("read 計上の on/off (草の設定、Issue #79)", () => {
+  it("**off なら読みを数えない**", () => {
+    const t = setup();
+    t.state.countRead = false;
+    startSensor(t.cosense, t.deps);
+
+    t.interact();
+    t.tick(at(9, 0, 25));
+
+    expect(t.recorded).toEqual([]);
+  });
+
+  it("**off でも書きは数える** (草が空になる方が分かりにくい)", () => {
+    const t = setup();
+    t.state.countRead = false;
+    startSensor(t.cosense, t.deps);
+
+    t.emitLines("edit");
+
+    expect(t.recorded).toEqual([
+      { kind: "write", project: "project-a", day: "2026-09-14", minute: 540, pageId: PAGE_ID },
+    ]);
+  });
+
+  it("**数えるたびに読み直す** (別のタブで on に戻したら、次の判定から数える)", () => {
+    const t = setup();
+    t.state.countRead = false;
+    startSensor(t.cosense, t.deps);
+
+    t.interact();
+    t.tick(at(9, 0, 25));
+    t.state.countRead = true;
+    t.tick(at(9, 0, 45));
+
+    expect(t.recorded).toEqual([
+      { kind: "read", project: "project-a", day: "2026-09-14", minute: 540 },
+    ]);
   });
 });
 

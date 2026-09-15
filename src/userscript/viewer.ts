@@ -16,8 +16,8 @@ import { centerOf, type Minutes } from "../shared/balance.ts";
 import { DAYS, DEFAULT_PARAMS, fromEpochDay, MAX_WEEKS, toEpochDay } from "../shared/graph.ts";
 import type { GraphInput } from "../shared/graph-layout.ts";
 import { buildScale } from "../shared/scale.ts";
-import { SIGN_IN_MENU_TITLE } from "./auth.ts";
 import type { SendStatus } from "./sender.ts";
+import { SETTINGS_MENU_TITLE, SIGN_IN_LABEL } from "./settings.ts";
 import { type Counts, DAILY_DAYS, type DayView } from "./store.ts";
 
 export const VIEW_MENU_TITLE = "草を見る";
@@ -74,7 +74,7 @@ export function describeIntegrated(status: SendStatus, currentProject: string): 
     case "not-enrolled":
       return message(
         "この端末は未登録なので、全端末を統合した草はまだ見られません。",
-        `ページメニューの「${SIGN_IN_MENU_TITLE}」から登録してください。`,
+        `ページメニューの「${SETTINGS_MENU_TITLE}」→「${SIGN_IN_LABEL}」から登録してください。`,
       );
     case "newer-key":
       return message(

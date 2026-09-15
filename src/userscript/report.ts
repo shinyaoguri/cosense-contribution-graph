@@ -98,7 +98,7 @@ function describeSending(status: SendStatus, now: Date, withUrl: boolean): strin
   switch (status.kind) {
     case "not-enrolled":
       return [
-        "送信: この端末は未登録なので送っていない。ページメニューの「草: サインインしてこの端末を登録」から登録すると送る",
+        "送信: この端末は未登録なので送っていない。ページメニューの「草の設定」から登録すると送る",
       ];
     case "newer-key":
       return ["送信: 新しい版の cosense-grass が登録した鍵なので、この版からは送らない"];

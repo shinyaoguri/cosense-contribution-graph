@@ -1,0 +1,186 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { SettingsModel } from "../../src/userscript/settings.ts";
+import { COUNT_READ_LABEL, SETTINGS_DIALOG_TITLE } from "../../src/userscript/settings.ts";
+import {
+  createSettingsDialog,
+  type SettingsDialogDependencies,
+} from "../../src/userscript/settings-dialog.ts";
+
+// jsdom 30 の <dialog> は open 属性しか無い。showModal と close を差し替える (graph-dialog.test.ts と同じ)
+const prototype = HTMLDialogElement.prototype as HTMLDialogElement & {
+  showModal?: () => void;
+  close?: () => void;
+};
+const original = { showModal: prototype.showModal, close: prototype.close };
+
+beforeEach(() => {
+  prototype.showModal = function showModal(this: HTMLDialogElement) {
+    this.setAttribute("open", "");
+  };
+  prototype.close = function close(this: HTMLDialogElement) {
+    this.removeAttribute("open");
+    this.dispatchEvent(new Event("close"));
+  };
+});
+
+afterEach(() => {
+  prototype.showModal = original.showModal;
+  prototype.close = original.close;
+  document.body.replaceChildren();
+});
+
+const ENROLLED: SettingsModel = {
+  device: { kind: "enrolled", kid: "0123456789abcdef", lines: ["この端末は登録済みです。"] },
+  countRead: { value: true, editable: true },
+  signIn: { label: "サインインし直す" },
+};
+
+const NOT_ENROLLED: SettingsModel = {
+  device: { kind: "not-enrolled", lines: ["この端末はまだ登録されていません。"] },
+  countRead: { value: true, editable: true },
+  signIn: { label: "サインインしてこの端末を登録" },
+};
+
+function setup(outcome: ReturnType<SettingsDialogDependencies["setCountRead"]> = "written") {
+  const written: boolean[] = [];
+  const signIns: number[] = [];
+  const dialog = createSettingsDialog(document, {
+    setCountRead: (value) => {
+      written.push(value);
+      return outcome;
+    },
+  });
+  const open = (model: SettingsModel) => {
+    dialog.open(model, { signIn: () => signIns.push(1) });
+  };
+  const node = () => document.querySelector("dialog");
+  const checkbox = () => node()?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+  const button = (text: string) =>
+    [...(node()?.querySelectorAll("button") ?? [])].find((b) => b.textContent === text);
+  return { dialog, written, signIns, open, node, checkbox, button };
+}
+
+describe("開く", () => {
+  it("題と、この端末の状態と、閉じるボタンを出す", () => {
+    const t = setup();
+
+    t.open(ENROLLED);
+
+    const text = t.node()?.textContent ?? "";
+    expect(t.node()?.hasAttribute("open")).toBe(true);
+    expect(text).toContain(SETTINGS_DIALOG_TITLE);
+    expect(text).toContain("この端末は登録済みです。");
+    expect(text).toContain("0123456789abcdef");
+    expect(t.button("閉じる")).toBeDefined();
+  });
+
+  it("**押し直しても 1 枚しか残らない**", () => {
+    const t = setup();
+
+    t.open(ENROLLED);
+    t.open(NOT_ENROLLED);
+
+    expect(document.querySelectorAll("dialog")).toHaveLength(1);
+    expect(t.node()?.textContent).toContain("まだ登録されていません");
+  });
+
+  it("閉じると DOM から消える", () => {
+    const t = setup();
+
+    t.open(ENROLLED);
+    t.button("閉じる")?.click();
+
+    expect(document.querySelector("dialog")).toBeNull();
+  });
+
+  it("**キー入力をダイアログの外へ伝えない** (Cosense のショートカットに拾わせない)", () => {
+    const t = setup();
+    const seen: string[] = [];
+    document.body.addEventListener("keydown", () => seen.push("keydown"));
+
+    t.open(ENROLLED);
+    t.node()?.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true }));
+
+    expect(seen).toEqual([]);
+  });
+});
+
+describe("サインイン", () => {
+  it("**押すと、ダイアログを閉じてから始める** (サインインのダイアログと重ねない)", () => {
+    const t = setup();
+
+    t.open(NOT_ENROLLED);
+    t.button("サインインしてこの端末を登録")?.click();
+
+    expect(t.signIns).toEqual([1]);
+    expect(document.querySelector("dialog")).toBeNull();
+  });
+
+  it("押しても直らない状態ではボタンを出さない", () => {
+    const t = setup();
+
+    t.open({
+      device: { kind: "message", lines: ["保存領域を開けません。"] },
+      countRead: { value: true, editable: true },
+    });
+
+    expect([...(t.node()?.querySelectorAll("button") ?? [])].map((b) => b.textContent)).toEqual([
+      "閉じる",
+    ]);
+  });
+});
+
+describe("read 計上の on/off", () => {
+  it("今の値をチェックボックスに出す", () => {
+    const t = setup();
+
+    t.open({ ...ENROLLED, countRead: { value: false, editable: true } });
+
+    expect(t.checkbox()?.checked).toBe(false);
+    expect(t.node()?.textContent).toContain(COUNT_READ_LABEL);
+  });
+
+  it("**外すと書きに行き、結果を知らせる**", () => {
+    const t = setup();
+
+    t.open(ENROLLED);
+    const checkbox = t.checkbox();
+    if (!checkbox) {
+      throw new Error("チェックボックスが無い");
+    }
+    checkbox.checked = false;
+    checkbox.dispatchEvent(new Event("change"));
+
+    expect(t.written).toEqual([false]);
+    expect(t.node()?.querySelector('[role="status"]')?.textContent).toContain(
+      "書いた時間だけを数えます",
+    );
+  });
+
+  it("**書けなければチェックを戻す** (設定と実際の動きを食い違わせない)", () => {
+    const t = setup("failed");
+
+    t.open(ENROLLED);
+    const checkbox = t.checkbox();
+    if (!checkbox) {
+      throw new Error("チェックボックスが無い");
+    }
+    checkbox.checked = false;
+    checkbox.dispatchEvent(new Event("change"));
+
+    expect(checkbox.checked).toBe(true);
+    expect(t.node()?.querySelector('[role="status"]')?.textContent).toContain("書けませんでした");
+  });
+
+  it("変えられないときは disabled にし、理由を出す", () => {
+    const t = setup();
+
+    t.open({
+      ...ENROLLED,
+      countRead: { value: false, editable: false, note: "新しい版が設定を書いています。" },
+    });
+
+    expect(t.checkbox()?.disabled).toBe(true);
+    expect(t.node()?.textContent).toContain("新しい版が設定を書いています。");
+  });
+});

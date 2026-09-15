@@ -1,7 +1,7 @@
 /**
  * Google でサインインして、この端末の鍵を登録する (design §3「サインインのフロー」の手順 1・6)。
  *
- * 1. メニューを押した**同じ同期区間で** `/auth/start` をポップアップで開き、`message` を待ち始める
+ * 1. 「草の設定」のボタンを押した**同じ同期区間で** `/auth/start` をポップアップで開き、`message` を待ち始める
  *    (`await` を挟むと transient activation が失われ、ポップアップがブロックされる)
  * 2. 同時にダイアログを開き、**コードの貼り付け欄を最初から出す** (COOP で opener が切れたときのフォールバック。
  *    `window.prompt` は開いている間イベントループを止め、ポップアップからのメッセージを待たされるので使わない)
@@ -24,8 +24,6 @@ import type { ImageResult } from "./image.ts";
 import type { DeviceRecord, DeviceStore } from "./keys.ts";
 import { graphUrl, WORKER_ORIGIN } from "./worker-origin.ts";
 
-export const SIGN_IN_MENU_TITLE = "草: サインインしてこの端末を登録";
-
 /** 同じ名前で開けば、押し直したときに同じポップアップが使われる */
 export const AUTH_POPUP_NAME = "cosense-grass-auth";
 export const AUTH_POPUP_FEATURES = "popup,width=480,height=640";
@@ -36,10 +34,10 @@ type Route = "popup" | "paste";
 
 const FAILURE_TEXT: Record<AuthFailure, string> = {
   cancelled:
-    "ポップアップでサインインが取り消されました。やり直すときはメニューをもう一度押してください。",
-  expired: "サインインの有効期限が切れました。メニューをもう一度押してやり直してください。",
+    "ポップアップでサインインが取り消されました。やり直すときは「草の設定」から押し直してください。",
+  expired: "サインインの有効期限が切れました。「草の設定」から押し直してやり直してください。",
   failed:
-    "ポップアップでサインインに失敗しました。時間をおいて、メニューをもう一度押してください。",
+    "ポップアップでサインインに失敗しました。時間をおいて、「草の設定」から押し直してください。",
 };
 
 /** ダイアログ。DOM の実装は `sign-in-dialog.ts`、テストは偽物 */
