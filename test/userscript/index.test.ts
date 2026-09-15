@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-
+import { CLEAR_TEXT, type ClearResult } from "../../src/userscript/cleaner.ts";
 import {
   type Cosense,
   type Dependencies,
@@ -9,7 +9,6 @@ import {
   start,
 } from "../../src/userscript/index.ts";
 import type { ProbeResult } from "../../src/userscript/probe.ts";
-import { PURGE_TEXT, type PurgeResult } from "../../src/userscript/purge.ts";
 import { REVOKE_TEXT, type RevokeOutcome } from "../../src/userscript/revoke.ts";
 import type { SendStatus } from "../../src/userscript/sender.ts";
 import type { CountingStatus } from "../../src/userscript/sensor.ts";
@@ -53,7 +52,7 @@ function setup(projectName = "project-a", controlled = true) {
   };
   const signIns = { count: 0, outcome: "added" };
   const revokes = { count: 0, outcome: "revoked" as RevokeOutcome };
-  const purges = { count: 0, outcome: "purged" as PurgeResult };
+  const clears = { count: 0, outcome: "cleared" as ClearResult };
   const triggers: string[] = [];
   const views: ViewModel[] = [];
   const settingsViews: { model: SettingsModel; handlers: SettingsHandlers }[] = [];
@@ -83,10 +82,10 @@ function setup(projectName = "project-a", controlled = true) {
         return revokes.outcome;
       },
     },
-    purger: {
-      purgeAll: async () => {
-        purges.count++;
-        return purges.outcome;
+    cleaner: {
+      clearLocalRecords: () => {
+        clears.count++;
+        return clears.outcome;
       },
     },
     settingsDialog: {
@@ -158,7 +157,7 @@ function setup(projectName = "project-a", controlled = true) {
     views,
     settingsViews,
     revokes,
-    purges,
+    clears,
     sending,
   };
 }
@@ -361,16 +360,16 @@ describe("送信のきっかけ", () => {
     expect(await t.settingsViews[0]?.handlers.revoke()).toBe(REVOKE_TEXT.timeout);
   });
 
-  it("**「草の設定」の削除はサーバとこのブラウザのデータを消し、結果の文言を返す**", async () => {
+  it("**「草の設定」の削除はこのブラウザの記録だけを消し、結果の文言を返す**", async () => {
     const t = setup();
     start(t.cosense, t.deps);
     await t.clickMenu(SETTINGS_MENU_TITLE);
 
-    expect(await t.settingsViews[0]?.handlers.purge()).toBe(PURGE_TEXT.purged);
-    expect(t.purges.count).toBe(1);
+    expect(await t.settingsViews[0]?.handlers.clear()).toBe(CLEAR_TEXT.cleared);
+    expect(t.clears.count).toBe(1);
 
-    t.purges.outcome = "local-only";
-    expect(await t.settingsViews[0]?.handlers.purge()).toBe(PURGE_TEXT["local-only"]);
+    t.clears.outcome = "failed";
+    expect(await t.settingsViews[0]?.handlers.clear()).toBe(CLEAR_TEXT.failed);
   });
 
   it("**登録できたら enrolled で送る**。取り消したときは送らない", async () => {

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { SendStatus } from "../../src/userscript/sender.ts";
 import {
+  CLEAR_CONFIRM,
+  CLEAR_LABEL,
   DEVICES_LABEL,
   describeSettings,
-  PURGE_CONFIRM,
-  PURGE_LABEL,
   REVOKE_CONFIRM,
   REVOKE_LABEL,
   SIGN_IN_LABEL,
@@ -48,10 +48,10 @@ describe("この端末", () => {
     });
   });
 
-  it("**全データの削除は登録の有無によらず出す** (このブラウザの記録は登録前から溜まる)", () => {
-    const purge = { label: PURGE_LABEL, confirm: PURGE_CONFIRM };
-    expect(describeSettings(ENROLLED, settings(true)).purge).toEqual(purge);
-    expect(describeSettings({ kind: "not-enrolled" }, settings(true)).purge).toEqual(purge);
+  it("**このブラウザの記録の削除は登録の有無によらず出す** (登録前から記録は溜まる)", () => {
+    const clear = { label: CLEAR_LABEL, confirm: CLEAR_CONFIRM };
+    expect(describeSettings(ENROLLED, settings(true)).clear).toEqual(clear);
+    expect(describeSettings({ kind: "not-enrolled" }, settings(true)).clear).toEqual(clear);
   });
 
   it("**登録済みのときだけ失効を出す** (登録が無ければ取り消すものが無い)", () => {

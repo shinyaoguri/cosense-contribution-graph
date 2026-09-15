@@ -9,10 +9,10 @@
  *   始め方は開くたびに渡す (`sign-in-dialog.ts` と同じ handlers の形)
  */
 import {
+  CLEAR_NOTE,
   COUNT_READ_LABEL,
   COUNT_READ_NOTE,
   type DangerAction,
-  PURGE_NOTE,
   SETTINGS_DIALOG_TITLE,
   type SettingsModel,
 } from "./settings.ts";
@@ -29,8 +29,8 @@ export type SettingsHandlers = {
   signIn(): void;
   /** この端末の登録を取り消す。返した文言をそのまま出す */
   revoke(): Promise<string>;
-  /** サーバとこのブラウザのデータを全部消す。返した文言をそのまま出す */
-  purge(): Promise<string>;
+  /** このブラウザの記録を消す。返した文言をそのまま出す */
+  clear(): Promise<string>;
 };
 
 export type SettingsDialog = {
@@ -108,10 +108,11 @@ export function createSettingsDialog(
     return section;
   };
 
-  const purge = (model: SettingsModel, handlers: SettingsHandlers) => {
+  const clear = (model: SettingsModel, handlers: SettingsHandlers) => {
     const section = element("section");
-    section.append(element("h3", "データの削除"), element("p", PURGE_NOTE));
-    section.append(danger(model.purge, handlers.purge, "削除する"));
+    section.append(element("h3", "このブラウザの記録"));
+    section.append(danger(model.clear, handlers.clear, "消す"));
+    section.append(element("p", CLEAR_NOTE));
     return section;
   };
 
@@ -201,7 +202,7 @@ export function createSettingsDialog(
         element("h2", SETTINGS_DIALOG_TITLE),
         device(model, handlers),
         countRead(model),
-        purge(model, handlers),
+        clear(model, handlers),
       );
       const buttonLine = element("p");
       buttonLine.append(button("閉じる", close));

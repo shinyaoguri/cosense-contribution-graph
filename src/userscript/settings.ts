@@ -4,9 +4,9 @@
  *
  * - **サインインはここに集約する。** 未登録なら最初にこれを出す (design §9)。ページメニューからは外した
  * - 登録の状態は `sender.status()` から作る。**IndexedDB の読み方を 2 か所に書かない**
- * - **ほかの端末の一覧はここに出せない。** CSP に受信方向が無く、UserScript からサーバの `keys` を読めない
- *   (ADR-0001・0003)。出せるのはこの端末の kid と、その失効だけ。
- *   ほかの端末は Worker のサインイン済みページ (`/auth/devices`) へのリンクで渡す (ADR-0017)
+ * **ここに残すのは、そのブラウザでしかできないことだけ** (ADR-0018)。
+ * サーバの `keys` も記録も、UserScript からは読めない (CSP に受信方向が無い。ADR-0001・0003) ので、
+ * 一覧・共有 URL・全データの削除は管理のページ (`/account`) が持つ。ここからはリンクを出す。
  */
 import type { SendStatus } from "./sender.ts";
 import type { SettingsRead } from "./settings-store.ts";
@@ -41,8 +41,8 @@ export type SettingsModel = {
   readonly signIn?: { readonly label: string };
   /** この端末の失効。登録済みのときだけ出す */
   readonly revoke?: DangerAction;
-  /** 全データの削除。**未登録でも出す** (このブラウザの記録は消せる) */
-  readonly purge: DangerAction;
+  /** このブラウザの記録の削除。**未登録でも出す** (登録前から記録は溜まる) */
+  readonly clear: DangerAction;
   /** ほかの端末の一覧と失効。**Worker のページを開くリンク** (ADR-0017) */
   readonly devices: { readonly label: string; readonly url: string };
 };
@@ -61,15 +61,15 @@ export const REVOKE_LABEL = "この端末の登録を取り消す";
 export const REVOKE_CONFIRM =
   "この端末の登録を取り消します。これまでの記録は消えず、この端末からは送れなくなります。取り消しますか?";
 
-export const DEVICES_LABEL = "端末の一覧・共有 URL・データの削除 (別のタブで開きます)";
+export const DEVICES_LABEL = "管理のページを開く — 端末の一覧・共有 URL・データの削除 (別のタブ)";
 
-export const PURGE_LABEL = "保存されているデータをすべて削除する";
+export const CLEAR_LABEL = "このブラウザの記録を消す";
 
-export const PURGE_CONFIRM =
-  "サーバとこのブラウザに保存されている草のデータをすべて削除します。共有 URL の草も見られなくなります。元に戻せません。削除しますか?";
+export const CLEAR_CONFIRM =
+  "このブラウザに残っている記録 (日ごとの記録と送信の記録) を消します。サーバに送った分と、読んだ時間を数えるかどうかの設定は残ります。消しますか?";
 
-export const PURGE_NOTE =
-  "サーバの記録 (日ごとの集計値・ビットマップ・共有 URL・登録した鍵) と、このブラウザの記録・鍵を消します。Cosense のページは消えません。";
+export const CLEAR_NOTE =
+  "サーバに保存されたデータの削除は、管理のページから行います (Google のサインインが要ります)。";
 
 export const COUNT_READ_NOTE =
   "off にすると、書いた時間だけを数えます。この設定はこのブラウザだけに効き、既に記録・送信したものは消えません。";
@@ -87,7 +87,7 @@ export function describeSettings(status: SendStatus, settings: SettingsRead): Se
     signIn: signInLabel(status),
     revoke:
       status.kind === "enrolled" ? { label: REVOKE_LABEL, confirm: REVOKE_CONFIRM } : undefined,
-    purge: { label: PURGE_LABEL, confirm: PURGE_CONFIRM },
+    clear: { label: CLEAR_LABEL, confirm: CLEAR_CONFIRM },
     devices: { label: DEVICES_LABEL, url: ACCOUNT_URL },
   };
 }
