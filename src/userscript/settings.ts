@@ -1,5 +1,5 @@
 /**
- * 「草の設定」に何を出すかを決める (design §9「設定 UI」、段階 8、Issue #79)。
+ * 「設定」に何を出すかを決める (design §9「設定 UI」、段階 8、Issue #79)。
  * **DOM を触らない純粋な部分**で、描くのは `settings-dialog.ts` (`viewer.ts` と `graph-dialog.ts` の分け方と同じ)。
  *
  * - **サインインはここに集約する。** 未登録なら最初にこれを出す (design §9)。ページメニューからは外した
@@ -12,9 +12,19 @@ import type { SendStatus } from "./sender.ts";
 import type { SettingsRead } from "./settings-store.ts";
 import { ACCOUNT_URL } from "./worker-origin.ts";
 
-export const SETTINGS_LABEL = "草の設定";
+/**
+ * ページメニューの項目名と、草のダイアログのタイトル (Issue #101)。
+ *
+ * **動詞で名乗らない。** ダイアログは草を見るだけの場所ではなく、設定へ行く入口でもある。
+ * ページメニューはほかの UserScript の項目と並ぶ場所なので、**どのスクリプトのものかが分かる名前**にする。
+ * **ここに置くのは、送信 (`sender.ts`) とサインイン (`auth.ts`) の文言からも引くため** —
+ * 表示のモジュール (`viewer.ts`) に置くと、送信がそれに依存してしまう。
+ */
+export const MENU_TITLE = "cosense-grass";
 
-export const SETTINGS_DIALOG_TITLE = "cosense-grass: 草の設定";
+export const SETTINGS_LABEL = "設定";
+
+export const SETTINGS_DIALOG_TITLE = "cosense-grass: 設定";
 
 type DeviceState =
   | {

@@ -1,5 +1,5 @@
 /**
- * 「草の設定」のダイアログ (design §9「設定 UI」、段階 8、Issue #79)。何を出すかは `settings.ts` が決める。
+ * 「設定」のダイアログ (design §9「設定 UI」、段階 8、Issue #79)。何を出すかは `settings.ts` が決める。
  *
  * - **ページに挿さずダイアログにする** (ADR-0003 の 2026-09-15 の改訂。`graph-dialog.ts` と同じ)
  * - 文言は `textContent`、ハンドラは `addEventListener` (Cosense の CSP。research §1)

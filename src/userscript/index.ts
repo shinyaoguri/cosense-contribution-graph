@@ -5,10 +5,11 @@
  * **センサー** (段階 5、Issue #49) が活動を数えて localStorage に記録し、**登録した鍵で署名して送る** (段階 6、Issue #67)。
  * 送るのは読み込み時・日付の変更・タブを隠したとき・登録の成功のとき (`sender.ts`)。
  *
- * **ページメニューに足すのは「草を見る」の 1 項目だけ** (Issue #95)。ほかのスクリプトと並ぶ場所なので占有を最小にし、
- * **「草の設定」はそのダイアログから開く** (段階 8、Issue #73・#79)。
- * サインイン (段階 4、Issue #61) は単独のメニューをやめ、「草の設定」に集約した (design §9)。
- * 「草の設定」には**この端末の切り離し**と**このブラウザの記録の削除**も載せている。
+ * **ページメニューに足すのは `cosense-grass` の 1 項目だけ** (Issue #95)。ほかのスクリプトと並ぶ場所なので
+ * 占有を最小にし、**どのスクリプトのものかが分かる名前で名乗る** (Issue #101)。
+ * **「設定」はそのダイアログから開く** (段階 8、Issue #73・#79)。
+ * サインイン (段階 4、Issue #61) は単独のメニューをやめ、「設定」に集約した (design §9)。
+ * 「設定」には**この端末の切り離し**と**このブラウザの記録の削除**も載せている。
  * サーバのデータの管理 (端末の一覧・共有 URL・全削除) は Worker の `/account` (ADR-0018、Issue #88)。
  *
  * 開発用だった**送信の疎通確認** (Issue #31) と**センサーの記録** (Issue #36) のメニューは、v1 を配るのに合わせて消した (Issue #95)。
@@ -23,7 +24,7 @@ import { createIndexedDbDeviceStore } from "./keys.ts";
 import { createRevoker, REVOKE_TEXT, type Revoker } from "./revoke.ts";
 import { createSender, type Sender } from "./sender.ts";
 import { type Sensor, type SensorCosense, startExclusive, startSensor } from "./sensor.ts";
-import { describeSettings } from "./settings.ts";
+import { describeSettings, MENU_TITLE } from "./settings.ts";
 import { createSettingsDialog, type SettingsDialog } from "./settings-dialog.ts";
 import { createSettings, type SettingsAccess } from "./settings-store.ts";
 import { createDialogView } from "./sign-in-dialog.ts";
@@ -34,7 +35,6 @@ import {
   describeLocal,
   type IntegratedView,
   localRangeStart,
-  VIEW_MENU_TITLE,
 } from "./viewer.ts";
 
 /**
@@ -54,7 +54,7 @@ export type Cosense = SensorCosense & {
 
 export type Dependencies = {
   /**
-   * サインインしてこの端末を登録する。**「草の設定」の onClick から同期で呼ぶ** (ポップアップを開くのに
+   * サインインしてこの端末を登録する。**「設定」の onClick から同期で呼ぶ** (ポップアップを開くのに
    * クリックの直後である必要がある)
    */
   readonly signIn: () => Promise<string>;
@@ -77,9 +77,9 @@ export type Dependencies = {
 export function start(cosense: Cosense, deps: Dependencies): void {
   deps.startSensor();
 
-  // **足すのはこの 1 項目だけ。** 「草の設定」はこのダイアログから開く (Issue #95)
+  // **足すのはこの 1 項目だけ。** 「設定」はこのダイアログから開く (Issue #95)
   cosense.PageMenu.addItem({
-    title: VIEW_MENU_TITLE,
+    title: MENU_TITLE,
     onClick: () => void runViewMenu(cosense, deps),
   });
 

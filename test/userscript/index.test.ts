@@ -6,11 +6,12 @@ import { REVOKE_TEXT, type RevokeOutcome } from "../../src/userscript/revoke.ts"
 import type { SendStatus } from "../../src/userscript/sender.ts";
 import type { CountingStatus } from "../../src/userscript/sensor.ts";
 import type { SettingsModel } from "../../src/userscript/settings.ts";
+import { MENU_TITLE } from "../../src/userscript/settings.ts";
 import type { SettingsHandlers } from "../../src/userscript/settings-dialog.ts";
 import { readSettings } from "../../src/userscript/settings-store.ts";
 import { createStore } from "../../src/userscript/store.ts";
 import { localDay } from "../../src/userscript/time.ts";
-import { VIEW_MENU_TITLE, type ViewModel } from "../../src/userscript/viewer.ts";
+import type { ViewModel } from "../../src/userscript/viewer.ts";
 
 /** 偽の Cosense と依存。開いたダイアログ・localStorage・イベントを記録する。 */
 function setup(projectName = "project-a") {
@@ -105,7 +106,7 @@ function setup(projectName = "project-a") {
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
 
-  async function clickMenu(title = VIEW_MENU_TITLE) {
+  async function clickMenu(title = MENU_TITLE) {
     const item = items.find((i) => i.title === title);
     if (!item) {
       throw new Error("メニューが無い");
@@ -116,7 +117,7 @@ function setup(projectName = "project-a") {
 
   /** 「草を見る」を開き、そのダイアログの「草の設定」を押す (ページメニューからは開けない) */
   async function openSettings() {
-    await clickMenu(VIEW_MENU_TITLE);
+    await clickMenu(MENU_TITLE);
     views[views.length - 1]?.handlers.openSettings();
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
@@ -149,7 +150,7 @@ describe("ページメニュー", () => {
 
     start(t.cosense, t.deps);
 
-    expect(t.items.map((i) => i.title)).toEqual([VIEW_MENU_TITLE]);
+    expect(t.items.map((i) => i.title)).toEqual([MENU_TITLE]);
   });
 });
 
@@ -185,6 +186,7 @@ describe("草を見る", () => {
       kind: "enrolled",
       kid: "0123456789abcdef",
       graphUrl: "https://grass.soui.dev/v1/g/total.svg",
+      totalSent: true,
       projects: [
         { name: "a", graphUrl: "https://grass.soui.dev/v1/g/a.svg", sent: true },
         { name: "b", graphUrl: "https://grass.soui.dev/v1/g/b.svg", sent: false },
@@ -194,8 +196,8 @@ describe("草を見る", () => {
     });
     start(t.cosense, t.deps);
 
-    await t.clickMenu(VIEW_MENU_TITLE);
-    await t.clickMenu(VIEW_MENU_TITLE);
+    await t.clickMenu(MENU_TITLE);
+    await t.clickMenu(MENU_TITLE);
 
     expect(t.sending.count).toBe(2);
     expect(t.views).toHaveLength(2);
@@ -212,7 +214,7 @@ describe("草を見る", () => {
     t.sending.status = () => Promise.reject(new Error("digest"));
     start(t.cosense, t.deps);
 
-    await t.clickMenu(VIEW_MENU_TITLE);
+    await t.clickMenu(MENU_TITLE);
 
     expect(t.views.map((view) => view.model.integrated)).toEqual([
       {
@@ -229,9 +231,9 @@ describe("草を見る — このブラウザの記録", () => {
     const today = localDay(new Date(t.clock.ms));
     start(t.cosense, t.deps);
 
-    await t.clickMenu(VIEW_MENU_TITLE);
+    await t.clickMenu(MENU_TITLE);
     t.records.record({ kind: "write", project: "project-b", day: today, minute: 540 });
-    await t.clickMenu(VIEW_MENU_TITLE);
+    await t.clickMenu(MENU_TITLE);
 
     expect(t.views.map((view) => view.model.local.projects.map((p) => p.label))).toEqual([
       [],

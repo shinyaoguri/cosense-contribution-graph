@@ -36,6 +36,7 @@ import {
   type Trigger,
   writeSent,
 } from "./outbox.ts";
+import { MENU_TITLE, SETTINGS_LABEL } from "./settings.ts";
 import type { Store } from "./store.ts";
 import { localDay } from "./time.ts";
 import { graphUrl, WORKER_ORIGIN } from "./worker-origin.ts";
@@ -64,11 +65,16 @@ export type SendStatus =
   | {
       readonly kind: "enrolled";
       readonly kid: string;
-      /** 合算の草。**alert にだけ出す** (コンソールに残さない) */
+      /** 合算の草。**ダイアログにだけ出す** (コンソールにもログにも残さない) */
       readonly graphUrl: string;
       /**
+       * 合算の行 (`*`) を 1 件でも送れたか。false なら共有 SVG はまだ無いので 404 になる (Issue #100)。
+       * ほかの端末から送っていれば草はあるので、**読むかどうかは見る側が決める**
+       */
+      readonly totalSent: boolean;
+      /**
        * このブラウザで直近 30 日に記録したプロジェクトの草 (名前の順)。`sent` が false なら、まだ 1 件も送れていないので URL は 404 になる。
-       * **alert にだけ出す**
+       * **ダイアログにだけ出す**
        */
       readonly projects: readonly {
         readonly name: string;
@@ -112,7 +118,7 @@ export function createSender(deps: SenderDependencies): Sender {
         warned.add(outcome);
         deps.warn(
           outcome === "not-enrolled"
-            ? "この端末は未登録なので記録を送っていません。ページメニューの「草を見る」→「草の設定」から登録してください"
+            ? `この端末は未登録なので記録を送っていません。ページメニューの「${MENU_TITLE}」→「${SETTINGS_LABEL}」から登録してください`
             : outcome === "newer-key"
               ? "新しい版の cosense-grass が登録した鍵なので、この版からは送りません"
               : "この端末の鍵で署名できないので記録を送っていません。サインインし直してください",
@@ -167,6 +173,7 @@ export function createSender(deps: SenderDependencies): Sender {
         kind: "enrolled",
         kid,
         graphUrl: graphUrl(await publicIdOf(uid, PH_ALL)),
+        totalSent: sentPhs.has(PH_ALL),
         projects,
         todaySends: sent.days[today]?.n ?? 0,
         pendingDays: pendingDays.size,

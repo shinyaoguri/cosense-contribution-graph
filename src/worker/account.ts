@@ -11,9 +11,9 @@
  * - セッションは `session.ts` の cookie (30 分)。無ければサインインを促すだけで、何も出さない
  * - **出すのは kid と登録日時と合算の共有 URL だけ。** uid も公開鍵も画面に出さない
  * - **プロジェクト別の共有 URL は出せない。** サーバはプロジェクト名を持たない (ADR-0007) ので、
- *   名前付きの一覧は Cosense の「草を見る」にある
+ *   名前付きの一覧は Cosense のページメニュー「cosense-grass」にある
  * - **自分の kid は UserScript にしか無い**ので、この画面では「どれがこの端末か」を示せない。
- *   その代わり登録日時を出し、この端末の kid は「草の設定」で見られると案内する
+ *   その代わり登録日時を出し、この端末の kid は UserScript の「設定」で見られると案内する
  * - 値をスクリプトに埋め込まない。スタイルは固定の文字列で、CSP はハッシュで書く (`auth-page.ts` と同じ)
  */
 import { ACCOUNT_PATH, AUTH_START_PATH, AUTH_TO_ACCOUNT, AUTH_TO_PARAM } from "../shared/auth.ts";
@@ -88,7 +88,7 @@ export async function handleAccount(request: Request, deps: AccountDeps): Promis
       "signed-out",
       `<p>端末の一覧を見るには、Google でサインインしてください。</p>
 <p><a href="${AUTH_START_PATH}?${AUTH_TO_PARAM}=${AUTH_TO_ACCOUNT}">Google でサインインする</a></p>
-<p><small>サインインすると 30 分のあいだこの画面を使えます。Cosense の「草の設定」からサインインしたときも同じです。</small></p>`,
+<p><small>サインインすると 30 分のあいだこの画面を使えます。Cosense のページメニュー「cosense-grass」→「設定」からサインインしたときも同じです。</small></p>`,
     );
   }
   const { session } = opened;
@@ -128,13 +128,13 @@ async function list(session: Session, deps: AccountDeps, notice?: string): Promi
 <h2>登録した端末</h2>
 ${
   devices.length === 0
-    ? "<p>登録された端末はありません。Cosense の「草の設定」からサインインすると登録されます。</p>"
+    ? "<p>登録された端末はありません。Cosense のページメニュー「cosense-grass」→「設定」からサインインすると登録されます。</p>"
     : `<table>
 <tr><th>端末の識別子</th><th>登録した日時 (UTC)</th><th></th></tr>
 ${rows}
 </table>
 <p><small>失効させた端末からは記録が送られなくなります。これまでの記録は残ります。
-どれがいま使っているブラウザかは、Cosense の「草の設定」に出る端末の識別子で見分けてください。</small></p>`
+どれがいま使っているブラウザかは、Cosense の「cosense-grass」→「設定」に出る端末の識別子で見分けてください。</small></p>`
 }
 
 <h2>共有 URL</h2>
@@ -149,7 +149,7 @@ ${await shareSection(session, deps)}
 <label>確認のため「${DELETE_CONFIRM_WORD}」と入力してください: <input type="text" name="word" autocomplete="off"></label>
 <button type="submit">すべて削除する</button>
 </form>
-<p><small>お使いのブラウザに残っている記録は、Cosense の「草の設定」から別に消してください。</small></p>`;
+<p><small>お使いのブラウザに残っている記録は、Cosense の「cosense-grass」→「設定」から別に消してください。</small></p>`;
   return page(200, "listed", body);
 }
 
@@ -169,12 +169,12 @@ async function shareSection(session: Session, deps: AccountDeps): Promise<string
     return "<p>共有 URL を読めませんでした。</p>";
   }
   if (!exists) {
-    return "<p>まだ草がありません。Cosense の「草の設定」からサインインすると作られます。</p>";
+    return "<p>まだ草がありません。Cosense のページメニュー「cosense-grass」→「設定」からサインインすると作られます。</p>";
   }
   const url = `${deps.publicOrigin}/v1/g/${publicId}.svg`;
   return `<p>全プロジェクトを合算した草です。<strong>URL を知っている人は誰でも見られます。</strong></p>
 <p><code>${escapeHtml(url)}</code></p>
-<p><small>プロジェクト別の草の URL は、Cosense の「草を見る」にプロジェクト名つきで並びます
+<p><small>プロジェクト別の草の URL は、Cosense のページメニュー「cosense-grass」にプロジェクト名つきで並びます
 (サーバはプロジェクト名を持たないので、この画面では名前を出せません)。</small></p>`;
 }
 
@@ -226,9 +226,9 @@ async function deleteAll(form: FormData, session: Session, deps: AccountDeps): P
     "deleted",
     `<h1>削除しました</h1>
 <p>サーバに保存されていたデータ (${rows} 件) をすべて削除しました。共有 URL の草も見られなくなります。</p>
-<p><strong>お使いのブラウザに残っている記録は、Cosense の「草の設定」から消してください。</strong>
+<p><strong>お使いのブラウザに残っている記録は、Cosense の「cosense-grass」→「設定」から消してください。</strong>
 この画面からは消せません。</p>
-<p>また使うときは、Cosense の「草の設定」からサインインし直してください。</p>`,
+<p>また使うときは、Cosense の「cosense-grass」→「設定」からサインインし直してください。</p>`,
   );
 }
 
