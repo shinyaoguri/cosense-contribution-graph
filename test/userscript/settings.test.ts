@@ -10,7 +10,7 @@ import {
   SIGN_IN_LABEL,
 } from "../../src/userscript/settings.ts";
 import { DEFAULT_SETTINGS, type SettingsRead } from "../../src/userscript/settings-store.ts";
-import { DEVICES_URL } from "../../src/userscript/worker-origin.ts";
+import { ACCOUNT_URL } from "../../src/userscript/worker-origin.ts";
 
 const ENROLLED: SendStatus = {
   kind: "enrolled",
@@ -44,7 +44,7 @@ describe("この端末", () => {
   it("**ほかの端末の一覧は Worker のページへのリンク** (ADR-0016)", () => {
     expect(describeSettings(ENROLLED, settings(true)).devices).toEqual({
       label: DEVICES_LABEL,
-      url: DEVICES_URL,
+      url: ACCOUNT_URL,
     });
   });
 

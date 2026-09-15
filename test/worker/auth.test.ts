@@ -1,6 +1,6 @@
 import { env, SELF } from "cloudflare:test";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { AUTH_OPENER_ORIGIN, parseAuthCode } from "../../src/shared/auth.ts";
+import { ACCOUNT_PATH, AUTH_OPENER_ORIGIN, parseAuthCode } from "../../src/shared/auth.ts";
 import { encodeBase64url } from "../../src/shared/base64url.ts";
 import { buildEnrollUrl } from "../../src/shared/enroll.ts";
 import { sha256Hex } from "../../src/shared/hash.ts";
@@ -15,6 +15,7 @@ import { AUTH_COOKIE_NAME, openAuthCookie } from "../../src/worker/auth-cookie.t
 import { AUTH_PAGE_SCRIPT, AUTH_PAGE_STYLE } from "../../src/worker/auth-page.ts";
 import { handleEnroll } from "../../src/worker/enroll.ts";
 import { googleKeys } from "../../src/worker/idtoken.ts";
+import { openSession, SESSION_COOKIE_NAME } from "../../src/worker/session.ts";
 import { uidOf } from "../../src/worker/uid.ts";
 import { createSigner, gifWidth } from "./beacon-helpers.ts";
 import {
@@ -93,8 +94,11 @@ function setup(
   };
 
   /** start を通し、Google から戻ってきた callback の URL と cookie を作る */
-  async function signIn(query: Record<string, string> = { code: "4/0AQ-test-code" }) {
-    const started = await handleAuthStart(new URL(`${ORIGIN}/auth/start`), deps);
+  async function signIn(
+    query: Record<string, string> = { code: "4/0AQ-test-code" },
+    start = `${ORIGIN}/auth/start`,
+  ) {
+    const started = await handleAuthStart(new URL(start), deps);
     const setCookie = started.headers.get("set-cookie") ?? "";
     const cookie = setCookie.split(";")[0] ?? "";
     const location = new URL(started.headers.get("location") ?? "");
@@ -281,6 +285,57 @@ describe("GET /auth/callback — 成功", () => {
     const { callback, cookie } = await signIn();
     const res = await handleAuthCallback(callback, cookie, deps);
     expect(res.headers.get("set-cookie")).toMatch(new RegExp(`^${AUTH_COOKIE_NAME}=; Max-Age=0;`));
+  });
+});
+
+describe("GET /auth/callback — 管理のページへ戻す (?to=account、ADR-0018)", () => {
+  it("**登録トークンを発行せず、セッション cookie を付けて /account へ 302**", async () => {
+    const { deps, signIn } = setup();
+    const { callback, cookie } = await signIn(
+      { code: "4/0AQ-test-code" },
+      `${ORIGIN}/auth/start?to=account`,
+    );
+    const uid = await uidOf(SECRET, SUB);
+    const before = await enrollTokenCount(uid);
+
+    const res = await handleAuthCallback(callback, cookie, deps);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(`${ORIGIN}${ACCOUNT_PATH}`);
+    // **端末を登録するのは Cosense からだけ**
+    expect(await enrollTokenCount(uid)).toBe(before);
+
+    const cookies = res.headers.getAll("set-cookie");
+    expect(cookies.some((value) => value.includes("Max-Age=0"))).toBe(true);
+    const session = cookies.find((value) => value.startsWith(SESSION_COOKIE_NAME));
+    expect(session).toBeDefined();
+    const opened = await openSession(SECRET, session?.split(";")[0] ?? "", NOW_MS);
+    expect(opened.ok && opened.session.uid).toBe(uid);
+  });
+
+  it("**戻り先は cookie の中にある** (callback の URL では変えられない)", async () => {
+    const { deps, signIn } = setup();
+    // ポップアップ用に始めたサインインに ?to=account を足しても、ページへは戻らない
+    const { callback, cookie } = await signIn();
+    callback.searchParams.set("to", "account");
+
+    const res = await handleAuthCallback(callback, cookie, deps);
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("location")).toBeNull();
+    expect(await res.text()).toContain("data-code=");
+  });
+
+  it("別のホストで始めても戻り先だけは持ち越す", async () => {
+    const { deps } = setup();
+
+    const res = await handleAuthStart(
+      new URL("https://cosense-grass.soui.workers.dev/auth/start?to=account"),
+      deps,
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(`${ORIGIN}/auth/start?to=account`);
   });
 });
 

@@ -17,10 +17,40 @@ function cookiePair(setCookie: string): string {
   return setCookie.split(";")[0] ?? "";
 }
 
-async function sealed(nowMs = NOW) {
-  const session = newAuthSession(nowMs);
+async function sealed(nowMs = NOW, mode: "popup" | "account" = "popup") {
+  const session = newAuthSession(nowMs, mode);
   return { session, setCookie: await sealAuthCookie(SECRET, session) };
 }
+
+describe("戻り先 (mode、ADR-0018)", () => {
+  it("**既定はポップアップ**", async () => {
+    const { session } = await sealed();
+    expect(session.mode).toBe("popup");
+  });
+
+  it.each(["popup", "account"] as const)("%s は往復で戻る", async (mode) => {
+    const { setCookie } = await sealed(NOW, mode);
+
+    const opened = await openAuthCookie(SECRET, cookiePair(setCookie), NOW);
+
+    expect(opened.ok && opened.session.mode).toBe(mode);
+  });
+
+  it("**cookie を書き換えれば署名が合わなくなる** (戻り先はクエリで持ち回さない)", async () => {
+    const { setCookie } = await sealed(NOW, "popup");
+    const value = cookiePair(setCookie).split("=")[1] ?? "";
+    const [payload, mac] = value.split(".");
+    const bytes = decodeBase64url(payload ?? "") ?? new Uint8Array();
+    // mode のバイトを account (1) に立てる
+    bytes[5] = 1;
+    const forged = `${AUTH_COOKIE_NAME}=${encodeBase64url(bytes)}.${mac}`;
+
+    expect(await openAuthCookie(SECRET, forged, NOW)).toEqual({
+      ok: false,
+      reason: "cookie-signature",
+    });
+  });
+});
 
 describe("sealAuthCookie と openAuthCookie", () => {
   it("往復で中身が戻る", async () => {

@@ -5,7 +5,7 @@
  *
  * ```
  * __Host-grass-auth=<base64url(payload)>.<base64url(HMAC)>; Max-Age=600; Path=/; Secure; HttpOnly; SameSite=Lax
- * payload = ver(1) | issuedAt(u32 BE、unix 秒) | state(16) | nonce(16) | code_verifier(32)   = 69 バイト
+ * payload = ver(1) | issuedAt(u32 BE、unix 秒) | mode(1) | state(16) | nonce(16) | code_verifier(32)   = 70 バイト
  * ```
  *
  * - **`__Host-` にする。** `Domain` を付けられないので、`soui.dev` の別のサブドメインから cookie を差し込めない。
@@ -15,6 +15,8 @@
  * - **暗号化はしない。** 中身は乱数だけで、読めるのは HttpOnly の cookie を持つ本人のブラウザ。
  *   code_verifier が読めても、トークンの交換には client secret が要る
  * - 期限はサーバでも見る。`Max-Age` はブラウザが守るだけ
+ * - **戻り先 (`mode`) も cookie に入れて署名する** (ADR-0018)。クエリで持ち回すと、
+ *   callback の URL を作り替えるだけで戻り先を変えられる
  */
 import { decodeBase64url, encodeBase64url } from "../shared/base64url.ts";
 
@@ -26,12 +28,13 @@ export const AUTH_COOKIE_MAX_AGE_SECONDS = 600;
 /** 発行時刻が未来でも許すずれ */
 const FUTURE_SKEW_SECONDS = 60;
 
-const COOKIE_VERSION = 1;
+/** 形が変わったら上げる。発行済みは最長 10 分で切れるので移行は要らない (2 = mode を足した) */
+const COOKIE_VERSION = 2;
 const STATE_BYTES = 16;
 const NONCE_BYTES = 16;
 /** RFC 7636 の下限 43 文字ちょうどになる */
 const VERIFIER_BYTES = 32;
-const PAYLOAD_BYTES = 1 + 4 + STATE_BYTES + NONCE_BYTES + VERIFIER_BYTES;
+const PAYLOAD_BYTES = 1 + 4 + 1 + STATE_BYTES + NONCE_BYTES + VERIFIER_BYTES;
 const MAC_BYTES = 32;
 
 /** 鍵を導く用途のラベル。変えても影響は発行済みの cookie (最長 10 分) が無効になるだけ */
@@ -39,9 +42,20 @@ const KEY_LABEL = "cosense-grass:auth-cookie:v1";
 
 const COOKIE_ATTRIBUTES = "Path=/; Secure; HttpOnly; SameSite=Lax";
 
+/**
+ * サインインの後にどこへ返すか。
+ *
+ * - `popup` — Cosense のポップアップ。登録トークンを発行して `postMessage` する (既定)
+ * - `account` — 管理のページ。**登録トークンは発行せず**、セッション cookie を付けて `/account` へ 302
+ */
+export type AuthMode = "popup" | "account";
+
+const MODE_CODE: Record<AuthMode, number> = { popup: 0, account: 1 };
+
 export type AuthSession = {
   /** unix 秒 */
   readonly issuedAt: number;
+  readonly mode: AuthMode;
   readonly state: Uint8Array<ArrayBuffer>;
   readonly nonce: Uint8Array<ArrayBuffer>;
   readonly verifier: Uint8Array<ArrayBuffer>;
@@ -58,9 +72,10 @@ type OpenResult =
   | { readonly ok: true; readonly session: AuthSession }
   | { readonly ok: false; readonly reason: OpenError };
 
-export function newAuthSession(nowMs: number): AuthSession {
+export function newAuthSession(nowMs: number, mode: AuthMode = "popup"): AuthSession {
   return {
     issuedAt: Math.floor(nowMs / 1000),
+    mode,
     state: crypto.getRandomValues(new Uint8Array(STATE_BYTES)),
     nonce: crypto.getRandomValues(new Uint8Array(NONCE_BYTES)),
     verifier: crypto.getRandomValues(new Uint8Array(VERIFIER_BYTES)),
@@ -73,9 +88,10 @@ export async function sealAuthCookie(secret: string, session: AuthSession): Prom
   const view = new DataView(payload.buffer);
   view.setUint8(0, COOKIE_VERSION);
   view.setUint32(1, session.issuedAt);
-  payload.set(session.state, 5);
-  payload.set(session.nonce, 5 + STATE_BYTES);
-  payload.set(session.verifier, 5 + STATE_BYTES + NONCE_BYTES);
+  view.setUint8(5, MODE_CODE[session.mode]);
+  payload.set(session.state, 6);
+  payload.set(session.nonce, 6 + STATE_BYTES);
+  payload.set(session.verifier, 6 + STATE_BYTES + NONCE_BYTES);
   const mac = await crypto.subtle.sign("HMAC", await cookieKey(secret, "sign"), payload);
   const value = `${encodeBase64url(payload)}.${encodeBase64url(new Uint8Array(mac))}`;
   return `${AUTH_COOKIE_NAME}=${value}; Max-Age=${AUTH_COOKIE_MAX_AGE_SECONDS}; ${COOKIE_ATTRIBUTES}`;
@@ -128,13 +144,16 @@ export async function openAuthCookie(
   ) {
     return { ok: false, reason: "cookie-expired" };
   }
+  // 知らない mode は既定に落とす (cookie は署名済みなので、ここに来るのは古い版が書いたときだけ)
+  const mode: AuthMode = payload[5] === MODE_CODE.account ? "account" : "popup";
   return {
     ok: true,
     session: {
       issuedAt,
-      state: payload.slice(5, 5 + STATE_BYTES),
-      nonce: payload.slice(5 + STATE_BYTES, 5 + STATE_BYTES + NONCE_BYTES),
-      verifier: payload.slice(5 + STATE_BYTES + NONCE_BYTES),
+      mode,
+      state: payload.slice(6, 6 + STATE_BYTES),
+      nonce: payload.slice(6 + STATE_BYTES, 6 + STATE_BYTES + NONCE_BYTES),
+      verifier: payload.slice(6 + STATE_BYTES + NONCE_BYTES),
     },
   };
 }
