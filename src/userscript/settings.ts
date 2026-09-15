@@ -38,8 +38,13 @@ export type SettingsModel = {
   /** サインインのボタン。押しても直らない状態 (知らない版・保存領域が開けない) では出さない */
   readonly signIn?: { readonly label: string };
   /** この端末の失効。登録済みのときだけ出す */
-  readonly revoke?: { readonly label: string; readonly confirm: string };
+  readonly revoke?: DangerAction;
+  /** 全データの削除。**未登録でも出す** (このブラウザの記録は消せる) */
+  readonly purge: DangerAction;
 };
+
+/** 押す前に確かめる操作。 */
+export type DangerAction = { readonly label: string; readonly confirm: string };
 
 export const SIGN_IN_LABEL = "サインインしてこの端末を登録";
 
@@ -51,6 +56,14 @@ export const REVOKE_LABEL = "この端末の登録を取り消す";
 
 export const REVOKE_CONFIRM =
   "この端末の登録を取り消します。これまでの記録は消えず、この端末からは送れなくなります。取り消しますか?";
+
+export const PURGE_LABEL = "保存されているデータをすべて削除する";
+
+export const PURGE_CONFIRM =
+  "サーバとこのブラウザに保存されている草のデータをすべて削除します。共有 URL の草も見られなくなります。元に戻せません。削除しますか?";
+
+export const PURGE_NOTE =
+  "サーバの記録 (日ごとの集計値・ビットマップ・共有 URL・登録した鍵) と、このブラウザの記録・鍵を消します。Cosense のページは消えません。";
 
 export const COUNT_READ_NOTE =
   "off にすると、書いた時間だけを数えます。この設定はこのブラウザだけに効き、既に記録・送信したものは消えません。";
@@ -68,6 +81,7 @@ export function describeSettings(status: SendStatus, settings: SettingsRead): Se
     signIn: signInLabel(status),
     revoke:
       status.kind === "enrolled" ? { label: REVOKE_LABEL, confirm: REVOKE_CONFIRM } : undefined,
+    purge: { label: PURGE_LABEL, confirm: PURGE_CONFIRM },
   };
 }
 

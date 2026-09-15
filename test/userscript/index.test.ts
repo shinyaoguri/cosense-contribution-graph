@@ -9,6 +9,7 @@ import {
   start,
 } from "../../src/userscript/index.ts";
 import type { ProbeResult } from "../../src/userscript/probe.ts";
+import { PURGE_TEXT, type PurgeResult } from "../../src/userscript/purge.ts";
 import { REVOKE_TEXT, type RevokeOutcome } from "../../src/userscript/revoke.ts";
 import type { SendStatus } from "../../src/userscript/sender.ts";
 import type { CountingStatus } from "../../src/userscript/sensor.ts";
@@ -52,6 +53,7 @@ function setup(projectName = "project-a", controlled = true) {
   };
   const signIns = { count: 0, outcome: "added" };
   const revokes = { count: 0, outcome: "revoked" as RevokeOutcome };
+  const purges = { count: 0, outcome: "purged" as PurgeResult };
   const triggers: string[] = [];
   const views: ViewModel[] = [];
   const settingsViews: { model: SettingsModel; handlers: SettingsHandlers }[] = [];
@@ -79,6 +81,12 @@ function setup(projectName = "project-a", controlled = true) {
       revokeThisDevice: async () => {
         revokes.count++;
         return revokes.outcome;
+      },
+    },
+    purger: {
+      purgeAll: async () => {
+        purges.count++;
+        return purges.outcome;
       },
     },
     settingsDialog: {
@@ -150,6 +158,7 @@ function setup(projectName = "project-a", controlled = true) {
     views,
     settingsViews,
     revokes,
+    purges,
     sending,
   };
 }
@@ -350,6 +359,18 @@ describe("送信のきっかけ", () => {
 
     t.revokes.outcome = "timeout";
     expect(await t.settingsViews[0]?.handlers.revoke()).toBe(REVOKE_TEXT.timeout);
+  });
+
+  it("**「草の設定」の削除はサーバとこのブラウザのデータを消し、結果の文言を返す**", async () => {
+    const t = setup();
+    start(t.cosense, t.deps);
+    await t.clickMenu(SETTINGS_MENU_TITLE);
+
+    expect(await t.settingsViews[0]?.handlers.purge()).toBe(PURGE_TEXT.purged);
+    expect(t.purges.count).toBe(1);
+
+    t.purges.outcome = "local-only";
+    expect(await t.settingsViews[0]?.handlers.purge()).toBe(PURGE_TEXT["local-only"]);
   });
 
   it("**登録できたら enrolled で送る**。取り消したときは送らない", async () => {
