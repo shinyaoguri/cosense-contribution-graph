@@ -4,9 +4,15 @@ import {
   DIALOG_TITLE,
   GRAPH_HEIGHT,
   GRAPH_WIDTH,
+  LOCAL_PROJECT_SCALE,
 } from "../../src/userscript/graph-dialog.ts";
+import { createStore } from "../../src/userscript/store.ts";
 import {
+  describeLocal,
   INITIAL_PROJECT_GRAPHS,
+  LOCAL_TOTAL_LABEL,
+  type LocalView,
+  localRangeStart,
   TOTAL_LABEL,
   type ViewModel,
 } from "../../src/userscript/viewer.ts";
@@ -39,12 +45,34 @@ afterEach(() => {
 
 const url = (name: string) => `https://grass.soui.dev/v1/g/${name.padEnd(32, "0")}.svg`;
 
-function graphs(projects: { label: string; sent: boolean }[]): ViewModel {
+const TODAY = "2026-09-15";
+
+/** このブラウザの記録。`projects` の名前ごとに、今日 1 分だけ書いた記録を作る */
+function localView(projects: readonly string[] = []): LocalView {
+  const map = new Map<string, string>();
+  const store = createStore(
+    { getItem: (key) => map.get(key) ?? null, setItem: (key, value) => map.set(key, value) },
+    () => undefined,
+  );
+  projects.forEach((project, i) => {
+    store.record({ kind: "write", project, day: TODAY, minute: i });
+  });
+  return describeLocal(store.readRange(localRangeStart(TODAY), TODAY), TODAY, "");
+}
+
+function graphs(projects: { label: string; sent: boolean }[], local = localView()): ViewModel {
   return {
-    kind: "graphs",
-    total: { label: TOTAL_LABEL, url: url("aa"), sent: true },
-    projects: projects.map((p, i) => ({ ...p, url: url(`b${i}`) })),
+    integrated: {
+      kind: "graphs",
+      total: { label: TOTAL_LABEL, url: url("aa"), sent: true },
+      projects: projects.map((p, i) => ({ ...p, url: url(`b${i}`) })),
+    },
+    local,
   };
+}
+
+function message(...lines: string[]): ViewModel {
+  return { integrated: { kind: "message", lines }, local: localView() };
 }
 
 function setup(writeText: (text: string) => Promise<void> = () => Promise.resolve()) {
@@ -56,9 +84,10 @@ function setup(writeText: (text: string) => Promise<void> = () => Promise.resolv
     },
   });
   const find = () => document.querySelector("dialog");
+  const sections = () => [...(find()?.querySelectorAll("section") ?? [])];
   const buttons = (text: string) =>
     [...(find()?.querySelectorAll("button") ?? [])].filter((b) => b.textContent === text);
-  return { dialog, copied, find, buttons };
+  return { dialog, copied, find, buttons, sections };
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -67,7 +96,7 @@ describe("createGraphDialog", () => {
   it("**理由の文言だけのときは画像を出さない**", () => {
     const t = setup();
 
-    t.dialog.open({ kind: "message", lines: ["この端末は未登録", "登録してください"] });
+    t.dialog.open(message("この端末は未登録", "登録してください"));
 
     const node = t.find();
     expect(node?.hasAttribute("open")).toBe(true);
@@ -139,7 +168,7 @@ describe("createGraphDialog", () => {
 
     expect(t.find()?.querySelectorAll("img")).toHaveLength(1 + INITIAL_PROJECT_GRAPHS + 2);
     expect(t.buttons("ほか 2 件を表示")).toHaveLength(0);
-    expect([...(t.find()?.querySelectorAll("h4") ?? [])].map((h) => h.textContent)).toEqual([
+    expect([...(t.sections()[0]?.querySelectorAll("h4") ?? [])].map((h) => h.textContent)).toEqual([
       TOTAL_LABEL,
       ...projects.map((p) => p.label),
     ]);
@@ -198,7 +227,7 @@ describe("createGraphDialog", () => {
   it("**開き直すと前のダイアログを消す。** 閉じる・Esc で消える", () => {
     const t = setup();
     t.dialog.open(graphs([]));
-    t.dialog.open({ kind: "message", lines: ["2 回目"] });
+    t.dialog.open(message("2 回目"));
 
     expect(document.querySelectorAll("dialog")).toHaveLength(1);
     expect(t.find()?.textContent).toContain("2 回目");
@@ -236,5 +265,76 @@ describe("createGraphDialog", () => {
     for (const spy of spies) {
       expect(spy).not.toHaveBeenCalled();
     }
+  });
+
+  it("**全端末を統合した記録を上に、このブラウザの記録を下に置く**", () => {
+    const t = setup();
+
+    t.dialog.open(graphs([{ label: "alpha", sent: true }]));
+
+    expect(t.sections().map((section) => section.querySelector("h3")?.textContent)).toEqual([
+      "全端末を統合した記録",
+      "このブラウザの記録",
+    ]);
+  });
+
+  it("**このブラウザの記録は DOM の SVG で描き、マスにツールチップを付ける。** プロジェクト別は小さく", () => {
+    const t = setup();
+    const local = localView(["alpha", "beta"]);
+
+    t.dialog.open(graphs([], local));
+
+    const section = t.sections()[1];
+    expect([...(section?.querySelectorAll("h4") ?? [])].map((h) => h.textContent)).toEqual([
+      LOCAL_TOTAL_LABEL,
+      "alpha",
+      "beta",
+    ]);
+    const svgs = [...(section?.querySelectorAll("svg") ?? [])];
+    expect(svgs).toHaveLength(3);
+    expect(svgs[0]?.getAttribute("aria-label")).toBe(`${LOCAL_TOTAL_LABEL} の草`);
+    const width = Number(svgs[0]?.getAttribute("width"));
+    expect(Number(svgs[1]?.getAttribute("width"))).toBeCloseTo(width * LOCAL_PROJECT_SCALE);
+    const titles = [...(svgs[0]?.querySelectorAll("rect > title") ?? [])].map((x) => x.textContent);
+    expect(titles).toHaveLength(365);
+    expect(titles.at(-1)).toBe(
+      `${TODAY} — 書き 2 分 / 読み 0 分 / 0 ページ編集 / 0 ページ新規作成`,
+    );
+    expect(titles[0]).toMatch(/— 記録なし$/);
+    expect(section?.querySelectorAll("img")).toHaveLength(0);
+  });
+
+  it(`**このブラウザの記録もプロジェクト別は ${INITIAL_PROJECT_GRAPHS} 件まで**`, () => {
+    const t = setup();
+    const names = Array.from({ length: INITIAL_PROJECT_GRAPHS + 1 }, (_, i) => `p${i}`);
+
+    t.dialog.open(graphs([], localView(names)));
+
+    const section = () => t.sections()[1];
+    expect(section()?.querySelectorAll("svg")).toHaveLength(1 + INITIAL_PROJECT_GRAPHS);
+    t.buttons("ほか 1 件を表示")[0]?.click();
+    expect(section()?.querySelectorAll("svg")).toHaveLength(2 + INITIAL_PROJECT_GRAPHS);
+  });
+
+  it("**統合の方が理由の文言だけでも、このブラウザの記録は出す**", () => {
+    const t = setup();
+
+    t.dialog.open({
+      integrated: { kind: "message", lines: ["未登録"] },
+      local: localView(["alpha"]),
+    });
+
+    expect(t.sections()[0]?.textContent).toContain("未登録");
+    expect(t.sections()[1]?.querySelectorAll("svg")).toHaveLength(2);
+  });
+
+  it("このブラウザにプロジェクトの記録が無ければそう書く", () => {
+    const t = setup();
+
+    t.dialog.open(graphs([]));
+
+    expect(t.sections()[1]?.textContent).toContain(
+      "このブラウザで数えたプロジェクトはまだありません",
+    );
   });
 });

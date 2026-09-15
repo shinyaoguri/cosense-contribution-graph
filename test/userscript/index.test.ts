@@ -209,10 +209,9 @@ describe("草を見る", () => {
     expect(t.sending.count).toBe(2);
     expect(t.views).toHaveLength(2);
     const view = t.views[0];
-    expect(view?.kind === "graphs" && view.projects.map((p) => p.url)).toEqual([
-      "https://grass.soui.dev/v1/g/b.svg",
-      "https://grass.soui.dev/v1/g/a.svg",
-    ]);
+    expect(
+      view?.integrated.kind === "graphs" && view.integrated.projects.map((p) => p.url),
+    ).toEqual(["https://grass.soui.dev/v1/g/b.svg", "https://grass.soui.dev/v1/g/a.svg"]);
     // 送信はしない (読み込み時の 1 回だけ)
     expect(t.triggers).toEqual(["load"]);
   });
@@ -224,12 +223,31 @@ describe("草を見る", () => {
 
     await t.clickMenu(VIEW_MENU_TITLE);
 
-    expect(t.views).toEqual([
+    expect(t.views.map((view) => view.integrated)).toEqual([
       {
         kind: "message",
         lines: ["草の一覧を作れませんでした。ページを開き直して、もう一度押してください。"],
       },
     ]);
+  });
+});
+
+describe("草を見る — このブラウザの記録", () => {
+  it("**押すたびにセンサーの記録を読み直し**、今日までの草を作る。未登録でも作る", async () => {
+    const t = setup("project-a");
+    const today = localDay(new Date(t.clock.ms));
+    start(t.cosense, t.deps);
+
+    await t.clickMenu(VIEW_MENU_TITLE);
+    t.records.record({ kind: "write", project: "project-b", day: today, minute: 540 });
+    await t.clickMenu(VIEW_MENU_TITLE);
+
+    expect(t.views.map((view) => view.local.projects.map((p) => p.label))).toEqual([
+      [],
+      ["project-b"],
+    ]);
+    expect(t.views[1]?.local.total.input.today).toBe(today);
+    expect(t.views[1]?.integrated.kind).toBe("message");
   });
 });
 

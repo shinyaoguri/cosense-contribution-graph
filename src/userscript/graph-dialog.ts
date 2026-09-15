@@ -4,11 +4,22 @@
  * - **ページに挿さずダイアログにする。** Cosense の遷移で消えないので、再マウントが要らない (ADR-0003 の改訂)
  * - **草は常にライトで出す。** 素の `<dialog>` は Cosense のどのテーマでも白地に黒 (research §3 の 2026-09-15 の実測)
  * - 全端末を統合した草は共有 SVG を `<img>` で見る (ADR-0003)。**このブラウザから送れていないプロジェクトは、押されるまで読まない**
+ * - このブラウザの記録は `render.ts` で DOM の SVG にし、マスにツールチップを付ける。統合の方が未登録でも出す
  * - 文言は `textContent`、ハンドラは `addEventListener` (`sign-in-dialog.ts` と同じ約束。research §1)
  * - キー入力・貼り付け・コピーをダイアログの外へ伝えない (Cosense のショートカットとコピーの処理に拾わせない)
  * - **草の URL はコンソールにもログにも出さない** (publicId が分かると誰でも見られる)
  */
-import { type GraphEntry, INITIAL_PROJECT_GRAPHS, type ViewModel } from "./viewer.ts";
+import { layoutGraph } from "../shared/graph-layout.ts";
+import { renderGraphElement } from "./render.ts";
+import {
+  type GraphEntry,
+  INITIAL_PROJECT_GRAPHS,
+  type IntegratedView,
+  type LocalGraph,
+  type LocalView,
+  tooltipOf,
+  type ViewModel,
+} from "./viewer.ts";
 
 const STOPPED_EVENTS = ["keydown", "keyup", "keypress", "paste", "copy", "cut"] as const;
 
@@ -17,6 +28,9 @@ export const GRAPH_WIDTH = 775;
 export const GRAPH_HEIGHT = 200;
 
 export const DIALOG_TITLE = "cosense-grass: 草を見る";
+
+/** このブラウザの記録のうち、プロジェクト別の草の倍率 (design §9「プロジェクト別の草を小さく並べる」) */
+export const LOCAL_PROJECT_SCALE = 0.6;
 
 export type GraphDialogDependencies = {
   /** `navigator.clipboard.writeText`。**クリックの処理から await を挟まずに呼ぶ** (Safari はユーザー操作の直後でないと拒む) */
@@ -135,38 +149,83 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     return block;
   };
 
-  const integrated = (model: Extract<ViewModel, { kind: "graphs" }>) => {
+  /** 先頭の `INITIAL_PROJECT_GRAPHS` 件だけ出し、残りは押すと出す */
+  const appendLimited = <T>(
+    section: HTMLElement,
+    items: readonly T[],
+    render: (item: T) => Node,
+  ) => {
+    section.append(...items.slice(0, INITIAL_PROJECT_GRAPHS).map(render));
+    const rest = items.slice(INITIAL_PROJECT_GRAPHS);
+    if (rest.length > 0) {
+      const more = button(`ほか ${rest.length} 件を表示`, () => {
+        more.replaceWith(...rest.map(render));
+      });
+      section.append(more);
+    }
+  };
+
+  const integrated = (view: IntegratedView) => {
     const section = element("section");
+    section.append(element("h3", "全端末を統合した記録"));
+    if (view.kind === "message") {
+      section.append(...view.lines.map((line) => element("p", line)));
+      return section;
+    }
     section.append(
-      element("h3", "全端末を統合した記録"),
       element(
         "p",
         "同じ Google アカウントで登録した端末の記録をまとめた草です。最大 15 分遅れて更新され、今日の列は日本時間で決まります。",
       ),
-      graph(model.total),
+      graph(view.total),
     );
 
-    if (model.projects.length === 0) {
+    if (view.projects.length === 0) {
       section.append(
         element("p", "このブラウザで直近 30 日に記録したプロジェクトはまだありません。"),
       );
       return section;
     }
-    const shown = model.projects.slice(0, INITIAL_PROJECT_GRAPHS);
-    const rest = model.projects.slice(INITIAL_PROJECT_GRAPHS);
-    section.append(...shown.map(graph));
-    if (rest.length > 0) {
-      const more = button(`ほか ${rest.length} 件を表示`, () => {
-        more.replaceWith(...rest.map(graph));
-      });
-      section.append(more);
-    }
+    appendLimited(section, view.projects, graph);
     section.append(
       element(
         "p",
         "プロジェクト別に並ぶのは、このブラウザで直近 30 日に記録したプロジェクトです。ほかの端末だけで使っているプロジェクトは、そのプロジェクトを開いて記録すると並びます。",
       ),
     );
+    return section;
+  };
+
+  const localGraph = (entry: LocalGraph, scale: number) => {
+    const block = element("div");
+    const frame = element("div");
+    frame.style.overflowX = "auto";
+    frame.append(
+      renderGraphElement(doc, layoutGraph(entry.input), {
+        scale,
+        label: `${entry.label} の草`,
+        tooltip: (day) => tooltipOf(day, entry.counts.get(day)),
+      }),
+    );
+    block.append(element("h4", entry.label), frame);
+    return block;
+  };
+
+  const local = (view: LocalView) => {
+    const section = element("section");
+    section.append(
+      element("h3", "このブラウザの記録"),
+      element(
+        "p",
+        "このブラウザで数えた記録から描いた草です。ほかの端末の記録は含みません。マスにカーソルを載せると、その日の分数とページ数が出ます。",
+      ),
+      localGraph(view.total, 1),
+    );
+    if (view.projects.length === 0) {
+      section.append(element("p", "このブラウザで数えたプロジェクトはまだありません。"));
+      return section;
+    }
+    appendLimited(section, view.projects, (entry) => localGraph(entry, LOCAL_PROJECT_SCALE));
     return section;
   };
 
@@ -185,12 +244,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
         }
       });
 
-      node.append(element("h2", DIALOG_TITLE));
-      if (model.kind === "message") {
-        node.append(...model.lines.map((line) => element("p", line)));
-      } else {
-        node.append(integrated(model));
-      }
+      node.append(element("h2", DIALOG_TITLE), integrated(model.integrated), local(model.local));
       const buttonLine = element("p");
       buttonLine.append(button("閉じる", close));
       node.append(buttonLine);
