@@ -185,7 +185,8 @@ describe("SVG の構造", () => {
   it("月と曜日と凡例の軸のラベルを日本語で出す", async () => {
     const labels = part(await (await fetchDemo()).text(), "labels");
 
-    for (const text of ["9月", "1月", "月", "水", "金", "読む", "書く", "少ない", "多い"]) {
+    const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
+    for (const text of ["9月", "1月", ...weekdays, "読む", "書く", "少ない", "多い"]) {
       expect(labels).toContain(`>${text}</text>`);
     }
   });

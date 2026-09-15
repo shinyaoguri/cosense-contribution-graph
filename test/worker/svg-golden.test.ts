@@ -43,48 +43,48 @@ const CASES: readonly (readonly [string, () => string, string])[] = [
   [
     "デモ (ライト)",
     () => demo({}),
-    "a090d3643e98ce05dedf9047fbef058cd602e5414379b5a85f668fbb79384495",
+    "d8a790969b0e7cfe8b21ea442b480c14b06c9a8f99dcbdc61566ed8bdd9656b3",
   ],
   [
     "デモ (ダーク)",
     () => demo({ theme: "dark" }),
-    "cd41d844ab8d6714ce104aad8cdcfc04058d41d7f13492dcff2870b8a4196286",
+    "ba7a03c1ecc5f9f42206ce8a9dfb239f29c7a426ac8291d014ed0849f71e1e42",
   ],
   [
     "mode=write",
     () => demo({ mode: "write" }),
-    "6df3723e25ecbb7f5a7b10c46e383f561baaf9fe406f389862a1b147551aa7b3",
+    "ec412e8c6300ac41db2202d9a5a447e265396bcf0d032b0f4ad79bc13fa84a0b",
   ],
   [
     "weeks=10",
     () => demo({ weeks: 10 }),
-    "3e77a7515d93133cdb429d03e64e92800b91122d8aafb363bc57dc06581b9b3f",
+    "9b9c849fdfb64f18e7190932ad3769aa13f1f64ac676275f183cf8965d27f6d9",
   ],
   [
     "weeks=1 (凡例の方が広い)",
     () => demo({ weeks: 1 }),
-    "386d5f4c974ee03f67dcc3329836ef02864e720b7a892bda8c63c7cb0d1049e9",
+    "54f4a2af1d2e9483e74bed76dd2250ea1cd1af9c66073645f6cf057f579e3619",
   ],
   [
     "palette=blue-yellow (ダーク)",
     () => demo({ palette: "blue-yellow", theme: "dark" }),
-    "9a1a1b9f3308e7d70c0478040b79bf27acae59d944dc0afdf490b851f0195e66",
+    "3841eeae71b92fe30872f673a671b419e32a14b718e2fb3f281e1021f6f8153a",
   ],
-  ["母集団が空", empty, "0c16a2a38b02a93443d32a87218ac2a7c3cc504d8168a59688e9d1276451a408"],
+  ["母集団が空", empty, "33d5ea747bc1c45ce3941067595b94618cc72a8cf9fc81b1c002ce5d91c57868"],
   [
     "計測開始の印 (Issue #80)",
     () => demo({}, DEMO_TODAY, "2026-06-01"),
-    "fc62fe8a3a29aab33acb21831c26c7905503467ac7b3bef9b71fc24594738a56",
+    "bde0aef4ae25e3155a640d5bd5f116bb0fd6df1829d3c7162082bdeda976c705",
   ],
   [
     "今日が日曜",
     () => demo({}, "2026-09-13"),
-    "0b7eae2c8d1675937cb140e5661598304949a4935b95ff343503c5977ffc840f",
+    "b3eaa501c460865c48e78ec3ea72c747b9254a04b5c1e0d890bc3cbb31f9ce4d",
   ],
   [
     "今日が土曜",
     () => demo({}, "2026-09-12"),
-    "55e70c0f9163cfc485cc584ed213eb84e9a92b43c96a8bd23ac067d507a38fd0",
+    "bd142e0f6cd5ad504a6eae3899d7c4f2cde033b47a02aa15654038786f0abf2c",
   ],
 ];
 

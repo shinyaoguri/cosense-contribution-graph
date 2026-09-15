@@ -154,9 +154,12 @@ export function monthLabels(cells: readonly GridCell[]): Label[] {
   return labels;
 }
 
-/** 曜日ラベル。日曜始まりなので月・水・金は 1・3・5 行目 (design §8)。 */
-export const WEEKDAY_LABELS: readonly Label[] = [
-  { position: 1, text: "月" },
-  { position: 3, text: "水" },
-  { position: 5, text: "金" },
-];
+/**
+ * 曜日ラベル。日曜始まりなので 0 行目が日曜 (design §8)。
+ *
+ * **7 行すべてに出す。** 一つ飛ばしにするのは英語の `Mon` / `Wed` / `Fri` が
+ * 行の高さ (14px) に対して幅を取るからで、1 文字の日本語なら全曜日を並べても重ならない。
+ */
+export const WEEKDAY_LABELS: readonly Label[] = ["日", "月", "火", "水", "木", "金", "土"].map(
+  (text, position) => ({ position, text }),
+);
