@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { SendStatus } from "../../src/userscript/sender.ts";
 import {
   describeSettings,
+  PURGE_CONFIRM,
+  PURGE_LABEL,
   REVOKE_CONFIRM,
   REVOKE_LABEL,
   SIGN_IN_LABEL,
@@ -35,6 +37,12 @@ describe("この端末", () => {
 
     expect(model.device).toMatchObject({ kind: "enrolled", kid: "0123456789abcdef" });
     expect(model.signIn?.label).toBe("サインインし直す");
+  });
+
+  it("**全データの削除は登録の有無によらず出す** (このブラウザの記録は登録前から溜まる)", () => {
+    const purge = { label: PURGE_LABEL, confirm: PURGE_CONFIRM };
+    expect(describeSettings(ENROLLED, settings(true)).purge).toEqual(purge);
+    expect(describeSettings({ kind: "not-enrolled" }, settings(true)).purge).toEqual(purge);
   });
 
   it("**登録済みのときだけ失効を出す** (登録が無ければ取り消すものが無い)", () => {

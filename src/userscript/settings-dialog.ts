@@ -11,6 +11,8 @@
 import {
   COUNT_READ_LABEL,
   COUNT_READ_NOTE,
+  type DangerAction,
+  PURGE_NOTE,
   SETTINGS_DIALOG_TITLE,
   type SettingsModel,
 } from "./settings.ts";
@@ -27,6 +29,8 @@ export type SettingsHandlers = {
   signIn(): void;
   /** この端末の登録を取り消す。返した文言をそのまま出す */
   revoke(): Promise<string>;
+  /** サーバとこのブラウザのデータを全部消す。返した文言をそのまま出す */
+  purge(): Promise<string>;
 };
 
 export type SettingsDialog = {
@@ -91,33 +95,41 @@ export function createSettingsDialog(
       section.append(line);
     }
     if (model.revoke) {
-      section.append(revoke(model.revoke, handlers));
+      section.append(danger(model.revoke, handlers.revoke, "取り消す"));
     }
     return section;
   };
 
-  /** 押すと確かめてから取り消す。**確認を挟まずに消さない** (押し間違いで登録が飛ぶ) */
-  const revoke = (
-    { label, confirm }: NonNullable<SettingsModel["revoke"]>,
-    handlers: SettingsHandlers,
+  const purge = (model: SettingsModel, handlers: SettingsHandlers) => {
+    const section = element("section");
+    section.append(element("h3", "データの削除"), element("p", PURGE_NOTE));
+    section.append(danger(model.purge, handlers.purge, "削除する"));
+    return section;
+  };
+
+  /** 押すと確かめてから実行する。**確認を挟まずに消さない** (押し間違いでデータが飛ぶ) */
+  const danger = (
+    { label, confirm }: DangerAction,
+    run: () => Promise<string>,
+    yesLabel: string,
   ) => {
     const line = element("p");
     const status = element("span");
     status.setAttribute("role", "status");
     const start = button(label, () => {
       const question = element("span", ` ${confirm} `);
-      const yes = button("取り消す", () => {
+      const yes = button(yesLabel, () => {
         yes.disabled = true;
         no.disabled = true;
-        status.textContent = " 取り消しています…";
-        handlers.revoke().then(
+        status.textContent = " 実行しています…";
+        run().then(
           (message) => {
             question.remove();
             status.textContent = ` ${message}`;
           },
           () => {
             question.remove();
-            status.textContent = " 取り消せませんでした。ページを開き直してやり直してください。";
+            status.textContent = " 実行できませんでした。ページを開き直してやり直してください。";
           },
         );
       });
@@ -177,7 +189,12 @@ export function createSettingsDialog(
         }
       });
 
-      node.append(element("h2", SETTINGS_DIALOG_TITLE), device(model, handlers), countRead(model));
+      node.append(
+        element("h2", SETTINGS_DIALOG_TITLE),
+        device(model, handlers),
+        countRead(model),
+        purge(model, handlers),
+      );
       const buttonLine = element("p");
       buttonLine.append(button("閉じる", close));
       node.append(buttonLine);
