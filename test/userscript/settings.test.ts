@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SendStatus } from "../../src/userscript/sender.ts";
 import {
+  DEVICES_LABEL,
   describeSettings,
   PURGE_CONFIRM,
   PURGE_LABEL,
@@ -9,6 +10,7 @@ import {
   SIGN_IN_LABEL,
 } from "../../src/userscript/settings.ts";
 import { DEFAULT_SETTINGS, type SettingsRead } from "../../src/userscript/settings-store.ts";
+import { DEVICES_URL } from "../../src/userscript/worker-origin.ts";
 
 const ENROLLED: SendStatus = {
   kind: "enrolled",
@@ -37,6 +39,13 @@ describe("この端末", () => {
 
     expect(model.device).toMatchObject({ kind: "enrolled", kid: "0123456789abcdef" });
     expect(model.signIn?.label).toBe("サインインし直す");
+  });
+
+  it("**ほかの端末の一覧は Worker のページへのリンク** (ADR-0016)", () => {
+    expect(describeSettings(ENROLLED, settings(true)).devices).toEqual({
+      label: DEVICES_LABEL,
+      url: DEVICES_URL,
+    });
   });
 
   it("**全データの削除は登録の有無によらず出す** (このブラウザの記録は登録前から溜まる)", () => {

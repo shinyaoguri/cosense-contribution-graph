@@ -31,12 +31,15 @@ afterEach(() => {
 
 const PURGE = { label: "保存されているデータをすべて削除する", confirm: "削除しますか?" };
 
+const DEVICES = { label: "登録した端末の一覧を見る", url: "https://grass.soui.dev/auth/devices" };
+
 const ENROLLED: SettingsModel = {
   device: { kind: "enrolled", kid: "0123456789abcdef", lines: ["この端末は登録済みです。"] },
   countRead: { value: true, editable: true },
   signIn: { label: "サインインし直す" },
   revoke: { label: "この端末の登録を取り消す", confirm: "取り消しますか?" },
   purge: PURGE,
+  devices: DEVICES,
 };
 
 const NOT_ENROLLED: SettingsModel = {
@@ -44,6 +47,7 @@ const NOT_ENROLLED: SettingsModel = {
   countRead: { value: true, editable: true },
   signIn: { label: "サインインしてこの端末を登録" },
   purge: PURGE,
+  devices: DEVICES,
 };
 
 function setup(outcome: ReturnType<SettingsDialogDependencies["setCountRead"]> = "written") {
@@ -161,6 +165,7 @@ describe("サインイン", () => {
       device: { kind: "message", lines: ["保存領域を開けません。"] },
       countRead: { value: true, editable: true },
       purge: PURGE,
+      devices: DEVICES,
     });
 
     expect([...(t.node()?.querySelectorAll("button") ?? [])].map((b) => b.textContent)).toEqual([
@@ -228,6 +233,29 @@ describe("この端末の失効", () => {
     t.open(NOT_ENROLLED);
 
     expect(t.button("この端末の登録を取り消す")).toBeUndefined();
+  });
+});
+
+describe("ほかの端末", () => {
+  it("**Worker のページへのリンクを出す** (CSP で一覧をここに出せない。ADR-0016)", () => {
+    const t = setup();
+
+    t.open(ENROLLED);
+
+    const link = t.node()?.querySelector("a");
+    expect(link?.textContent).toBe(DEVICES.label);
+    expect(link?.getAttribute("href")).toBe(DEVICES.url);
+    // 別のタブで開き、開いた先から opener を触らせない
+    expect(link?.getAttribute("target")).toBe("_blank");
+    expect(link?.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("未登録でもリンクは出す (サインインすれば見られる)", () => {
+    const t = setup();
+
+    t.open(NOT_ENROLLED);
+
+    expect(t.node()?.querySelector("a")?.getAttribute("href")).toBe(DEVICES.url);
   });
 });
 
