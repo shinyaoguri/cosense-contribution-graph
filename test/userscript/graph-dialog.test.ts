@@ -300,7 +300,8 @@ describe("createGraphDialog", () => {
     expect(titles.at(-1)).toBe(
       `${TODAY} — 書き 2 分 / 読み 0 分 / 0 ページ編集 / 0 ページ新規作成`,
     );
-    expect(titles[0]).toMatch(/— 記録なし$/);
+    // 記録のある最も古い日より前は「計測開始前」(活動の無い日と区別する。Issue #80)
+    expect(titles[0]).toMatch(/計測開始前$/);
     expect(section?.querySelectorAll("img")).toHaveLength(0);
   });
 

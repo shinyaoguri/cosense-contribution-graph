@@ -4,6 +4,7 @@
  * - **寸法・色・ラベルの位置は `src/shared/graph-layout.ts` が決める。** 共有 SVG (`src/worker/svg.ts`) と同じなので見た目が食い違わない
  * - `createElementNS` で組み立てる。**innerHTML も DOMParser も使わない** (文言は `textContent`)
  * - **マスごとに `<title>` を付ける。** `<img>` の SVG では出ないが、ページの中の SVG ならブラウザがツールチップを出す
+ * - **計測開始前のマスは塗らず点線の枠だけ**にする (共有 SVG と同じ。Issue #80)
  */
 import type { GraphLayout } from "../shared/graph-layout.ts";
 
@@ -15,6 +16,8 @@ export type RenderOptions = {
   readonly label: string;
   /** マスのツールチップ */
   readonly tooltip: (day: string) => string;
+  /** 計測開始前のマスのツールチップ。既定は「計測開始前」 */
+  readonly beforeStartTooltip?: (day: string) => string;
 };
 
 export function renderGraphElement(
@@ -69,9 +72,23 @@ export function renderGraphElement(
 
   const grid = element("g", {});
   for (const cell of layout.grid) {
-    const node = rect(cell);
+    // **計測開始前は塗らず点線の枠だけ** (活動の無い日と区別する。Issue #80)
+    const node = cell.beforeStart
+      ? element("rect", {
+          x: cell.x,
+          y: cell.y,
+          width: layout.cellSize,
+          height: layout.cellSize,
+          rx: layout.cellRadius,
+          fill: "none",
+          stroke: layout.mutedColor,
+          "stroke-dasharray": "1 1",
+        })
+      : rect(cell);
     const title = element("title", {});
-    title.textContent = options.tooltip(cell.day);
+    title.textContent = cell.beforeStart
+      ? (options.beforeStartTooltip?.(cell.day) ?? `${cell.day} 計測開始前`)
+      : options.tooltip(cell.day);
     node.append(title);
     grid.append(node);
   }

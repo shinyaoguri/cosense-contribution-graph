@@ -11,6 +11,9 @@
  * - `store.readRange` で直近 371 日を 1 回だけ読み、共有 SVG と同じ `layoutGraph` の入力を作る
  * - **四分位とバランスの中心は、このブラウザの合算の全期間から取る。** プロジェクト別も同じスケールで塗る (ADR-0007 決定 4)
  * - 並びは合算、今のプロジェクト、残りは表示範囲の合計分数の多い順
+ * - **計測開始 = 記録のある最も古い日** (Issue #80)。集計値は 371 日で消えるので、
+ *   正確には「このブラウザに記録の残っている最初の日」。プロジェクト別も合算の開始日で塗り分ける
+ *   (そのプロジェクトを使い始めた日ではなく、計測していなかった期間を示すため)
  */
 import { centerOf, type Minutes } from "../shared/balance.ts";
 import { DAYS, DEFAULT_PARAMS, fromEpochDay, MAX_WEEKS, toEpochDay } from "../shared/graph.ts";
@@ -129,6 +132,12 @@ export function describeLocal(
   const scale = buildScale(population.map((d) => d.w + d.r));
   const center = centerOf(population);
 
+  // 記録のある最も古い日。表示範囲の外にあってもよい (その場合は印が出ない)
+  const startDay = [...days.keys()].reduce<string | undefined>(
+    (oldest, day) => (oldest === undefined || day < oldest ? day : oldest),
+    undefined,
+  );
+
   const graph = (label: string, counts: ReadonlyMap<string, Counts>): LocalGraph => ({
     label,
     counts,
@@ -137,6 +146,7 @@ export function describeLocal(
       days: new Map([...counts].map(([day, value]) => [day, minutesOf(value)])),
       scale,
       center,
+      startDay,
       params: DEFAULT_PARAMS,
     },
   });
