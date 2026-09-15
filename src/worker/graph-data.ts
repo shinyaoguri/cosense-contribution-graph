@@ -6,12 +6,14 @@
  *   同じスケールで塗るので、並べて比べられる
  * - プロジェクト別は直近 53 週ぶんだけを読む。週数を減らしたときの切り詰めは `renderGraph` がする
  */
-import type { Minutes } from "../shared/balance.ts";
-import { centerOf } from "../shared/balance.ts";
-import { DAYS, fromEpochDay, MAX_WEEKS, type Params, toEpochDay } from "../shared/graph.ts";
+
+import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
 import { PH_ALL } from "../shared/ids.ts";
-import { buildScale } from "../shared/scale.ts";
 import { DEFAULT_TIME_ZONE, todayIn } from "./days.ts";
+import type { Minutes } from "./graph/balance.ts";
+import { centerOf } from "./graph/balance.ts";
+import { DAYS, MAX_WEEKS, type Params } from "./graph/grid.ts";
+import { buildScale } from "./graph/scale.ts";
 import { renderGraph } from "./svg.ts";
 
 type DayRow = { readonly day: string; readonly w: number; readonly r: number };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { balanceOf, centerOf, oddsOf } from "../../src/shared/balance.ts";
+import { balanceOf, centerOf, oddsOf } from "../../../src/worker/graph/balance.ts";
 
 describe("対数オッズ", () => {
   it("読みと書きが同じなら 0", () => {

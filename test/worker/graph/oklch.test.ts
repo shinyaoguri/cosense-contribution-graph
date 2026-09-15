@@ -7,9 +7,9 @@ import {
   oklchToLinearSrgb,
   oklchToSrgb,
   srgbToHex,
-} from "../../src/shared/oklch.ts";
+} from "../../../src/worker/graph/oklch.ts";
 
-// 両環境 (workerd と jsdom) で走る。Worker の SVG と DOM 注入の草で色が食い違わないことを保証する
+// 草を描くのは Worker だけなので workerd でだけ走る (ADR-0019)
 
 /** リファレンス: CSS Color 4 仕様のサンプルコード (conversions.js) を移植した実装。同じ係数。 */
 function referenceSrgb(l: number, c: number, h: number): readonly number[] {

@@ -8,12 +8,12 @@
  * 答えだけを黙って書き換えない。
  */
 import { describe, expect, it } from "vitest";
-import type { Minutes } from "../../src/shared/balance.ts";
-import { centerOf } from "../../src/shared/balance.ts";
-import { DEFAULT_PARAMS, type Params } from "../../src/shared/graph.ts";
 import { sha256Hex } from "../../src/shared/hash.ts";
-import { buildScale } from "../../src/shared/scale.ts";
 import { DEMO_TODAY, demoData } from "../../src/worker/demo.ts";
+import type { Minutes } from "../../src/worker/graph/balance.ts";
+import { centerOf } from "../../src/worker/graph/balance.ts";
+import { DEFAULT_PARAMS, type Params } from "../../src/worker/graph/grid.ts";
+import { buildScale } from "../../src/worker/graph/scale.ts";
 import { renderGraph } from "../../src/worker/svg.ts";
 
 function demo(params: Partial<Params>, today = DEMO_TODAY, startDay?: string): string {

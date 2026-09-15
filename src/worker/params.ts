@@ -1,5 +1,5 @@
-import { DEFAULT_PARAMS, MAX_WEEKS, type Params } from "../shared/graph.ts";
-import { isSchemeName } from "../shared/scheme.ts";
+import { DEFAULT_PARAMS, MAX_WEEKS, type Params } from "./graph/grid.ts";
+import { isSchemeName } from "./graph/scheme.ts";
 
 const WEEKS_PATTERN = /^\d{1,2}$/;
 

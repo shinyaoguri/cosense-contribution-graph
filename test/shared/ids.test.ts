@@ -17,7 +17,7 @@ import {
 } from "../../src/shared/ids.ts";
 
 // **このファイルは 2 つの project 両方の include に入っていて、workerd と jsdom で
-// 2 回走る。** Worker が出す SVG と DOM 注入の草で判定が食い違わないことを、
+// 2 回走る。** UserScript が導いた識別子を Worker が同じものとして読むことを、
 // 同じ 1 つの検証で保証するため (片方のコピーを直し忘れる形にしない)。
 
 const UID = encodeBase64url(new Uint8Array(UID_BYTES).fill(7));

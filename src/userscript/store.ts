@@ -27,7 +27,7 @@ import {
   orBits,
   popcount,
 } from "../shared/bits.ts";
-import { fromEpochDay, toEpochDay } from "../shared/graph.ts";
+import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
 import { PH_ALL } from "../shared/ids.ts";
 
 export const BITS_KEY = "cosense-grass:bits";

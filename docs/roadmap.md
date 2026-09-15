@@ -184,8 +184,12 @@ Worker のテストは workerd 内で走るので `document` がない。UserScr
 
 **`test/shared/**/*.test.ts` を両方の project の `include` に入れる。** 同じ**テストファイル**が
 workerd と jsdom で 2 回走り、shared が両環境で同じ答えを返すことを 1 つの検証で保証できる。
-`include` はテストファイルの glob なので、source のパスを入れても拾われない。Worker が出す SVG と DOM 注入の草で配色が食い違わないこと
-という設計の要求に、これが直接効く。
+`include` はテストファイルの glob なので、source のパスを入れても拾われない。
+**これが効くのは、両端が同じ文字列・同じ値を作ることが前提のもの** — UserScript が組み立てた URL を
+Worker が同じ中身・同じ署名対象として読むこと、識別子の導出、日付を UTC だけで計算することに。
+当初は「Worker が出す SVG と DOM 注入の草で配色が食い違わないこと」も理由に挙げていたが、
+**草を描くのが Worker だけになったので、描画は両環境で走らせる意味を失った** (ADR-0019、Issue #110)。
+描画のテストは `test/worker/graph/` にあり、workerd でだけ走る。
 
 - `@cloudflare/vitest-plugin` からの import は**ルートから**。`/config` サブパスは存在しない
   (公式ドキュメントに古い記述が残っている)
@@ -359,11 +363,12 @@ Gyazo の証跡付きで確かめる (Issue #20)。
 
 作るもの。
 
-- `src/shared/scale.ts` 四分位スケール
-- `src/shared/balance.ts` 読み書きのバランス
-- `src/shared/oklch.ts` OKLCH から sRGB。彩度を二分探索でガモットに詰める
-- `src/shared/scheme.ts` と `src/shared/schemes/` 配色の差し替え口と配色 (ADR-0016)
-- `src/shared/graph.ts` 53 週グリッドのレイアウト
+- `src/shared/scale.ts` 四分位スケール (Issue #110 で `src/worker/graph/scale.ts` へ)
+- `src/shared/balance.ts` 読み書きのバランス (同上)
+- `src/shared/oklch.ts` OKLCH から sRGB。彩度を二分探索でガモットに詰める (同上)
+- `src/shared/scheme.ts` と `src/shared/schemes/` 配色の差し替え口と配色 (ADR-0016。同上)
+- `src/shared/graph.ts` 53 週グリッドのレイアウト (Issue #110 で日付は `src/shared/epoch-day.ts`、
+  格子は `src/worker/graph/grid.ts` に割った)
 - `src/worker/svg.ts` SVG の生成。凡例込み
 - `src/worker/index.ts` ルーティング
 
@@ -814,6 +819,13 @@ PR の順。
   役割分担を「UserScript は数えて送る / 草は Worker が作る」に単純化したもので、
   バンドルは 109,704 → 89,067 バイト。`USERSCRIPT_VERSION` は `1.1.0` で、配布は `v1` を差し替えた。
   Worker 専用になった `src/shared/` の描画モジュールの移設は Issue #110
+- **描画モジュールを `src/worker/graph/` へ移した** (2026-09-16、Issue #110)。
+  層の整理のつもりだったが、**実際には死にコードが配られていた** — esbuild の tree-shaking は
+  トップレベルの関数呼び出し (`bandScheme({...})`) や二項演算 (`CELL + GAP`) を落とさないので、
+  配色の表と OKLCH の行列が未参照のまま 2.6KB 残っていた (research §6)。
+  `shared/graph.ts` を日付 (`shared/epoch-day.ts`) と格子 (`worker/graph/grid.ts`) に割った時点で全部落ちた。
+  バンドルは 89,067 → 86,412 バイト。**再発は `scripts/build-userscript.mjs` の検査で止まる**
+  (`src/worker/` が混ざったらビルドが失敗する)
 - 残り: #81 (テーマ) と #92 (ページの見た目)。どちらも同じ面を触る
 
 ### 「設定」(2026-09-15 着手、Issue #79)

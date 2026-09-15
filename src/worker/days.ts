@@ -4,7 +4,7 @@
  * **day はクライアントのローカル日付** (ADR-0002)。サーバは UTC で動くので、時差の分だけ窓を広げる。
  * 地球上のローカル時刻は UTC−12 から UTC+14 に収まる。
  */
-import { fromEpochDay, toEpochDay } from "../shared/graph.ts";
+import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
 
 /** これより古い日は受け付けない。導入前の活動は遡らない (ADR-0012)。 */
 export const ACCEPT_PAST_DAYS = 30;

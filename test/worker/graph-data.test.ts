@@ -1,9 +1,9 @@
 import { env, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { centerOf, type Minutes } from "../../src/shared/balance.ts";
-import { DEFAULT_PARAMS } from "../../src/shared/graph.ts";
 import { PH_ALL, publicIdOf } from "../../src/shared/ids.ts";
-import { buildScale } from "../../src/shared/scale.ts";
+import { centerOf, type Minutes } from "../../src/worker/graph/balance.ts";
+import { DEFAULT_PARAMS } from "../../src/worker/graph/grid.ts";
+import { buildScale } from "../../src/worker/graph/scale.ts";
 import { renderStoredGraph } from "../../src/worker/graph-data.ts";
 import { renderGraph } from "../../src/worker/svg.ts";
 import { randomUid } from "./beacon-helpers.ts";
