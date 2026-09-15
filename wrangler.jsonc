@@ -2,6 +2,9 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "cosense-grass",
   "main": "src/worker/index.ts",
+  // **プライバシーポリシーは docs/privacy.md を正本のまま配信する** (ADR-0018)。
+  // Text モジュールとして読み込み、Worker の中で HTML にする (依存を増やさない)
+  "rules": [{ "type": "Text", "globs": ["**/*.md"] }],
 
   // 誤アカウント防止の二重化 (ADR-0014 決定 4)。認証プロファイルの束縛が外れていても、
   // ここで対象が固定される。アカウント ID は秘密ではないのでコミットしてよい。

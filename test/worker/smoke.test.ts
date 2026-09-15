@@ -6,8 +6,9 @@ import { describe, expect, it } from "vitest";
 // shared/ids の検証は test/shared/ids.test.ts が両環境で行う。
 
 describe("Worker の骨組み", () => {
-  it("経路がまだ無いので 404 を返す", async () => {
-    const res = await SELF.fetch("https://example.com/");
+  // `/` はトップページになった (ADR-0018)。知らない経路だけが 404
+  it("知らない経路は 404 を返す", async () => {
+    const res = await SELF.fetch("https://example.com/nope");
 
     expect(res.status).toBe(404);
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
