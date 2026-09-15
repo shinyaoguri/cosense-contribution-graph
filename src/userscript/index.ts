@@ -39,10 +39,10 @@ import { describeIntegrated, describeSync, type IntegratedView } from "./viewer.
 /**
  * 配布バンドルの版。**配布ページ `/cosense-grass/v1` に対応する** (Issue #95)。
  *
- * **破壊的変更のときは配布ページを分ける** (README のバージョン運用)。
- * 同一パスの中身を差し替えてよいのはバグ修正だけ。
+ * **番号を上げるのは、利用者が import の 1 行を書き直さないと動かなくなるときだけ** (ADR-0019)。
+ * 見えるものが減るだけの変更は同じページを差し替え、minor を上げる。
  */
-export const USERSCRIPT_VERSION = "1.0.0";
+export const USERSCRIPT_VERSION = "1.1.0";
 
 /** UserScript から使う `window.scrapbox` のうち、ここで触る部分だけ (research §2)。 */
 export type Cosense = SensorCosense & {

@@ -50,7 +50,7 @@ export const BITS_DAYS = 30;
 export type StoreStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 /** 1 日の集計値 (design §4)。`r` は書きと重なる分を除いた読み。 */
-export type Counts = {
+type Counts = {
   readonly w: number;
   readonly r: number;
   readonly pages: number;
@@ -95,7 +95,7 @@ type RowView = {
   readonly bits?: { readonly w: Bitmap; readonly r: Bitmap };
 };
 
-export type DayView = {
+type DayView = {
   /** 合算 (`*`) */
   readonly total: RowView;
   readonly projects: ReadonlyMap<string, RowView>;
