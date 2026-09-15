@@ -21,7 +21,14 @@ import { createSender, type Sender } from "./sender.ts";
 import { type Sensor, type SensorCosense, startExclusive, startSensor } from "./sensor.ts";
 import { createDialogView } from "./sign-in-dialog.ts";
 import { createStore, type Store } from "./store.ts";
-import { describeView, VIEW_MENU_TITLE, type ViewModel } from "./viewer.ts";
+import { localDay } from "./time.ts";
+import {
+  describeIntegrated,
+  describeLocal,
+  type IntegratedView,
+  localRangeStart,
+  VIEW_MENU_TITLE,
+} from "./viewer.ts";
 
 /**
  * 配布バンドルの版。
@@ -55,7 +62,7 @@ export type Dependencies = {
   readonly graphDialog: Pick<GraphDialog, "open">;
   /** センサーを始める。同じタブで動いている前のセンサーは止める */
   readonly startSensor: () => Sensor;
-  readonly store: Pick<Store, "readDay">;
+  readonly store: Pick<Store, "readDay" | "readRange">;
   readonly runProbe: (length: number) => Promise<ProbeResult>;
   readonly log: (message: string) => void;
   readonly alert: (message: string) => void;
@@ -104,18 +111,22 @@ export function start(cosense: Cosense, deps: Dependencies): void {
   });
 }
 
-/** 押すたびに鍵と送信の記録を読み直す (別のタブで登録・送信したものを拾う) */
+/** 押すたびに鍵・送信の記録・センサーの記録を読み直す (別のタブで登録・送信・記録したものを拾う) */
 async function runViewMenu(cosense: Cosense, deps: Dependencies): Promise<void> {
-  let model: ViewModel;
+  const project = cosense.Project.name;
+  let integrated: IntegratedView;
   try {
-    model = describeView(await deps.sender.status(), cosense.Project.name);
+    integrated = describeIntegrated(await deps.sender.status(), project);
   } catch {
-    model = {
+    integrated = {
       kind: "message",
       lines: ["草の一覧を作れませんでした。ページを開き直して、もう一度押してください。"],
     };
   }
-  deps.graphDialog.open(model);
+  // 状況を待った後の時刻で読む (日付をまたいでも、今日の列と記録が食い違わない)
+  const today = localDay(deps.now());
+  const local = describeLocal(deps.store.readRange(localRangeStart(today), today), today, project);
+  deps.graphDialog.open({ integrated, local });
 }
 
 async function runSensorMenu(cosense: Cosense, deps: Dependencies, sensor: Sensor): Promise<void> {

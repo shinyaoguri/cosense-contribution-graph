@@ -8,6 +8,7 @@ import {
   createStore,
   DAILY_DAYS,
   DAILY_KEY,
+  type DayView,
   STORE_VERSION,
 } from "../../src/userscript/store.ts";
 
@@ -337,5 +338,142 @@ describe("readDay", () => {
     expect(day.total.bits?.w[0]).toBe(0x80);
     expect(day.total.bits?.r[0]).toBe(0x80);
     expect(day.projects.get("project-a")?.bits?.w[0]).toBe(0);
+  });
+});
+
+describe("readRange", () => {
+  const counts = (w: number, r: number, pages = 0, created = 0) => ({ w, r, pages, created });
+
+  /**
+   * 範囲の内外に、ビットマップの日・ビットマップが空の日・両方にある日・集計値だけの日 (`*` あり・なし・空) を混ぜる。
+   * `getItem` を数える。
+   */
+  function mixed() {
+    const t = setup();
+    t.store.record(read("a", 1, daysBefore(1)));
+    t.store.record(write("b", 2, PAGE_A, daysBefore(1)));
+    t.store.record(read("a", 3, daysBefore(2)));
+    const bits = JSON.parse(t.storage.map.get(BITS_KEY) ?? "{}");
+    bits.days[daysBefore(3)] = {};
+    t.storage.map.set(BITS_KEY, JSON.stringify(bits));
+    t.storage.map.set(
+      DAILY_KEY,
+      JSON.stringify({
+        v: STORE_VERSION,
+        days: {
+          [daysBefore(2)]: { "*": counts(9, 9), a: counts(9, 9) },
+          [daysBefore(3)]: { "*": counts(5, 1, 2, 1), a: counts(5, 1, 2, 1) },
+          [daysBefore(40)]: { a: counts(4, 0) },
+          [daysBefore(41)]: {},
+          [daysBefore(DAILY_DAYS)]: { "*": counts(1, 1) },
+        },
+      }),
+    );
+    const gets = new Map<string, number>();
+    const getItem = t.storage.getItem;
+    t.storage.getItem = (key: string) => {
+      gets.set(key, (gets.get(key) ?? 0) + 1);
+      return getItem(key);
+    };
+    const store = createStore(t.storage, () => undefined);
+    return { ...t, store, gets };
+  }
+
+  const summary = (range: ReadonlyMap<string, DayView>) =>
+    Object.fromEntries(
+      [...range].map(([day, view]) => [
+        day,
+        {
+          total: view.total.counts,
+          bits: view.total.bits !== undefined,
+          projects: Object.fromEntries([...view.projects].map(([name, row]) => [name, row.counts])),
+        },
+      ]),
+    );
+
+  it("**ビットマップのある日はそれから、無い日は集計値から読む。** 記録の無い日と範囲外は入れない", () => {
+    const t = mixed();
+
+    const range = t.store.readRange(daysBefore(DAILY_DAYS - 1), TODAY);
+
+    expect(summary(range)).toEqual({
+      [daysBefore(1)]: {
+        total: counts(1, 1, 1),
+        bits: true,
+        projects: { a: counts(0, 1), b: counts(1, 0, 1) },
+      },
+      // 集計値にもあるが、ビットマップが正
+      [daysBefore(2)]: { total: counts(0, 1), bits: true, projects: { a: counts(0, 1) } },
+      // ビットマップが空なので集計値から
+      [daysBefore(3)]: {
+        total: counts(5, 1, 2, 1),
+        bits: false,
+        projects: { a: counts(5, 1, 2, 1) },
+      },
+      // `*` の無い集計値は合算を 0 にする (プロジェクト行を足さない)
+      [daysBefore(40)]: { total: counts(0, 0), bits: false, projects: { a: counts(4, 0) } },
+    });
+  });
+
+  it("**localStorage はキーごとに 1 回だけ読む**", () => {
+    const t = mixed();
+
+    t.store.readRange(daysBefore(DAILY_DAYS - 1), TODAY);
+
+    expect(Object.fromEntries(t.gets)).toEqual({ [BITS_KEY]: 1, [DAILY_KEY]: 1 });
+  });
+
+  it("**ビットマップで埋まる範囲なら集計値を読まない**", () => {
+    const t = mixed();
+
+    t.store.readRange(daysBefore(2), daysBefore(1));
+
+    expect(Object.fromEntries(t.gets)).toEqual({ [BITS_KEY]: 1 });
+  });
+
+  it("範囲の両端を含む", () => {
+    const t = mixed();
+
+    expect([...t.store.readRange(daysBefore(3), daysBefore(2)).keys()].sort()).toEqual([
+      daysBefore(3),
+      daysBefore(2),
+    ]);
+  });
+
+  it.each([
+    ["ビットマップが知らない版", BITS_KEY, [daysBefore(3), daysBefore(2), daysBefore(40)]],
+    ["集計値が知らない版", DAILY_KEY, [daysBefore(2), daysBefore(1)]],
+  ] as const)("**%s なら、読める方だけから読む**", (_, key, expected) => {
+    const t = mixed();
+    const value = JSON.parse(t.storage.map.get(key) ?? "{}");
+    t.storage.map.set(key, JSON.stringify({ ...value, v: STORE_VERSION + 1 }));
+
+    const range = t.store.readRange(daysBefore(DAILY_DAYS - 1), TODAY);
+
+    expect([...range.keys()].sort()).toEqual([...expected].sort());
+  });
+
+  it("両方とも知らない版なら空。ビットマップが JSON として読めなければ集計値から読む", () => {
+    const t = mixed();
+    const newer = (key: string) =>
+      t.storage.map.set(
+        key,
+        JSON.stringify({ ...JSON.parse(t.storage.map.get(key) ?? "{}"), v: STORE_VERSION + 1 }),
+      );
+    newer(BITS_KEY);
+    newer(DAILY_KEY);
+    expect(t.store.readRange(daysBefore(DAILY_DAYS - 1), TODAY).size).toBe(0);
+
+    const u = mixed();
+    u.storage.map.set(BITS_KEY, "{");
+    expect([...u.store.readRange(daysBefore(DAILY_DAYS - 1), TODAY).keys()].sort()).toEqual(
+      [daysBefore(40), daysBefore(3), daysBefore(2)].sort(),
+    );
+  });
+
+  it("逆の範囲と実在しない日は例外", () => {
+    const { store } = setup();
+    expect(() => store.readRange(TODAY, daysBefore(1))).toThrow(RangeError);
+    expect(() => store.readRange("2026-02-30", TODAY)).toThrow(RangeError);
   });
 });

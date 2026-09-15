@@ -6,6 +6,8 @@
  * | `cosense-grass:bits` | 日 → プロジェクト名 → 書き・読みのビットマップ、編集したページ・新規作成したページの ID | 今日と前の 29 日 |
  * | `cosense-grass:daily` | 日 → プロジェクト名か `*` → 集計値 | 371 日 (53 週) |
  *
+ * 草を描くときは `readRange` で範囲をまとめて読む (日ごとに `readDay` を呼ぶと、371 日で JSON を 742 回パースする)。
+ *
  * - **キーはプロジェクト名。** ph は uid でソルトするが、サインイン前は uid が無く、別のアカウントで
  *   サインインし直せば変わる。ph は送る直前に導く。プロジェクト名はこのブラウザにだけ置く値なので、
  *   キーにしても外へ出る情報は増えない
@@ -94,7 +96,7 @@ type RowView = {
   readonly bits?: { readonly w: Bitmap; readonly r: Bitmap };
 };
 
-type DayView = {
+export type DayView = {
   /** 合算 (`*`) */
   readonly total: RowView;
   readonly projects: ReadonlyMap<string, RowView>;
@@ -106,9 +108,16 @@ export type Store = {
   /** 30 日より古い日のビットマップを集計値に畳み、371 日より古い集計値を消す。 */
   fold(today: string): WriteOutcome;
   readDay(day: string): DayView;
+  /**
+   * `from` から `to` まで (両端を含む) の日を読む。**記録の無い日は Map に入れない。**
+   * 日ごとの値は `readDay` と同じ (ビットマップがあればそれから、無ければ集計値から)。
+   */
+  readRange(from: string, to: string): ReadonlyMap<string, DayView>;
 };
 
 const ZERO: Counts = { w: 0, r: 0, pages: 0, created: 0 };
+
+const EMPTY_DAY: DayView = { total: { counts: ZERO }, projects: new Map() };
 
 const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -205,6 +214,42 @@ export function createStore(storage: StoreStorage, warn: (message: string) => vo
   const loadDaily = () => load(DAILY_KEY, readCounts);
   const saveDaily = (days: Map<string, Map<string, Counts>>) => save(DAILY_KEY, days, (c) => c);
 
+  function readRange(from: string, to: string): ReadonlyMap<string, DayView> {
+    assertDay(from);
+    assertDay(to);
+    const start = toEpochDay(from);
+    const end = toEpochDay(to);
+    if (start > end) {
+      throw new RangeError(`範囲が逆: ${from} から ${to}`);
+    }
+    const bits = loadBits();
+    // 集計値は、ビットマップで埋まらない日があるときだけ読む
+    let daily: Loaded<Counts> | undefined;
+    const days = new Map<string, DayView>();
+    for (let epochDay = start; epochDay <= end; epochDay++) {
+      const day = fromEpochDay(epochDay);
+      // **ビットマップがある日は集計値を見ない** (畳む途中で失敗して両方にある日も、ビットマップが正しい)
+      const rows = bits.kind === "ok" ? bits.days.get(day) : undefined;
+      if (rows && rows.size > 0) {
+        days.set(day, viewRows(rows));
+        continue;
+      }
+      daily ??= loadDaily();
+      const counts = daily.kind === "ok" ? daily.days.get(day) : undefined;
+      if (!counts || counts.size === 0) {
+        continue;
+      }
+      const projects = new Map<string, RowView>();
+      for (const [project, value] of counts) {
+        if (project !== PH_ALL) {
+          projects.set(project, { counts: value });
+        }
+      }
+      days.set(day, { total: { counts: counts.get(PH_ALL) ?? ZERO }, projects });
+    }
+    return days;
+  }
+
   return {
     record(activity) {
       assertActivity(activity);
@@ -288,21 +333,10 @@ export function createStore(storage: StoreStorage, warn: (message: string) => vo
 
     readDay(day) {
       assertDay(day);
-      const bits = loadBits();
-      const rows = bits.kind === "ok" ? bits.days.get(day) : undefined;
-      if (rows && rows.size > 0) {
-        return viewRows(rows);
-      }
-      const daily = loadDaily();
-      const counts = daily.kind === "ok" ? daily.days.get(day) : undefined;
-      const projects = new Map<string, RowView>();
-      for (const [project, value] of counts ?? []) {
-        if (project !== PH_ALL) {
-          projects.set(project, { counts: value });
-        }
-      }
-      return { total: { counts: counts?.get(PH_ALL) ?? ZERO }, projects };
+      return readRange(day, day).get(day) ?? EMPTY_DAY;
     },
+
+    readRange,
   };
 }
 
