@@ -51,7 +51,7 @@ export type SensorCosense = {
 };
 
 export type SensorDependencies = {
-  readonly store: Pick<Store, "record" | "fold">;
+  readonly store: Pick<Store, "record" | "sweep">;
   readonly now: () => Date;
   readonly document: Pick<Document, "visibilityState" | "hasFocus">;
   /** 操作のイベントを聞く先 (window) */
@@ -146,7 +146,7 @@ export function startSensor(cosense: SensorCosense, deps: SensorDependencies): S
       if (day !== lastDay) {
         const changed = lastDay !== undefined;
         lastDay = day;
-        deps.store.fold(day);
+        deps.store.sweep(day);
         if (changed) {
           deps.onDayChange?.(day);
         }

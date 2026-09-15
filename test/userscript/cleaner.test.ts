@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import { CLEARED_KEYS, createCleaner } from "../../src/userscript/cleaner.ts";
 import { SENT_KEY } from "../../src/userscript/outbox.ts";
 import { SETTINGS_KEY } from "../../src/userscript/settings-store.ts";
-import { BITS_KEY, DAILY_KEY } from "../../src/userscript/store.ts";
+import { BITS_KEY, LEGACY_DAILY_KEY } from "../../src/userscript/store.ts";
 
 function setup(options: { fails?: boolean } = {}) {
   // 記録と設定が入っている状態から始める
   const stored = new Map<string, string>(
-    [BITS_KEY, DAILY_KEY, SENT_KEY, SETTINGS_KEY].map((key) => [key, "{}"]),
+    [BITS_KEY, LEGACY_DAILY_KEY, SENT_KEY, SETTINGS_KEY].map((key) => [key, "{}"]),
   );
   const removed: string[] = [];
   const cleaner = createCleaner({
@@ -31,7 +31,7 @@ describe("このブラウザの記録を消す", () => {
     expect(t.cleaner.clearLocalRecords()).toBe("cleared");
 
     expect(t.removed).toEqual([...CLEARED_KEYS]);
-    expect(CLEARED_KEYS).toEqual([BITS_KEY, DAILY_KEY, SENT_KEY]);
+    expect(CLEARED_KEYS).toEqual([BITS_KEY, LEGACY_DAILY_KEY, SENT_KEY]);
   });
 
   it("**設定は残す** (read 計上の on/off は記録ではなく好み)", () => {

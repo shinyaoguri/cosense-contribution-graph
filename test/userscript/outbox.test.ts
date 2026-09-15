@@ -35,6 +35,9 @@ function memoryStorage() {
     setItem: (key: string, value: string) => {
       map.set(key, value);
     },
+    removeItem: (key: string) => {
+      map.delete(key);
+    },
   };
 }
 
