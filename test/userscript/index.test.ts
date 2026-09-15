@@ -9,6 +9,7 @@ import {
   start,
 } from "../../src/userscript/index.ts";
 import type { ProbeResult } from "../../src/userscript/probe.ts";
+import { REVOKE_TEXT, type RevokeOutcome } from "../../src/userscript/revoke.ts";
 import type { SendStatus } from "../../src/userscript/sender.ts";
 import type { CountingStatus } from "../../src/userscript/sensor.ts";
 import { SETTINGS_MENU_TITLE, type SettingsModel } from "../../src/userscript/settings.ts";
@@ -50,6 +51,7 @@ function setup(projectName = "project-a", controlled = true) {
     PageMenu: { addItem: (item) => items.push(item) },
   };
   const signIns = { count: 0, outcome: "added" };
+  const revokes = { count: 0, outcome: "revoked" as RevokeOutcome };
   const triggers: string[] = [];
   const views: ViewModel[] = [];
   const settingsViews: { model: SettingsModel; handlers: SettingsHandlers }[] = [];
@@ -73,6 +75,12 @@ function setup(projectName = "project-a", controlled = true) {
       },
     },
     graphDialog: { open: (model) => views.push(model) },
+    revoker: {
+      revokeThisDevice: async () => {
+        revokes.count++;
+        return revokes.outcome;
+      },
+    },
     settingsDialog: {
       open: (model, handlers) => settingsViews.push({ model, handlers }),
     },
@@ -141,6 +149,7 @@ function setup(projectName = "project-a", controlled = true) {
     triggers,
     views,
     settingsViews,
+    revokes,
     sending,
   };
 }
@@ -327,6 +336,20 @@ describe("送信のきっかけ", () => {
     start(t.cosense, t.deps);
     await t.setVisibility("hidden");
     expect(t.sizes).toEqual([]);
+  });
+
+  it("**「草の設定」の失効はその端末の登録を取り消し、結果の文言を返す**", async () => {
+    const t = setup();
+    start(t.cosense, t.deps);
+    await t.clickMenu(SETTINGS_MENU_TITLE);
+
+    const message = await t.settingsViews[0]?.handlers.revoke();
+
+    expect(t.revokes.count).toBe(1);
+    expect(message).toBe(REVOKE_TEXT.revoked);
+
+    t.revokes.outcome = "timeout";
+    expect(await t.settingsViews[0]?.handlers.revoke()).toBe(REVOKE_TEXT.timeout);
   });
 
   it("**登録できたら enrolled で送る**。取り消したときは送らない", async () => {

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { SendStatus } from "../../src/userscript/sender.ts";
-import { describeSettings, SIGN_IN_LABEL } from "../../src/userscript/settings.ts";
+import {
+  describeSettings,
+  REVOKE_CONFIRM,
+  REVOKE_LABEL,
+  SIGN_IN_LABEL,
+} from "../../src/userscript/settings.ts";
 import { DEFAULT_SETTINGS, type SettingsRead } from "../../src/userscript/settings-store.ts";
 
 const ENROLLED: SendStatus = {
@@ -30,6 +35,15 @@ describe("この端末", () => {
 
     expect(model.device).toMatchObject({ kind: "enrolled", kid: "0123456789abcdef" });
     expect(model.signIn?.label).toBe("サインインし直す");
+  });
+
+  it("**登録済みのときだけ失効を出す** (登録が無ければ取り消すものが無い)", () => {
+    expect(describeSettings(ENROLLED, settings(true)).revoke).toEqual({
+      label: REVOKE_LABEL,
+      confirm: REVOKE_CONFIRM,
+    });
+    expect(describeSettings({ kind: "not-enrolled" }, settings(true)).revoke).toBeUndefined();
+    expect(describeSettings({ kind: "storage" }, settings(true)).revoke).toBeUndefined();
   });
 
   it.each([

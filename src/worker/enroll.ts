@@ -1,5 +1,6 @@
 /**
- * `GET /v1/enroll.gif` — デバイスの公開鍵を登録する (design §6)。
+ * `GET /v1/enroll.gif` — デバイスの公開鍵を登録する。
+ * `GET /v1/revoke.gif` — 登録したデバイスを失効させる (どちらも design §6)。
  *
  * 1. **形を見る (400)。** `parseEnrollQuery` が厳密に読む
  * 2. **公開鍵を読み込み (400)、その鍵で署名を検証する (403)。** ここまで D1 に触らない
@@ -16,7 +17,14 @@ import { encodeBase64url } from "../shared/base64url.ts";
 import { ENROLL_TOKEN_BYTES, enrollWidth, parseEnrollQuery } from "../shared/enroll.ts";
 import { sha256Hex } from "../shared/hash.ts";
 import { isValidUid, kidOf, PH_ALL, publicIdOf } from "../shared/ids.ts";
+import {
+  parseRevokeQuery,
+  REVOKE_WINDOW_SECONDS,
+  type RevokeError,
+  revokeWidth,
+} from "../shared/revoke.ts";
 import { importVerifyKey, verify } from "../shared/sign.ts";
+import type { ResolveKey } from "./keys.ts";
 import { gifResponse, plainResponse } from "./responses.ts";
 
 /** 登録トークンの有効期限 (design §3)。 */
@@ -130,6 +138,83 @@ export async function handleEnroll(url: URL, deps: EnrollDeps): Promise<Response
   const added = results[0]?.meta.changes === 1;
   log(200, added ? "added" : "known");
   return gifResponse(enrollWidth({ added }));
+}
+
+export type RevokeDeps = EnrollDeps & {
+  readonly resolveKey: ResolveKey;
+};
+
+/** ログに出す結果。値そのもの (uid・kid) は出さない。 */
+type RevokeReason =
+  | RevokeError
+  | "time-window"
+  | "unknown-key"
+  | "bad-signature"
+  | "d1"
+  | "removed"
+  | "absent";
+
+/**
+ * デバイスを失効させる。
+ *
+ * 1. **形を見る (400)。** `parseRevokeQuery` が厳密に読む
+ * 2. **時刻の窓 (60 秒) を見る (403)。** 破壊的な操作なので記録より狭い (design §6)
+ * 3. **署名する鍵を `keys` から引き (403)、その鍵で署名を検証する (403)。** ここまで書き込まない
+ * 4. `keys` の行を消す。**失効は行の削除**で、列は増やさない。登録し直すには ID トークンが要るので、
+ *    行が無い状態がそのまま締め出しになる
+ * 5. 200 と幅 16 (もう無かった) / 17 (消した) の透過 GIF を返す
+ *
+ * **消せるのは同じ uid の鍵だけ。** 署名する鍵と消す鍵が同じでもよい (この端末の失効)。
+ */
+export async function handleRevoke(url: URL, deps: RevokeDeps): Promise<Response> {
+  const parsed = parseRevokeQuery(url.searchParams);
+  if (!parsed.ok) {
+    return rejectRevoke(400, parsed.reason);
+  }
+  const { revocation } = parsed;
+
+  const nowMs = deps.now();
+  if (Math.abs(nowMs / 1000 - revocation.time) > REVOKE_WINDOW_SECONDS) {
+    return rejectRevoke(403, "time-window");
+  }
+
+  let key: CryptoKey | undefined;
+  try {
+    key = await deps.resolveKey(revocation.uid, revocation.kid);
+  } catch {
+    return rejectRevoke(500, "d1");
+  }
+  if (!key) {
+    return rejectRevoke(403, "unknown-key");
+  }
+  if (!(await verify(key, revocation.signature, revocation.signingInput))) {
+    return rejectRevoke(403, "bad-signature");
+  }
+
+  let removed: boolean;
+  try {
+    const result = await deps.db
+      .prepare("DELETE FROM keys WHERE uid = ? AND kid = ?")
+      .bind(revocation.uid, revocation.target)
+      .run();
+    removed = result.meta.changes > 0;
+  } catch {
+    // D1 のエラーには数値コードが無い。種別に依らず 500 にする (research §5)
+    return rejectRevoke(500, "d1");
+  }
+
+  logRevoke(200, removed ? "removed" : "absent");
+  return gifResponse(revokeWidth({ removed }));
+}
+
+function rejectRevoke(status: 400 | 403 | 500, reason: RevokeReason): Response {
+  logRevoke(status, reason);
+  return plainResponse(status);
+}
+
+/** Workers Logs に 1 行。**uid・kid は出さない** (ADR-0013 決定 1)。 */
+function logRevoke(status: number, reason: RevokeReason): void {
+  console.log(JSON.stringify({ event: "revoke", status, reason }));
 }
 
 function reject(status: 400 | 403 | 500, reason: Reason): Response {

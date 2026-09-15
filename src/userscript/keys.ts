@@ -48,6 +48,11 @@ export type DeviceStore = {
   /** IndexedDB を開けなければ reject する (サインインし直しても直らない) */
   read(): Promise<DeviceRead>;
   write(record: DeviceRecord): Promise<void>;
+  /**
+   * この端末の鍵を消す (失効・全データの削除。段階 8、Issue #79)。**無くても成功**。
+   * 消すのは `device` のレコードだけで、DB は消さない (`trial` など別の版が置いた値に触らない)
+   */
+  clear(): Promise<void>;
 };
 
 /** 保存されていた値を読む。 */
@@ -84,6 +89,18 @@ export async function parseDeviceRecord(value: unknown): Promise<DeviceRead> {
     kind: "found",
     record: { v: RECORD_VERSION, uid, kid, privateKey, publicKey: bytes, enrolledAt },
   };
+}
+
+/** 書き込みの 1 区間。**コミットを待つ** (request の onsuccess はコミット前に来る)。 */
+function write(db: IDBDatabase, run: (store: IDBObjectStore) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(STORE_NAME, "readwrite");
+    run(transaction.objectStore(STORE_NAME));
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    transaction.onabort = () =>
+      reject(transaction.error ?? new Error("IndexedDB の書き込みが中断された"));
+  });
 }
 
 /**
@@ -144,15 +161,15 @@ export function createIndexedDbDeviceStore(factory: IDBFactory = indexedDB): Dev
     async write(record) {
       const db = await open();
       try {
-        await new Promise<void>((resolve, reject) => {
-          const transaction = db.transaction(STORE_NAME, "readwrite");
-          transaction.objectStore(STORE_NAME).put(record, DEVICE_KEY);
-          // **コミットを待つ。** request の onsuccess はコミット前に来る
-          transaction.oncomplete = () => resolve();
-          transaction.onerror = () => reject(transaction.error);
-          transaction.onabort = () =>
-            reject(transaction.error ?? new Error("IndexedDB の書き込みが中断された"));
-        });
+        await write(db, (store) => store.put(record, DEVICE_KEY));
+      } finally {
+        db.close();
+      }
+    },
+    async clear() {
+      const db = await open();
+      try {
+        await write(db, (store) => store.delete(DEVICE_KEY));
       } finally {
         db.close();
       }

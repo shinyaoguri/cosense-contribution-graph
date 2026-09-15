@@ -96,6 +96,9 @@ function harness(
         storage.writes.push(record);
         storage.value = record;
       },
+      clear: async () => {
+        storage.value = undefined;
+      },
     },
     generateKeyPair: () => {
       generated.count++;
