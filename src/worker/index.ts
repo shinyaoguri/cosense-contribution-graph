@@ -5,11 +5,9 @@ import { ENROLL_PATH } from "../shared/enroll.ts";
 import { sha256Hex } from "../shared/hash.ts";
 import { isValidPublicId } from "../shared/ids.ts";
 import { PROBE_PATH } from "../shared/probe.ts";
-import { PURGE_PATH } from "../shared/purge.ts";
 import { REVOKE_PATH } from "../shared/revoke.ts";
 import { buildScale } from "../shared/scale.ts";
 import { type AccountDeps, handleAccount } from "./account.ts";
-import { handlePurge } from "./admin.ts";
 import { type AuthDeps, handleAuthCallback, handleAuthStart } from "./auth.ts";
 import { deleteExpiredEnrollTokens, deleteOldDaybits } from "./cron.ts";
 import { DEMO_TODAY, demoData } from "./demo.ts";
@@ -26,7 +24,7 @@ import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
  * Worker のエントリ。
  *
  * 経路は `/v1/p.gif` (記録の受け口)、`/v1/enroll.gif` (デバイスの登録)、`/v1/revoke.gif` (デバイスの失効)、
- * `/v1/delete.gif` (全データの削除)、`/account` (端末の一覧と失効・共有 URL・全削除)、`/v1/g/{publicId}.svg`、
+ * `/account` (端末の一覧と失効・共有 URL・全削除)、`/v1/g/{publicId}.svg`、
  * `/v1/probe.gif` (送信の疎通確認)、`/auth/start` と `/auth/callback` (Google サインイン)。
  * グラフは `demo` ならデモを、それ以外は D1 の記録から描く。
  */
@@ -80,17 +78,6 @@ export default {
         return notFound();
       }
       return handleRevoke(url, {
-        db: env.DB,
-        resolveKey: d1KeyResolver(env.DB),
-        now: () => Date.now(),
-      });
-    }
-    if (url.pathname === PURGE_PATH) {
-      // **全削除も GET だけ。** HEAD で消させない
-      if (request.method !== "GET") {
-        return notFound();
-      }
-      return handlePurge(url, {
         db: env.DB,
         resolveKey: d1KeyResolver(env.DB),
         now: () => Date.now(),

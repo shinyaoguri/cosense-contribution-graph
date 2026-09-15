@@ -29,7 +29,7 @@ afterEach(() => {
   document.body.replaceChildren();
 });
 
-const PURGE = { label: "保存されているデータをすべて削除する", confirm: "削除しますか?" };
+const CLEAR = { label: "このブラウザの記録を消す", confirm: "消しますか?" };
 
 const DEVICES = { label: "登録した端末の一覧を見る", url: "https://grass.soui.dev/auth/devices" };
 
@@ -38,7 +38,7 @@ const ENROLLED: SettingsModel = {
   countRead: { value: true, editable: true },
   signIn: { label: "サインインし直す" },
   revoke: { label: "この端末の登録を取り消す", confirm: "取り消しますか?" },
-  purge: PURGE,
+  clear: CLEAR,
   devices: DEVICES,
 };
 
@@ -46,7 +46,7 @@ const NOT_ENROLLED: SettingsModel = {
   device: { kind: "not-enrolled", lines: ["この端末はまだ登録されていません。"] },
   countRead: { value: true, editable: true },
   signIn: { label: "サインインしてこの端末を登録" },
-  purge: PURGE,
+  clear: CLEAR,
   devices: DEVICES,
 };
 
@@ -55,7 +55,7 @@ function setup(outcome: ReturnType<SettingsDialogDependencies["setCountRead"]> =
   const signIns: number[] = [];
   const revokes: number[] = [];
   const revoke = { message: "取り消しました。", fails: false };
-  const purges: number[] = [];
+  const clears: number[] = [];
   const dialog = createSettingsDialog(document, {
     setCountRead: (value) => {
       written.push(value);
@@ -72,9 +72,9 @@ function setup(outcome: ReturnType<SettingsDialogDependencies["setCountRead"]> =
         }
         return revoke.message;
       },
-      purge: async () => {
-        purges.push(1);
-        return "削除しました。";
+      clear: async () => {
+        clears.push(1);
+        return "消しました。";
       },
     });
   };
@@ -93,7 +93,7 @@ function setup(outcome: ReturnType<SettingsDialogDependencies["setCountRead"]> =
     signIns,
     revokes,
     revoke,
-    purges,
+    clears,
     open,
     node,
     checkbox,
@@ -164,12 +164,12 @@ describe("サインイン", () => {
     t.open({
       device: { kind: "message", lines: ["保存領域を開けません。"] },
       countRead: { value: true, editable: true },
-      purge: PURGE,
+      clear: CLEAR,
       devices: DEVICES,
     });
 
     expect([...(t.node()?.querySelectorAll("button") ?? [])].map((b) => b.textContent)).toEqual([
-      PURGE.label,
+      CLEAR.label,
       "閉じる",
     ]);
   });
@@ -259,37 +259,45 @@ describe("ほかの端末", () => {
   });
 });
 
-describe("全データの削除", () => {
+describe("このブラウザの記録の削除", () => {
   const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
   it("**押しただけでは消さず、先に確かめる**", () => {
     const t = setup();
 
     t.open(ENROLLED);
-    t.button(PURGE.label)?.click();
+    t.button(CLEAR.label)?.click();
 
-    expect(t.purges).toEqual([]);
-    expect(t.node()?.textContent).toContain(PURGE.confirm);
+    expect(t.clears).toEqual([]);
+    expect(t.node()?.textContent).toContain(CLEAR.confirm);
   });
 
-  it("確かめて「削除する」を押すと実行し、結果を出す", async () => {
+  it("確かめて「消す」を押すと実行し、結果を出す", async () => {
     const t = setup();
 
     t.open(ENROLLED);
-    t.button(PURGE.label)?.click();
-    t.button("削除する")?.click();
+    t.button(CLEAR.label)?.click();
+    t.button("消す")?.click();
     await flush();
 
-    expect(t.purges).toEqual([1]);
-    expect(t.status("データの削除")).toContain("削除しました。");
+    expect(t.clears).toEqual([1]);
+    expect(t.status("このブラウザの記録")).toContain("消しました。");
   });
 
-  it("**未登録でも出す** (このブラウザの記録は消せる)", () => {
+  it("**未登録でも出す** (登録前から記録は溜まる)", () => {
     const t = setup();
 
     t.open(NOT_ENROLLED);
 
-    expect(t.button(PURGE.label)).toBeDefined();
+    expect(t.button(CLEAR.label)).toBeDefined();
+  });
+
+  it("**サーバのデータは管理のページから消すと案内する**", () => {
+    const t = setup();
+
+    t.open(ENROLLED);
+
+    expect(t.node()?.textContent).toContain("管理のページ");
   });
 });
 

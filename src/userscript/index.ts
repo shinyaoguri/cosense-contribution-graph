@@ -9,15 +9,16 @@
  * ほかに、手で再確認するための**送信の疎通確認** (Issue #31) のメニューを載せている。
  * タブを隠したときに疎通確認を自動で送るのは、本物の送信が入ったので消した (Issue #67)。
  * **記録の疎通確認** (Issue #36) のメニューは、試験用の公開鍵を消したときに一緒に消した (Issue #54)。
- * 「草の設定」には**この端末の失効**と**全データの削除**も載せている (段階 8、Issue #79)。
+ * 「草の設定」には**この端末の切り離し**と**このブラウザの記録の削除**も載せている (段階 8、Issue #79)。
+ * サーバのデータの管理 (端末の一覧・共有 URL・全削除) は Worker の `/account` (ADR-0018、Issue #88)。
  */
 import { generateSigningKeyPair } from "../shared/sign.ts";
 import { AUTH_POPUP_FEATURES, AUTH_POPUP_NAME, createSignIn } from "./auth.ts";
+import { CLEAR_TEXT, type Cleaner, createCleaner } from "./cleaner.ts";
 import { createGraphDialog, type GraphDialog } from "./graph-dialog.ts";
 import { requestImage } from "./image.ts";
 import { createIndexedDbDeviceStore } from "./keys.ts";
 import { describeResult, type ProbeResult, runProbe } from "./probe.ts";
-import { createPurger, PURGE_TEXT, type Purger } from "./purge.ts";
 import { describeSensorReport } from "./report.ts";
 import { createRevoker, REVOKE_TEXT, type Revoker } from "./revoke.ts";
 import { createSender, type Sender } from "./sender.ts";
@@ -69,8 +70,8 @@ export type Dependencies = {
   readonly settingsDialog: Pick<SettingsDialog, "open">;
   /** この端末の登録を取り消す */
   readonly revoker: Revoker;
-  /** サーバとこのブラウザのデータを全部消す */
-  readonly purger: Purger;
+  /** このブラウザの記録を消す */
+  readonly cleaner: Cleaner;
   /** 設定の読み書き。**開くたびに読み直す** (別のタブで変えた値を拾う) */
   readonly settings: Pick<SettingsAccess, "read">;
   /** センサーを始める。同じタブで動いている前のセンサーは止める */
@@ -130,7 +131,7 @@ async function runSettingsMenu(deps: Dependencies): Promise<void> {
       });
     },
     revoke: async () => REVOKE_TEXT[await deps.revoker.revokeThisDevice()],
-    purge: async () => PURGE_TEXT[await deps.purger.purgeAll()],
+    clear: async () => CLEAR_TEXT[deps.cleaner.clearLocalRecords()],
   });
 }
 
@@ -220,12 +221,7 @@ if (typeof window !== "undefined" && window.scrapbox) {
   start(cosense, {
     sender,
     revoker: createRevoker({ keys, sendImage: (url) => requestImage(url), now: () => new Date() }),
-    purger: createPurger({
-      keys,
-      storage: window.localStorage,
-      sendImage: (url) => requestImage(url),
-      now: () => new Date(),
-    }),
+    cleaner: createCleaner({ storage: window.localStorage }),
     settings,
     settingsDialog: createSettingsDialog(window.document, {
       setCountRead: (value) => settings.setCountRead(value),
