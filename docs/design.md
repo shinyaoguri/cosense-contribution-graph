@@ -119,6 +119,8 @@ src/userscript/
 (worker)
   account.ts                /account の一覧・失効・共有 URL・全削除 (ADR-0017・0018)
   session.ts                サインイン済みを 30 分覚える cookie (ADR-0017)
+  site.ts                   / と /privacy (ADR-0018)
+  markdown.ts               privacy.md を HTML にする部分集合の変換
 scripts/build-userscript.mjs esbuild でバンドルする (配布ページへの反映は手動。ADR-0013 決定 3)
 ```
 
@@ -647,6 +649,17 @@ POST で行う。破壊的な操作に Google サインインを必須にでき�
 - **消えるのはサーバのデータだけ。** このブラウザの記録は Cosense の「草の設定」の
   「このブラウザの記録を消す」で消す (`src/userscript/cleaner.ts`)。localStorage はブラウザにしかないので、
   ページからは消せない
+
+### `GET /` と `GET /privacy` — 人が読むページ
+
+**トップとプライバシーポリシー** (2026-09-15、`src/worker/site.ts`、ADR-0018)。
+
+- `/` — 何をするツールか、導入の 1 行、デモの草 (`/v1/g/demo.svg`)、管理とポリシーへのリンク
+- `/privacy` — **`docs/privacy.md` を正本のまま配信する。** wrangler の Text モジュール規則
+  (`wrangler.jsonc` の `rules`) で読み込み、`markdown.ts` の部分集合の変換で HTML にする。
+  **文面を 2 か所に置かない。** Google の OAuth 同意画面はこの URL を要求する
+- どちらも**スクリプトを 1 行も載せず**、スタイルは固定の文字列 (CSP はハッシュ)。
+  中身はデプロイでしか変わらないので `public, max-age=3600`
 
 ### `GET /account` — 管理のページ
 

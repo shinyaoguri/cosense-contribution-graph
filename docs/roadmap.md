@@ -795,8 +795,8 @@ PR の順。
 - PR の順: **ダイアログの器・サインインの集約・read 計上の on/off** (#84、済み) →
   **この端末の失効** (`/v1/revoke.gif`、済み) → **全データの削除** (`/v1/delete.gif`・`admin.ts`、済み) →
   **ほかの端末の一覧と失効** (Worker の `/account`、済み。ADR-0017)
-- **管理はページへ集約する** (ADR-0018、Issue #88)。Cosense 側はそのブラウザでしかできないことだけにし、
-  `/` (トップ)・`/account` (管理)・`/privacy` (ポリシー) の 3 枚を用意する
+- **管理はページへ集約した** (ADR-0018、Issue #88)。Cosense 側はそのブラウザでしかできないことだけにし、
+  `/` (トップ)・`/account` (管理)・`/privacy` (ポリシー) の 3 枚を用意した
 - **失効は `keys` の行の削除**で、列は足さない。登録し直すには ID トークンが要る
 - **全削除は uid を持つ 5 つの表を 1 回の batch で消す。** 表を足したら `account.ts` の `TABLES` にも足す
 - **サインインは単独のメニューをやめ、ここに集約した** (design §9)。ページメニューは
@@ -823,7 +823,7 @@ PR の順。
 | 段階 4 | **独自ドメイン** | **用意済み (2026-09-14、`grass.soui.dev`)。** ダッシュボードの Custom Domain で付け、`wrangler.jsonc` に `routes` を書かない (ADR-0014 決定 10)。`workers.dev` では zone の WAF が効かず、レートリミットがかけられない |
 | (同上) | **`WORKER_SECRET` は変えられない** | uid の導出鍵。**変えると全利用者の識別子が変わり、失うと再計算できない。必ずバックアップ** |
 | 段階 4 | Google Cloud の OAuth クライアント | **用意済み (2026-09-14)。** ID は `wrangler.jsonc` の `vars`、secret は `production` の Environment secrets (`GOOGLE_CLIENT_SECRET`)。リダイレクト URI は `https://grass.soui.dev/auth/callback`。**同意画面はテスト中で、ブランディングは未設定** (プライバシーポリシーの配信と一緒に対応する)。テスト中はテストユーザーに入れたアカウントだけがサインインできる。`openid` スコープのみなら審査は不要 |
-| 段階 4 | プライバシーポリシーの公開先 | Google の同意画面の要件。`privacy.md` を Worker から配信する |
+| 段階 4 | プライバシーポリシーの公開先 | **用意済み (2026-09-15、`https://grass.soui.dev/privacy`)。** `docs/privacy.md` を正本のまま配信する (ADR-0018)。次は同意画面のブランディング |
 | 段階 5 | **Cosense の配布用公開プロジェクト** | **用意済み (2026-09-14、[`/cosense-grass`](https://scrapbox.io/cosense-grass/))。** ページは `dev` (開発版) と `v1`… (リリース版)。バンドルはリリースのたびに手動で貼る。メンバーは持ち主だけ |
 | 公開時 | Bot Fight Mode を OFF | JS 実行を要求するチャレンジは画像ビーコンを静かに壊す |
 

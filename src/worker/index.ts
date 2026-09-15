@@ -18,13 +18,14 @@ import { handleIngest } from "./ingest.ts";
 import { d1KeyResolver } from "./keys.ts";
 import { parseParams } from "./params.ts";
 import { handleProbe } from "./probe.ts";
+import { HOME_PATH, handleHome, handlePrivacy, PRIVACY_PATH } from "./site.ts";
 import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
 
 /**
  * Worker のエントリ。
  *
  * 経路は `/v1/p.gif` (記録の受け口)、`/v1/enroll.gif` (デバイスの登録)、`/v1/revoke.gif` (デバイスの失効)、
- * `/account` (端末の一覧と失効・共有 URL・全削除)、`/v1/g/{publicId}.svg`、
+ * `/account` (端末の一覧と失効・共有 URL・全削除)、`/` と `/privacy` (人が読むページ)、`/v1/g/{publicId}.svg`、
  * `/v1/probe.gif` (送信の疎通確認)、`/auth/start` と `/auth/callback` (Google サインイン)。
  * グラフは `demo` ならデモを、それ以外は D1 の記録から描く。
  */
@@ -97,6 +98,12 @@ export default {
     }
     if (url.pathname === PROBE_PATH) {
       return handleProbe(request, url);
+    }
+    if (url.pathname === HOME_PATH) {
+      return handleHome();
+    }
+    if (url.pathname === PRIVACY_PATH) {
+      return handlePrivacy();
     }
 
     const publicId = GRAPH_PATH.exec(url.pathname)?.[1];
