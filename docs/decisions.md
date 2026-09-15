@@ -1532,10 +1532,11 @@ UserScript と Worker の役割分担を見直したところ、UserScript が *
 描いていた** (`src/userscript/render.ts` + `viewer.ts` の `describeLocal` + `src/shared/graph-layout.ts` 一式)。
 
 - 配布バンドル 109,704 バイトのうち **約 13KB が描画のため**だった
-- そのうち **3.4KB (`schemes/blue-yellow.ts` + `oklch.ts`) は一度も呼ばれない**。`SCHEMES` が
-  オブジェクトのマップで全スキームを静的に参照するので tree-shaking が効かず、
-  UserScript の描画は `DEFAULT_PARAMS` 固定 (`palette: "blue-pink"` / `theme: "light"`) で
+- そのうち **3.4KB (`schemes/blue-yellow.ts` + `oklch.ts`) は一度も呼ばれない**。
+  UserScript の描画は `DEFAULT_PARAMS` 固定 (`palette: "blue-pink"` / `theme: "light"`) で、
   `?palette=` を読むのは Worker だけ。**他人のブラウザへ死んだコードを配っていた**
+  (**tree-shaking が効かない原因をここで「`SCHEMES` がオブジェクトのマップで全スキームを静的に参照
+  するから」と書いたが、これは誤りだった。** 2026-09-16 の改訂を見ること)
 - 371 日ぶんの日次集計 (`cosense-grass:daily`、約 15KB) も、**読むのはこの描画だけ**だった。
   送信はビットマップ (直近 30 日) しか使わない
 
@@ -1586,3 +1587,32 @@ ADR-0018 が管理をページへ集約したのと同じ基準 —「その情�
   `v1` に残った利用者は古いバンドルを使い続ける (そして `cosense-grass:daily` を書き続ける)。
   配布ページ番号がメジャーで、`USERSCRIPT_VERSION` の minor は同じページ内の更新を数える
 - バンドルは **109,704 → 89,067 バイト** (-18.8%)
+
+### 2026-09-16 の改訂 — 移設は整理ではなく、配るコードの削除だった (Issue #110)
+
+**移設は済んだ** (`src/worker/graph/`)。`shared/graph.ts` は日付 (`src/shared/epoch-day.ts`) と
+格子 (`src/worker/graph/grid.ts`) に割り、テストも `test/worker/graph/` へ移した。
+
+**「移設は層の整理で、配るものへの実害は無い」という見立ては誤りだった。**
+描画を全廃した後の 89,067 バイトにも、**未参照のコードが 2,655 バイト残っていた** —
+`schemes/bands.ts` + `blue-pink.ts` の 16 進表、`oklch.ts` の変換行列、`graph.ts` の
+`WEEKDAY_LABELS` と `CELL` / `GAP` / `STEP`。UserScript が日付計算のために `shared/graph.ts` を
+引き、それが `shared/scheme.ts` を引く連鎖が入口だった。
+
+**上の文脈節に書いた原因の説明も外れていた。** `SCHEMES` (オブジェクトのマップ) も `blueYellow` も
+むしろ落ちている。残るのは**トップレベルの関数呼び出し** (`var bluePink = bandScheme({...})`)、
+**メソッド呼び出し** (`[...].map(...)`)、**二項演算** (`var STEP = CELL + GAP`)、
+**除算を含む配列** で、esbuild がこれらを副作用ありとみなすため (research §2 に実測)。
+
+結論は**置き場で解く**こと。**Worker 専用のコードを `src/shared/` に置くと、利用者のブラウザに
+配られるかどうかが esbuild の副作用判定という当てにならないものに依存する。**
+`src/shared/` に置くのは、両端が同じ文字列・同じ値を作ることが前提のものだけにする
+(署名の正規化・ビーコンの取り決め・識別子・日付)。
+
+- **再発は仕組みで止める。** `scripts/build-userscript.mjs` が `metafile.inputs` を見て、
+  `src/worker/` が混ざったらビルドを落とす。`npm run build` は `npm run check` の一部なので CI で効く
+- **`weekdayOf` だけは shared に残した。** 呼ぶのは Worker の格子だけだが、
+  「日付を UTC だけで計算している」ことの検証を jsdom でも走らせたい (`test/shared/` は両環境で走る)
+- 描画のテストが `test/shared/` から出たので、**両環境で走らせる意味が「両端が同じ値を作ること」に純化した**
+  (配色の一致は、描く側が 1 つになった時点で検証する対象そのものが消えた)
+- バンドルは **89,067 → 86,412 バイト**。`USERSCRIPT_VERSION` は挙動が変わらないので patch (`1.1.1`)

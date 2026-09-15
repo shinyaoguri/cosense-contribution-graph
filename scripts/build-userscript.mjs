@@ -30,6 +30,18 @@ const result = await build({
   },
 });
 
+// **Worker のコードをバンドルに入れない** (Issue #110)。esbuild の tree-shaking は
+// トップレベルの関数呼び出し (`bandScheme({...})`) や二項演算 (`CELL + GAP`) を副作用ありと
+// みなすので、未参照でも配られてしまう。落ちるかどうかに頼らず、入口で止める。
+const workerInputs = Object.keys(result.metafile.inputs).filter((path) =>
+  path.startsWith("src/worker/"),
+);
+if (workerInputs.length > 0) {
+  throw new Error(
+    `UserScript のバンドルに Worker のコードが入っている:\n  ${workerInputs.join("\n  ")}`,
+  );
+}
+
 const outputs = Object.entries(result.metafile.outputs);
 if (outputs.length === 0) {
   throw new Error("esbuild が出力を返さなかった");

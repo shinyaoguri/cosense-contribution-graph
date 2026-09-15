@@ -367,6 +367,51 @@ React の合成イベントなので、**ネイティブの click の処理中�
 キーボードは `onKeyUp` の Enter / Space で同じ `onClick` を呼ぶ。サインインのポップアップを `onClick` の同期区間で開けるのはこのため
 (Issue #61)。**コードから読んだだけで、実機ではサインインのメニューを押して確かめる。**
 
+---
+
+### esbuild の tree-shaking はトップレベルの呼び出しと二項演算を落とさない (2026-09-16 実測、esbuild 0.28.2)
+
+**未参照でも配られる。** `src/shared/` に置いた Worker 専用のコードが、UserScript のバンドルに
+2,655 バイト残っていた (`bands.ts` + `blue-pink.ts` の 16 進表、`oklch.ts` の変換行列、
+`graph.ts` の `WEEKDAY_LABELS` と `CELL` / `GAP` / `STEP`)。Issue #110 で気付いた。
+
+落ちるかどうかは**初期化子が副作用なしと判定できるか**で決まる。
+
+| 形 | 例 | 未参照なら |
+|---|---|---|
+| 素の宣言・関数・オブジェクト | `var SCHEMES = {...}`、`function f() {}` | **落ちる** |
+| 配列リテラル | `var a = [1, 2, 3]` | **落ちる** |
+| トップレベルの関数呼び出し | `var bluePink = bandScheme({...})` | **残る** |
+| メソッド呼び出し | `["日","月"].map(...)` | **残る** |
+| 二項演算 | `var STEP = CELL + GAP` (`CELL`・`GAP` ごと) | **残る** |
+| 除算を含む配列 | `[12831 / 3959, -329 / 214]` | **残る** |
+
+再現は 2 ファイルで足りる。**エントリ自身の export は落ちない**ので、別モジュールから
+1 つだけ import する形にする。
+
+```sh
+mkdir -p /tmp/ts && cd /tmp/ts
+cat > dead.js <<'EOF'
+export var plainArray = [1, 2, 3];
+export function plainFn() { return 1 }
+function make(x) { return x }
+export var fromCall = make({ big: "payload" });
+export var fromMap = ["日", "月"].map((t) => t);
+export var CELL = 11, GAP = 3, STEP = CELL + GAP;
+export var withDivision = [12831 / 3959, -329 / 214];
+export var used = "used";
+EOF
+printf 'import { used } from "./dead.js";\nconsole.log(used);\n' > entry.js
+npx esbuild --bundle --format=iife entry.js
+```
+
+出力に残るのは `make` / `fromCall` / `fromMap` / `CELL` / `GAP` / `STEP` / `withDivision`。
+`plainArray` と `plainFn` は消える。
+
+**帰結**: 片側しか使わないコードを `src/shared/` に置くと、配られるかどうかが esbuild の副作用判定に
+依存する。置き場で解く (ADR-0019 の 2026-09-16 の改訂)。`scripts/build-userscript.mjs` が
+`metafile.inputs` を見て `src/worker/` の混入でビルドを落とす。
+
 ## 3. 画像としての SVG 表示
 
 ### 判定は拡張子 (確定)

@@ -71,13 +71,7 @@ src/shared/                 Worker と UserScript の両方から import する
   beacon.ts                 GET /v1/p.gif のクエリの組み立てと厳密な読み取り、応答の幅
   enroll.ts                 GET /v1/enroll.gif のクエリの組み立てと厳密な読み取り、応答の幅
   auth.ts                   サインインのコード (uid と登録トークンの 48 文字) の組み立てと読み取り
-  scale.ts                  四分位スケール
-  balance.ts                読み書きのバランス (配色に依らない)
-  oklch.ts                  OKLCH → sRGB。彩度を二分探索でガモットに詰める
-  scheme.ts                 配色の差し替え口と登録表 (§7)
-  schemes/                  配色。表で指定する blue-pink (既定) と、計算で作る blue-yellow
-  graph.ts                  53 週グリッドのレイアウト計算
-  graph-layout.ts           草の寸法・色・ラベルの位置。SVG の文字列にも DOM にもしない (Worker と UserScript で共有)
+  epoch-day.ts              YYYY-MM-DD と通し日数の変換 (UTC だけで計算する)
 src/worker/
   index.ts                  ルーティング
   auth.ts                   /auth/start と /auth/callback
@@ -91,10 +85,18 @@ src/worker/
   merge.ts                  受け取ったエントリと保存済みの値のマージ (純関数)
   days.ts                   記録を受け付ける日付の窓と、ビットマップの保持日数
   keys.ts                   署名の検証に使う公開鍵を keys テーブルから引く
-  svg.ts                    GET /v1/g/{publicId}.svg。shared/graph-layout.ts のレイアウトを文字列にする
+  svg.ts                    GET /v1/g/{publicId}.svg。graph/layout.ts のレイアウトを文字列にする
   json.ts                   GET /v1/g/{publicId}.json
   admin.ts                  全削除
   cron.ts                   古いビットマップの削除
+  graph/                    草を描く一式。**Worker だけが持つ** (ADR-0019、Issue #110)
+    layout.ts               草の寸法・色・ラベルの位置。SVG の文字列にも DOM にもしない
+    grid.ts                 53 週グリッドの格子と描画パラメータ
+    scale.ts                四分位スケール
+    balance.ts              読み書きのバランス (配色に依らない)
+    oklch.ts                OKLCH → sRGB。彩度を二分探索でガモットに詰める
+    scheme.ts               配色の差し替え口と登録表 (§7)
+    schemes/                配色。表で指定する blue-pink (既定) と、計算で作る blue-yellow
 src/userscript/
   index.ts                  エントリ。常駐とマウント
   sensor.ts                 20 秒ポーリングと lines:changed。数えるプロジェクトの判定
@@ -121,8 +123,12 @@ src/userscript/
 scripts/build-userscript.mjs esbuild でバンドルする (配布ページへの反映は手動。ADR-0013 決定 3)
 ```
 
-`shared/` を両方から import するので、Worker が出す SVG と DOM 注入の草で配色が食い違わない。
-署名の正規化も両端で同じコードを使う。UserScript は esbuild で単一ファイルにバンドルする。
+`shared/` に置くのは**両端が同じ文字列・同じ値を作ることが前提のもの**だけ (署名の正規化・ビーコンの
+取り決め・識別子・日付)。**片側しか使わないものを置かない** — esbuild の tree-shaking は
+トップレベルの関数呼び出しや二項演算を落とさないので、shared に置いた Worker 専用のコードは
+未参照のまま利用者のブラウザへ配られる (ADR-0019 の 2026-09-16 の改訂、research §6)。
+`scripts/build-userscript.mjs` が `src/worker/` の混入をビルドで止める。
+UserScript は esbuild で単一ファイルにバンドルする。
 
 ### 複数プロジェクトの扱い
 
@@ -940,7 +946,7 @@ Worker 側で 16 進数に焼き込む。
 
 ## 8. SVG 出力
 
-**寸法・色・ラベルの位置は `src/shared/graph-layout.ts` の `layoutGraph` が決め、`src/worker/svg.ts` はそれを文字列にするだけ** (2026-09-15、Issue #73)。
+**寸法・色・ラベルの位置は `src/worker/graph/layout.ts` の `layoutGraph` が決め、`src/worker/svg.ts` はそれを文字列にするだけ** (2026-09-15、Issue #73。置き場は Issue #110 で `src/shared/` から移した)。
 **草を描くのはここだけ** (ADR-0019、Issue #109)。UserScript は描かない。
 
 - 列が週 (日曜始まり)、行が曜日の 7 行、直近 53 週分。左端と右端の列は欠ける
@@ -1193,7 +1199,7 @@ IndexedDB も同様なので、同じブラウザなら鍵は 1 つで足りる�
 1000 ページを走査しても 1 か月分しか得られない。
 
 導入直後は草が空になるので、**データが無いことと活動が無かったことを区別する印を出す**
-(2026-09-15、`src/shared/graph-layout.ts`、Issue #80)。
+(2026-09-15、`src/worker/graph/layout.ts`、Issue #80)。
 
 - **計測開始 = 記録のある最も古い日。** 別に「導入日」を持たない (localStorage にも D1 にも無く、
   新しく持つと端末間でずれる)。`daily` の `ph = '*'` の全期間から取る。**プロジェクト別も合算の開始日で塗り分ける**
@@ -1396,8 +1402,8 @@ Cron で日次の要約をログに出す。UserScript 側のエラーは送ら�
 ## 13. テスト
 
 - `shared/bits.ts` base64url 往復、OR の冪等性、popcount
-- `shared/scale.ts` 四分位。**比較が `<=` であること**と、離散値が少ないと四分位が同値に潰れるケース
-- `shared/oklch.ts` リファレンス値との突き合わせ。ガモット外 (高明度と青) で二分探索が効くこと
+- `worker/graph/scale.ts` 四分位。**比較が `<=` であること**と、離散値が少ないと四分位が同値に潰れるケース
+- `worker/graph/oklch.ts` リファレンス値との突き合わせ。ガモット外 (高明度と青) で二分探索が効くこと
 - `shared/ids.ts` uid が 27 文字であること。`ph` が uid でソルトされていること。
   プロジェクト別 publicId から uid も
   全体用 publicId も導けないこと
