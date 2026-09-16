@@ -43,22 +43,22 @@ const CASES: readonly (readonly [string, () => string, string])[] = [
   [
     "デモ (ライト)",
     () => demo({}),
-    "d8a790969b0e7cfe8b21ea442b480c14b06c9a8f99dcbdc61566ed8bdd9656b3",
+    "4ffbf2f4c794e6f4d76e1777051269e87bc6f8fd24ce801899a55f90361bd160",
   ],
   [
     "デモ (ダーク)",
     () => demo({ theme: "dark" }),
-    "ba7a03c1ecc5f9f42206ce8a9dfb239f29c7a426ac8291d014ed0849f71e1e42",
+    "69866ff88de6d3f7cca40cfe1a7061f64f6822bdc9bb9db0317a41db6f0550b3",
   ],
   [
     "mode=write",
     () => demo({ mode: "write" }),
-    "ec412e8c6300ac41db2202d9a5a447e265396bcf0d032b0f4ad79bc13fa84a0b",
+    "b5b3d8b349bdfa61053b6e7c46ff25829ef3fd0f2bfabb4c97950b07f25cb406",
   ],
   [
     "weeks=10",
     () => demo({ weeks: 10 }),
-    "9b9c849fdfb64f18e7190932ad3769aa13f1f64ac676275f183cf8965d27f6d9",
+    "bafd7e698fe1b819970b270013998fd13f81e8ffd22e79657e64f3f8b56b70c4",
   ],
   [
     "weeks=1 (凡例の方が広い)",
@@ -68,23 +68,23 @@ const CASES: readonly (readonly [string, () => string, string])[] = [
   [
     "palette=blue-yellow (ダーク)",
     () => demo({ palette: "blue-yellow", theme: "dark" }),
-    "3841eeae71b92fe30872f673a671b419e32a14b718e2fb3f281e1021f6f8153a",
+    "2cc2fd95c90ec80f5260fe7fd7e6f3a0df3b1a469aa7426ef956b629e4f4e352",
   ],
-  ["母集団が空", empty, "33d5ea747bc1c45ce3941067595b94618cc72a8cf9fc81b1c002ce5d91c57868"],
+  ["母集団が空", empty, "a694fee1e74d4d40761f2cdeefd6be29377ed2c0a5b698d950e57a7d82ec0acb"],
   [
     "計測開始の印 (Issue #80)",
     () => demo({}, DEMO_TODAY, "2026-06-01"),
-    "bde0aef4ae25e3155a640d5bd5f116bb0fd6df1829d3c7162082bdeda976c705",
+    "bccf4772c28f802c2d225a42e6dbefe876b8b9a451c3c0189deb006b79bfdeff",
   ],
   [
     "今日が日曜",
     () => demo({}, "2026-09-13"),
-    "b3eaa501c460865c48e78ec3ea72c747b9254a04b5c1e0d890bc3cbb31f9ce4d",
+    "b77c3cd5b3d2dec44720bf5d89ee436517b5ee1bd6cf70ab4fd96c771cf301c6",
   ],
   [
     "今日が土曜",
     () => demo({}, "2026-09-12"),
-    "bd142e0f6cd5ad504a6eae3899d7c4f2cde033b47a02aa15654038786f0abf2c",
+    "5af6b533a2b4377e8a8e90cc6ca381da4f467ec73e66f19b5ce794e80c8f1973",
   ],
 ];
 

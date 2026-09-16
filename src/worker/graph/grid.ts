@@ -81,8 +81,13 @@ const MONTH_NAMES = [
   "12月",
 ] as const;
 
-// ラベルが重なる列の間隔。「10月」は 3 文字で約 2 列ぶんの幅がある
-const MIN_LABEL_COLUMNS = 3;
+/**
+ * ラベルが要る列数。フォントは 9px で、全角の「月」が約 9px、半角の数字が約 5px。
+ * 列の間隔は 14px なので「9月」(約 14px) は 1 列、「10月」(約 19px) は 2 列とみなす
+ */
+function labelColumns(text: string): number {
+  return text.length <= 2 ? 1 : 2;
+}
 
 /** 軸のラベル。`position` は月なら列、曜日なら行の番号 (px ではない)。 */
 export type AxisLabel = {
@@ -93,12 +98,15 @@ export type AxisLabel = {
 /**
  * 月ラベル。**`toLocaleString` を使わず固定の配列から出す** (環境で表記が変わらないように)。
  *
- * 各列の最初のマスの月が前の列と変わったところに出す。
+ * **その月が始まる列にだけ出す** (2026-09-16 改訂)。列の最初のマスが月の 1〜7 日なら、
+ * その月はその週から始まっている。日曜始まりなので通常の列では月の最初の日曜が該当する。
  *
- * - **前のラベルから 3 列未満なら前のラベルを捨てる。** ぶつかるのは左端の欠けた列で、その月は
- *   数日しか表示されていないので、後ろの月を優先する
- * - **右端から 3 列未満の位置には出さない。** 「10月」は約 2 列ぶんの幅があり、右端の列に置くと
- *   SVG の外へはみ出す。そこで始まる月は高々 2 週しか表示されていない
+ * - **左端の欠けた列は、月の途中から始まっていれば出さない。** その月はもっと前に始まっていて、
+ *   同じ月が右端にもう一度来ることがある (365 日は 12 か月より少し長い)。
+ *   列 0 と列 1 が同じ月の候補になりうるので、前の列と同じ月なら捨てる
+ * - **右端はラベルの幅ぶん空いているときだけ出す。** 右端の列に「10月」を置くと SVG の外へはみ出す
+ *
+ * 月ラベル同士は最短でも 4 列離れる (最も短い月で 28 日) ので、間隔は見ない。
  */
 export function monthLabels(cells: readonly GridCell[]): AxisLabel[] {
   const firstDayOfColumn = new Map<number, string>();
@@ -114,18 +122,16 @@ export function monthLabels(cells: readonly GridCell[]): AxisLabel[] {
   let previousMonth = -1;
   for (const [column, day] of [...firstDayOfColumn].sort((a, b) => a[0] - b[0])) {
     const month = Number(day.slice(5, 7)) - 1;
-    if (month === previousMonth) {
+    // 週は 7 日なので、月の 1〜7 日から始まる列がその月の最初の週
+    if (Number(day.slice(8, 10)) > DAYS || month === previousMonth) {
       continue;
     }
     previousMonth = month;
-    if (lastColumn - column < MIN_LABEL_COLUMNS - 1) {
+    const text = MONTH_NAMES[month] ?? "";
+    if (lastColumn - column + 1 < labelColumns(text)) {
       continue;
     }
-    const last = labels.at(-1);
-    if (last && column - last.position < MIN_LABEL_COLUMNS) {
-      labels.pop();
-    }
-    labels.push({ position: column, text: MONTH_NAMES[month] ?? "" });
+    labels.push({ position: column, text });
   }
   return labels;
 }
