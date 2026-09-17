@@ -1,5 +1,6 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import { AUTH_START_PATH, AUTH_TO_ACCOUNT, AUTH_TO_PARAM } from "../../src/shared/auth.ts";
 import { DEMO_PUBLIC_ID } from "../../src/worker/svg.ts";
 
 const ORIGIN = "https://example.com";
@@ -18,6 +19,12 @@ describe("トップ /", () => {
     expect(html).toContain(`/v1/g/${DEMO_PUBLIC_ID}.svg`);
     expect(html).toContain("/account");
     expect(html).toContain("/privacy");
+  });
+
+  it("**サインインの導線を出す** (押すとそのまま自分の草に行ける)", async () => {
+    const { html } = await fetchPage("/");
+
+    expect(html).toContain(`href="${AUTH_START_PATH}?${AUTH_TO_PARAM}=${AUTH_TO_ACCOUNT}"`);
   });
 
   it("**スクリプトを載せず、CSP で止める**", async () => {
