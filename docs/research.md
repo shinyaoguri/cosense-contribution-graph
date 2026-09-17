@@ -472,6 +472,27 @@ Cosense は拡張子を見て `<img>` にするかを決め、描画できるか
 
 ---
 
+### プロジェクト名の文字種 (2026-09-17)
+
+プロジェクト作成時に Cosense が出すバリデーションのメッセージ:
+
+> Name can contain only alphabets, numbers and hyphens. It must start and end with alphabet or number
+
+つまり URL の `/{project}/` に出る識別子に使えるのは**半角の英字・数字・ハイフンだけ**で、
+**先頭と末尾は英字か数字** (ハイフンで始まらず、ハイフンで終わらない)。**アンダースコアは使えない。**
+
+```
+1 文字        ^[A-Za-z0-9]$
+2 文字以上    ^[A-Za-z0-9][A-Za-z0-9-]*[A-Za-z0-9]$
+```
+
+- **長さの上限は確かめていない。** 受け取る側では別に上限を決める
+- **表示名 (プロジェクト設定の「名前」) とは別物。** 表示名には日本語も入る。
+  UserScript が `cosense.Project.name` から読むのは URL の識別子の方 (`src/userscript/sensor.ts` は
+  この値で `/api/code/{project}/...` を組み立てている)
+- `ph` の材料 (`SHA-256(uid + ":" + プロジェクト名)`) としては文字種を問わない。
+  **この事実が要るのは、草の画像にプロジェクト名を描く案 (Issue #119) で受け取った文字列を検証するとき**
+
 ## 4. REST API
 
 型の一次情報は公式 org の [scrapbox-jp/types](https://github.com/scrapbox-jp/types)
