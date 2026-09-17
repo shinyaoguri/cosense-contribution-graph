@@ -202,13 +202,18 @@ describe("失効", () => {
   });
 });
 
-describe("共有 URL", () => {
-  it("**合算の草の URL を出す。プロジェクト別は出せないと案内する**", async () => {
+describe("あなたの草", () => {
+  async function withGraph(): Promise<{ uid: string; publicId: string }> {
     const uid = randomUid();
     const publicId = await publicIdOf(uid, PH_ALL);
     await env.DB.prepare("INSERT INTO graphs (public_id, uid, ph) VALUES (?, ?, ?)")
       .bind(publicId, uid, PH_ALL)
       .run();
+    return { uid, publicId };
+  }
+
+  it("**合算の草の URL を出す。プロジェクト別は出せないと案内する**", async () => {
+    const { uid, publicId } = await withGraph();
 
     const html = await (await get(await cookieFor(uid))).text();
 
@@ -216,10 +221,27 @@ describe("共有 URL", () => {
     expect(html).toContain("ページメニュー「cosense-grass」にプロジェクト名つきで並びます");
   });
 
-  it("まだ草が無ければその旨を出す", async () => {
+  it("**草そのものを画像で出す** (URL を別のタブで開かなくてよい)", async () => {
+    const { uid, publicId } = await withGraph();
+
+    const html = await (await get(await cookieFor(uid))).text();
+
+    expect(html).toContain(`<img src="/v1/g/${publicId}.svg"`);
+  });
+
+  it("**草を出すので CSP は同じオリジンの画像を許す**", async () => {
+    const { uid } = await withGraph();
+
+    const res = await get(await cookieFor(uid));
+
+    expect(res.headers.get("content-security-policy")).toContain("img-src 'self'");
+  });
+
+  it("まだ草が無ければその旨を出し、画像も出さない", async () => {
     const html = await (await get(await cookieFor(randomUid()))).text();
 
     expect(html).toContain("まだ草がありません");
+    expect(html).not.toContain("<img");
   });
 });
 

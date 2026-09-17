@@ -1,6 +1,6 @@
 /**
  * `/account` — 管理のページ (design §9、ADR-0017・0018、Issue #88)。
- * 端末の一覧と失効、合算の共有 URL、全データの削除。
+ * 端末の一覧と失効、合算の草と共有 URL、全データの削除。
  *
  * **なぜ Worker のページなのか。** Cosense の CSP は `connect-src` を塞いでいるので、UserScript は
  * サーバの `keys` を読めない (ADR-0001・0003)。一覧は「受信」なので画像ビーコンでは扱えない。
@@ -9,7 +9,7 @@
  *
  * - **GET は一覧**、**POST は失効か全削除**。POST の後は 303 で GET に戻す (再読み込みで二重に消さない)
  * - セッションは `session.ts` の cookie (30 分)。無ければサインインを促すだけで、何も出さない
- * - **出すのは kid と登録日時と合算の共有 URL だけ。** uid も公開鍵も画面に出さない
+ * - **出すのは kid と登録日時と合算の草 (画像と共有 URL) だけ。** uid も公開鍵も画面に出さない
  * - **プロジェクト別の共有 URL は出せない。** サーバはプロジェクト名を持たない (ADR-0007) ので、
  *   名前付きの一覧は Cosense のページメニュー「cosense-grass」にある
  * - **自分の kid は UserScript にしか無い**ので、この画面では「どれがこの端末か」を示せない。
@@ -60,6 +60,7 @@ const STYLE = `body { font-family: system-ui, sans-serif; margin: 2rem 1rem; lin
 table { border-collapse: collapse; margin: 1rem 0; }
 th, td { padding: 0.4rem 0.8rem; border-bottom: 1px solid #8b949e; text-align: left; }
 code { word-break: break-all; }
+img { max-width: 100%; }
 small { color: #8b949e; }`;
 
 /** 計算済みの CSP。**Promise ではなく文字列で持つ** (`auth-page.ts` と同じ理由) */
@@ -71,8 +72,8 @@ async function devicesCsp(): Promise<string> {
       await crypto.subtle.digest("SHA-256", new TextEncoder().encode(STYLE)),
     );
     const style = `sha256-${btoa(String.fromCharCode(...digest))}`;
-    // フォームの送り先は自分自身だけ
-    cachedCsp = `default-src 'none'; script-src 'none'; style-src '${style}'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`;
+    // 草の SVG は同じオリジンから出す。フォームの送り先は自分自身だけ
+    cachedCsp = `default-src 'none'; script-src 'none'; style-src '${style}'; img-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`;
   }
   return cachedCsp;
 }
@@ -137,7 +138,7 @@ ${rows}
 どれがいま使っているブラウザかは、Cosense の「cosense-grass」→「設定」に出る端末の識別子で見分けてください。</small></p>`
 }
 
-<h2>共有 URL</h2>
+<h2>あなたの草</h2>
 ${await shareSection(session, deps)}
 
 <h2>すべてのデータを削除する</h2>
@@ -154,7 +155,7 @@ ${await shareSection(session, deps)}
 }
 
 /** POST は失効 (`action=revoke`) か全削除 (`action=delete`)。 */
-/** 合算の共有 URL。**プロジェクト別は出せない** (サーバはプロジェクト名を持たない。ADR-0007)。 */
+/** 合算の草と共有 URL。**プロジェクト別は出せない** (サーバはプロジェクト名を持たない。ADR-0007)。 */
 async function shareSection(session: Session, deps: AccountDeps): Promise<string> {
   const publicId = await publicIdOf(session.uid, PH_ALL);
   let exists: boolean;
@@ -171,8 +172,10 @@ async function shareSection(session: Session, deps: AccountDeps): Promise<string
   if (!exists) {
     return "<p>まだ草がありません。Cosense のページメニュー「cosense-grass」→「設定」からサインインすると作られます。</p>";
   }
-  const url = `${deps.publicOrigin}/v1/g/${publicId}.svg`;
+  const path = `/v1/g/${publicId}.svg`;
+  const url = `${deps.publicOrigin}${path}`;
   return `<p>全プロジェクトを合算した草です。<strong>URL を知っている人は誰でも見られます。</strong></p>
+<img src="${escapeHtml(path)}" width="775" height="200" alt="全プロジェクトを合算した草">
 <p><code>${escapeHtml(url)}</code></p>
 <p><small>プロジェクト別の草の URL は、Cosense のページメニュー「cosense-grass」にプロジェクト名つきで並びます
 (サーバはプロジェクト名を持たないので、この画面では名前を出せません)。</small></p>`;

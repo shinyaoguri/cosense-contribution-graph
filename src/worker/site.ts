@@ -3,13 +3,13 @@
  *
  * - **ポリシーは `docs/privacy.md` を正本のまま配信する。** Text モジュールとして読み込み、
  *   `markdown.ts` で HTML にする (wrangler.jsonc の `rules`)。**2 か所に同じ文面を置かない**
- * - トップはデモの草を `<img>` で出す。導入の 1 行と、管理・ポリシーへのリンクを置く
+ * - トップはデモの草を `<img>` で出す。導入の 1 行と、サインインの導線、管理・ポリシーへのリンクを置く
  * - `account.ts`・`auth-page.ts` と同じ作法 — スタイルは固定の文字列で CSP はハッシュ、
  *   **スクリプトは 1 行も載せない**、`referrer-policy: no-referrer`
  * - **キャッシュする。** 中身はデプロイでしか変わらないので、ページは 1 時間 (`account.ts` の `no-store` と対照的)
  */
 import privacyMarkdown from "../../docs/privacy.md";
-import { ACCOUNT_PATH } from "../shared/auth.ts";
+import { ACCOUNT_PATH, AUTH_START_PATH, AUTH_TO_ACCOUNT, AUTH_TO_PARAM } from "../shared/auth.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { DEMO_PUBLIC_ID } from "./svg.ts";
 
@@ -57,6 +57,10 @@ export function handleHome(): Promise<Response> {
 
 <img src="/v1/g/${DEMO_PUBLIC_ID}.svg" width="775" height="200" alt="草の例 (デモ)">
 <p><small>デモの草です。実際の記録ではありません。</small></p>
+
+<p><a href="${AUTH_START_PATH}?${AUTH_TO_PARAM}=${AUTH_TO_ACCOUNT}">Google でサインインして自分の草を見る</a></p>
+<p><small>すでに Cosense で設定を済ませている方は、ここからサインインすると自分の草を見られます。
+まだの方は、先に下の「使い方」を済ませてください。</small></p>
 
 <h2>使い方</h2>
 <p>Cosense の自分のユーザーページ (<code>/{project}/{username}</code>) の <code>script.js</code> に、
