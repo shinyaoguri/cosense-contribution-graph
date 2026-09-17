@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CLEAR_TEXT, type ClearResult } from "../../src/userscript/cleaner.ts";
 import type { GraphDialogHandlers } from "../../src/userscript/graph-dialog.ts";
 import { type Cosense, type Dependencies, start } from "../../src/userscript/index.ts";
+import { menuIcon } from "../../src/userscript/menu-icon.ts";
 import { SEND_TEXT, type SendOutcome } from "../../src/userscript/outbox.ts";
 import { REVOKE_TEXT, type RevokeOutcome } from "../../src/userscript/revoke.ts";
 import type { SendStatus } from "../../src/userscript/sender.ts";
@@ -15,7 +16,10 @@ import type { IntegratedView } from "../../src/userscript/viewer.ts";
 /** 偽の Cosense と依存。開いたダイアログ・localStorage・イベントを記録する。 */
 function setup(projectName = "project-a") {
   const clock = { ms: Date.parse("2026-09-13T06:00:00Z") };
-  const items: { title: string; onClick: () => void }[] = [];
+  // addMenu は状態が変わるたびに同じ title で呼び直される。**最後の 1 つが今出ているボタン**
+  const items: { title: string; image: string; onClick: () => void }[] = [];
+  const projectListeners: (() => void)[] = [];
+  const timers: (() => void)[] = [];
   const store = new Map<string, string>();
   const listeners: (() => void)[] = [];
   const doc = { visibilityState: "visible" as DocumentVisibilityState };
@@ -26,9 +30,13 @@ function setup(projectName = "project-a") {
     Project: project,
     Page: { id: null },
     Layout: "page",
-    on: () => undefined,
+    on: ((event: string, listener: () => void) => {
+      if (event === "project:changed") {
+        projectListeners.push(listener);
+      }
+    }) as Cosense["on"],
     off: () => undefined,
-    PageMenu: { addItem: (item) => items.push(item) },
+    PageMenu: { addMenu: (menu) => void items.push(menu) },
   };
   const signIns = { count: 0, outcome: "added" };
   const revokes = { count: 0, outcome: "revoked" as RevokeOutcome };
@@ -89,6 +97,11 @@ function setup(projectName = "project-a") {
         }
       },
     } as Dependencies["document"],
+    // 走らせる時機はテストが決める (導入判定の待ち直しを手で進める)
+    setTimeout: (handler: () => void) => {
+      timers.push(handler);
+      return timers.length;
+    },
     now: () => new Date(clock.ms),
   };
 
@@ -102,11 +115,35 @@ function setup(projectName = "project-a") {
   }
 
   async function clickMenu(title = MENU_TITLE) {
-    const item = items.find((i) => i.title === title);
+    // 描き直しで同じ title が複数回積まれる。**今出ているのは最後の 1 つ**
+    const item = items.findLast((i) => i.title === title);
     if (!item) {
       throw new Error("メニューが無い");
     }
     item.onClick();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  /** いま出ているボタンのアイコン */
+  function icon(): string | undefined {
+    return items[items.length - 1]?.image;
+  }
+
+  /** 溜まっている待ち直しを 1 巡させる */
+  async function runTimers() {
+    const pending = timers.splice(0, timers.length);
+    for (const run of pending) {
+      run();
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  /** プロジェクトが変わったことを知らせる */
+  async function changeProject(name: string) {
+    project.name = name;
+    for (const listener of projectListeners) {
+      listener();
+    }
     await new Promise((resolve) => setTimeout(resolve, 0));
   }
 
@@ -122,6 +159,10 @@ function setup(projectName = "project-a") {
     deps,
     clock,
     items,
+    icon,
+    runTimers,
+    timers,
+    changeProject,
     store,
     sensor,
     project,
@@ -139,14 +180,91 @@ function setup(projectName = "project-a") {
 }
 
 describe("ページメニュー", () => {
-  it("**足すのは「草を見る」の 1 項目だけ** (Cosense のページメニューの占有を最小にする)", () => {
+  it("**足すのは独立したボタン 1 つだけ** (Cosense のページメニューの占有を最小にする)", () => {
     const t = setup();
 
     start(t.cosense, t.deps);
 
-    expect(t.items.map((i) => i.title)).toEqual([MENU_TITLE]);
+    expect(new Set(t.items.map((i) => i.title))).toEqual(new Set([MENU_TITLE]));
+    expect(t.items.length).toBeGreaterThan(0);
+  });
+
+  it("**1 クリックで草のダイアログが開く** (ハンバーガーを開かせない)", async () => {
+    const t = setup();
+    start(t.cosense, t.deps);
+
+    await t.clickMenu();
+
+    expect(t.views).toHaveLength(1);
   });
 });
+
+describe("ボタンのアイコン", () => {
+  it("**未サインインと送信中でアイコンが違う**", async () => {
+    const t = setup();
+    start(t.cosense, t.deps);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const localOnly = t.icon();
+
+    t.sending.status = async () => enrolled();
+    await t.changeProject("project-b");
+
+    expect(t.icon()).not.toBe(localOnly);
+    expect(t.icon()).toBe(menuIcon("synced"));
+    expect(localOnly).toBe(menuIcon("local-only"));
+  });
+
+  it("**数えていないプロジェクトでは、そうと分かるアイコンにする** (常駐でボタンだけは出る)", async () => {
+    const t = setup();
+    t.sensor.status = "not-installed";
+    start(t.cosense, t.deps);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(t.icon()).toBe(menuIcon("not-installed"));
+  });
+
+  it("**導入判定の最中は待ち直し、終わったら描き直す**", async () => {
+    const t = setup();
+    t.sensor.status = "checking";
+    start(t.cosense, t.deps);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(t.icon()).toBe(menuIcon("unknown"));
+    expect(t.timers.length).toBeGreaterThan(0);
+
+    t.sensor.status = "counting";
+    await t.runTimers();
+
+    expect(t.icon()).toBe(menuIcon("local-only"));
+  });
+
+  it("**サインインできたらアイコンが変わる** (ページを開き直さなくてよい)", async () => {
+    const t = setup();
+    start(t.cosense, t.deps);
+    await t.openSettings();
+    expect(t.icon()).toBe(menuIcon("local-only"));
+
+    t.sending.status = async () => enrolled();
+    t.settingsViews[t.settingsViews.length - 1]?.handlers.signIn();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(t.icon()).toBe(menuIcon("synced"));
+  });
+});
+
+/** 登録済みの送信状況。アイコンの判定にだけ使うので、中身は最小限でよい */
+function enrolled(): SendStatus {
+  return {
+    kind: "enrolled",
+    kid: "kid-1",
+    graphUrl: "https://grass.soui.dev/v1/g/x.svg",
+    totalSent: true,
+    projects: [],
+    todaySends: 0,
+    pendingPastDays: 0,
+    todayPending: false,
+  };
+}
 
 describe("草の設定", () => {
   it("**「草を見る」のダイアログから開く**。開くたびに登録の状態と設定を読み直す", async () => {
@@ -158,8 +276,9 @@ describe("草の設定", () => {
 
     expect(t.settingsViews).toHaveLength(2);
     expect(t.settingsViews[0]?.model.device.kind).toBe("not-enrolled");
-    // 草のダイアログと設定のダイアログが、それぞれ開くたびに読み直す
-    expect(t.sending.count).toBe(4);
+    // 草のダイアログと設定のダイアログが、それぞれ開くたびに読み直す (4 回)。
+    // **+1 は起動時にボタンのアイコンを決めるための 1 回** (Issue #122)
+    expect(t.sending.count).toBe(5);
   });
 
   it("**サインインは「草の設定」の handlers から 1 回だけ呼ぶ** (ポップアップを開くのにクリックの直後である必要がある)", async () => {
@@ -194,7 +313,8 @@ describe("草を見る", () => {
     await t.clickMenu(MENU_TITLE);
     await t.clickMenu(MENU_TITLE);
 
-    expect(t.sending.count).toBe(2);
+    // 開くたびに 1 回ずつ + 起動時にアイコンを決める 1 回
+    expect(t.sending.count).toBe(3);
     expect(t.views).toHaveLength(2);
     const view = t.views[0]?.view;
     expect(view?.kind === "graphs" && view.projects.map((project) => project.url)).toEqual([
@@ -228,8 +348,8 @@ describe("草を見る", () => {
     // 送れたので、表示中の草を取り直してよい
     expect(result?.refresh).toBe(true);
     expect(result?.view.lines[0]).toBe("このブラウザの記録は送信済みです。");
-    // 押した後にもう一度状況を読む (ダイアログは開き直さない)
-    expect(t.sending.count).toBe(2);
+    // 押した後にもう一度状況を読む (ダイアログは開き直さない) + 起動時にアイコンを決める 1 回
+    expect(t.sending.count).toBe(3);
   });
 
   it("**サーバの記録が変わらなければ草を取り直さない**", async () => {

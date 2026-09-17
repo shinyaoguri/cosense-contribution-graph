@@ -369,6 +369,31 @@ React の合成イベントなので、**ネイティブの click の処理中�
 
 ---
 
+### ページメニューには独立したボタンも足せる (2026-09-17)
+
+`scrapbox.PageMenu.addItem` はハンバーガーの**中**に項目を足すが、`scrapbox.PageMenu.addMenu` は
+**`div.page-menu` に独立したボタンを足す**。1 クリックで押せる。
+
+```js
+scrapbox.PageMenu.addMenu({ title, image, onClick });
+```
+
+| | |
+|---|---|
+| `title` (必須) | ホバーで出る tooltip の文字。**ボタンの要素の `id` にもなる** |
+| `image` (必須) | アイコンの URL。**CSP が `img-src * data:` なので data: URI でよい** (§1) |
+| `icon` | `kamon kamon-play` のような CSS クラス。`image` の方が優先される |
+| `onClick` | 押したときに実行する関数 |
+
+`addMenu` は内部で `emitChange` を実行する (`addItem` / `addSeparator` も同じ)。
+
+出典: [scrapboxlab/Page Menuにボタンを追加する](https://scrapbox.io/scrapboxlab/Page%20Menu%E3%81%AB%E3%83%9C%E3%82%BF%E3%83%B3%E3%82%92%E8%BF%BD%E5%8A%A0%E3%81%99%E3%82%8B)。
+**一次情報ではなく有志のまとめ**なので、実機で確かめた分だけ下に足していく。
+
+- [ ] **同じ `title` で `addMenu` を呼び直したとき、上書きされるか / ボタンが重複するか** (Issue #122)
+
+---
+
 ### esbuild の tree-shaking はトップレベルの呼び出しと二項演算を落とさない (2026-09-16 実測、esbuild 0.28.2)
 
 **未参照でも配られる。** `src/shared/` に置いた Worker 専用のコードが、UserScript のバンドルに
