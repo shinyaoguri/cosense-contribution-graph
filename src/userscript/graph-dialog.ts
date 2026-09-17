@@ -25,6 +25,17 @@ import {
 
 const STOPPED_EVENTS = ["keydown", "keyup", "keypress", "paste", "copy", "cut"] as const;
 
+/**
+ * 草 1 件の囲みの寸法 (Issue #124)。**枠の内側 (`INNER_*`) より枠と枠の間 (`OUTER_GAP`) を広く取る** —
+ * 近接だけでもまとまりが読めるようにするため。この大小が逆になると囲みの意味が消える。
+ */
+const INNER_PADDING = 12;
+const INNER_GAP = 8;
+const OUTER_GAP = 20;
+
+/** 囲みの枠の色。**ダイアログは常にライトで出す** (research §3) ので固定でよい。 */
+const BORDER_COLOR = "#d0d7de";
+
 /** 53 週の既定の SVG の寸法 (design §8)。先に確保して、読み込みでダイアログの大きさが変わらないようにする */
 export const GRAPH_WIDTH = 775;
 export const GRAPH_HEIGHT = 200;
@@ -214,17 +225,35 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
         },
       );
     });
+    // ボタンの文言は短いままにし、**どの草のものかは囲みと `aria-label` で示す** (Issue #124)
+    copy.setAttribute("aria-label", `${entry.label} の草の URL をコピー`);
+    // 画像との距離を、枠と枠の間より近くする (ゲシュタルトの近接)
+    line.style.margin = `${INNER_GAP}px 0 0`;
     line.append(copy, status);
     return line;
   };
 
+  /**
+   * 1 つの草 (見出し・画像・コピー) を**枠で囲む** (Issue #124)。
+   *
+   * 囲まずに縦へ並べると、コピーボタンが上の画像のものか下の画像のものか読み取れない。
+   * **共通領域** (同じ囲みの中は 1 つのまとまり) と**近接** (枠の内側 < 枠と枠の間) の両方で示す。
+   * 片方だけに頼らないのは、枠線が見えにくい環境でも間隔でまとまりが読めるようにするため。
+   */
   const graph = (entry: GraphEntry) => {
-    const block = element("div");
-    block.append(element("h4", entry.label));
+    const block = element("section");
+    block.style.border = `1px solid ${BORDER_COLOR}`;
+    block.style.borderRadius = "8px";
+    block.style.padding = `${INNER_PADDING}px`;
+    block.style.margin = `${OUTER_GAP}px 0`;
+    const heading = element("h4", entry.label);
+    heading.style.margin = `0 0 ${INNER_GAP}px`;
+    block.append(heading);
     if (entry.sent) {
       block.append(image(entry));
     } else {
       const note = element("p", "このブラウザからはまだ送っていません。 ");
+      note.style.margin = "0";
       note.append(
         button("表示してみる", () => {
           // ほかの端末から送っていれば草はある

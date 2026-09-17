@@ -152,6 +152,53 @@ describe("createGraphDialog", () => {
     expect(t.find()?.querySelector("h4")?.textContent).toBe(TOTAL_LABEL);
   });
 
+  it("**1 つの草に属するものを 1 つの囲みにまとめる** (どのコピーがどの画像のものか読み取れるように)", () => {
+    const t = setup();
+    const projects = [
+      { label: "project-a", sent: true },
+      { label: "project-b", sent: true },
+    ];
+    t.open(graphs(projects));
+
+    // 草ごとの囲み。外側のセクションは除く
+    const blocks = t
+      .sections()
+      .filter(
+        (node) => node.querySelector("h4") !== null && node.querySelector("section") === null,
+      );
+
+    expect(blocks).toHaveLength(1 + projects.length);
+    for (const block of blocks) {
+      // 見出し・画像・コピーが同じ囲みの中に 1 つずつ
+      expect(block.querySelectorAll("h4")).toHaveLength(1);
+      expect(block.querySelectorAll("img")).toHaveLength(1);
+      expect(
+        [...block.querySelectorAll("button")].filter((b) => b.textContent === "URL をコピー"),
+      ).toHaveLength(1);
+      expect(block.style.border).not.toBe("");
+    }
+  });
+
+  it("**枠の内側より枠と枠の間を広く取る** (囲みが見えなくても近接でまとまりが読める)", () => {
+    const t = setup();
+    t.open(graphs([{ label: "project-a", sent: true }]));
+
+    const block = t.sections().find((node) => node.style.border !== "");
+    const padding = Number.parseInt(block?.style.padding ?? "0", 10);
+    const margin = Number.parseInt(block?.style.margin ?? "0", 10);
+
+    expect(margin).toBeGreaterThan(padding);
+  });
+
+  it("**コピーボタンは対象を名乗る** (支援技術でも対応が分かる)", () => {
+    const t = setup();
+    t.open(graphs([{ label: "project-a", sent: true }]));
+
+    const labels = t.buttons("URL をコピー").map((b) => b.getAttribute("aria-label"));
+
+    expect(labels).toContain("project-a の草の URL をコピー");
+  });
+
   it("**読めなかった画像は文言に置き換える**", () => {
     const t = setup();
     t.open(graphs([]));
