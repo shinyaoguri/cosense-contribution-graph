@@ -35,6 +35,7 @@ async function loadGraph(
   db: D1Database,
   publicId: string,
   nowMs: number,
+  end?: string,
 ): Promise<StoredGraph | undefined> {
   const graph = await db
     .prepare("SELECT uid, ph FROM graphs WHERE public_id = ?")
@@ -44,7 +45,10 @@ async function loadGraph(
     return undefined;
   }
 
-  const today = todayIn(DEFAULT_TIME_ZONE, nowMs);
+  // **右端の日。** 既定は今日で、`end` があればその日まで遡る (Issue #128)。
+  // **未来は受けない** — 未来のマスを描いても意味がない
+  const realToday = todayIn(DEFAULT_TIME_ZONE, nowMs);
+  const today = end !== undefined && end < realToday ? end : realToday;
   const start = fromEpochDay(toEpochDay(today) - DAYS * (MAX_WEEKS - 1));
   const populationQuery = db
     .prepare("SELECT day, w, r FROM daily WHERE uid = ? AND ph = ?")
@@ -89,8 +93,10 @@ export async function renderStoredGraph(
   nowMs: number,
   /** 画像に描くプロジェクト名 (`?l=`。Issue #119)。**保存されている値ではなく、その要求で渡されたもの** */
   label?: string,
+  /** 草の右端にする日 (`?end=`。Issue #128)。既定は今日 */
+  end?: string,
 ): Promise<string | undefined> {
-  const graph = await loadGraph(db, publicId, nowMs);
+  const graph = await loadGraph(db, publicId, nowMs, end);
   if (!graph) {
     return undefined;
   }

@@ -187,3 +187,67 @@ describe("GET /v1/g/{publicId}.svg — D1 の記録", () => {
     }
   });
 });
+
+describe("過去を見る (Issue #128)", () => {
+  it("**`end` より後の記録は表示範囲に入らない**", async () => {
+    const uid = randomUid();
+    const publicId = await store(uid, PH_ALL, [
+      ["2026-09-14", 40, 0],
+      ["2025-03-01", 40, 0],
+    ]);
+
+    const past = await renderStoredGraph(
+      env.DB,
+      publicId,
+      DEFAULT_PARAMS,
+      NOW,
+      undefined,
+      "2025-03-01",
+    );
+    const now = await renderStoredGraph(env.DB, publicId, DEFAULT_PARAMS, NOW);
+
+    expect(past).not.toBe(now);
+  });
+
+  it("**四分位と中心は全期間のまま** (過去を見ても現在と同じ物差しで塗る。ADR-0007 決定 4)", async () => {
+    const uid = randomUid();
+    // 表示範囲 (2025-03-01 を右端) には 1 日だけ。大きな値はすべて範囲の外にある
+    const publicId = await store(uid, PH_ALL, [
+      ["2025-03-01", 10, 0],
+      ["2026-09-10", 500, 0],
+      ["2026-09-11", 500, 0],
+      ["2026-09-12", 500, 0],
+    ]);
+
+    const past = await renderStoredGraph(
+      env.DB,
+      publicId,
+      DEFAULT_PARAMS,
+      NOW,
+      undefined,
+      "2025-03-01",
+    );
+
+    // 範囲内だけで四分位を取っていたら、唯一の値である 10 分が最も濃い段になる。
+    // **全期間から取るので薄い段のまま** — 濃い段の色は 1 マスも出ない
+    const grid = /<g data-part="grid">(.*?)<\/g>/s.exec(past ?? "")?.[1] ?? "";
+    const gridFills = [...grid.matchAll(/fill="([^"]+)"/g)].map((m) => m[1]);
+    const painted = gridFills.filter((fill) => fill !== "#ebedf0" && fill !== "none");
+    expect(painted).toHaveLength(1);
+
+    // 同じ日を範囲に含む別の右端でも、その日の色は変わらない
+    const next = await renderStoredGraph(
+      env.DB,
+      publicId,
+      DEFAULT_PARAMS,
+      NOW,
+      undefined,
+      "2025-03-02",
+    );
+    const nextGrid = /<g data-part="grid">(.*?)<\/g>/s.exec(next ?? "")?.[1] ?? "";
+    const nextPainted = [...nextGrid.matchAll(/fill="([^"]+)"/g)]
+      .map((m) => m[1])
+      .filter((fill) => fill !== "#ebedf0" && fill !== "none");
+    expect(nextPainted).toEqual(painted);
+  });
+});

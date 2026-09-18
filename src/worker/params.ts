@@ -1,3 +1,4 @@
+import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
 import { isValidProjectName } from "../shared/project-name.ts";
 import { DEFAULT_PARAMS, MAX_WEEKS, type Params } from "./graph/grid.ts";
 import { isSchemeName } from "./graph/scheme.ts";
@@ -40,4 +41,24 @@ export function parseParams(search: URLSearchParams): Params {
 export function parseLabel(search: URLSearchParams): string | undefined {
   const raw = search.get("l");
   return raw !== null && isValidProjectName(raw) ? raw : undefined;
+}
+
+/** `end` の形。実在しない日 (`2024-02-30`) は往復で弾く */
+const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * 草の右端にする日 (`?end=`。Issue #128)。
+ *
+ * **過去を振り返るためのもの。** 既定は今日で、それより後は受けない
+ * (未来のマスを描いても意味がない)。形が外れていれば `undefined` を返し、
+ * 呼び出し側が今日を使う。ほかのパラメータと同じく **400 にはしない**。
+ */
+export function parseEnd(search: URLSearchParams): string | undefined {
+  const raw = search.get("end");
+  if (raw === null || !DAY_PATTERN.test(raw)) {
+    return undefined;
+  }
+  // 2024-02-30 のような存在しない日は、通し日数へ往復させると別の日になる
+  const epochDay = toEpochDay(raw);
+  return Number.isFinite(epochDay) && fromEpochDay(epochDay) === raw ? raw : undefined;
 }
