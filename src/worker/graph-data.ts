@@ -87,6 +87,8 @@ export async function renderStoredGraph(
   publicId: string,
   params: Params,
   nowMs: number,
+  /** 画像に描くプロジェクト名 (`?l=`。Issue #119)。**保存されている値ではなく、その要求で渡されたもの** */
+  label?: string,
 ): Promise<string | undefined> {
   const graph = await loadGraph(db, publicId, nowMs);
   if (!graph) {
@@ -98,6 +100,7 @@ export async function renderStoredGraph(
     scale: buildScale(graph.population.map((d) => d.w + d.r)),
     center: centerOf(graph.population),
     startDay: graph.startDay,
+    label,
     params,
   });
 }

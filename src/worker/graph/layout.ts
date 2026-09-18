@@ -38,6 +38,11 @@ export type GraphInput = {
    * 表示範囲より前なら印は出ない (全マスが計測済みなので区別する必要が無い)
    */
   readonly startDay?: string;
+  /**
+   * この画像に描くプロジェクト名 (`?l=`。Issue #119)。**サーバは保存しない** —
+   * 呼び出し側がクエリから読み、`isValidProjectName` を通ったものだけを渡す (ADR-0007 決定 2 の再改訂)
+   */
+  readonly label?: string;
   readonly params: Params;
 };
 
@@ -46,6 +51,8 @@ type Label = {
   readonly y: number;
   readonly text: string;
   readonly anchor: "start" | "end";
+  /** 太字にするか。プロジェクト名だけに付ける (Issue #119) */
+  readonly weight?: "bold";
 };
 
 type Swatch = { readonly x: number; readonly y: number; readonly fill: string };
@@ -101,6 +108,17 @@ const MUTED_COLOR: Record<Theme, string> = { light: "#d0d7de", dark: "#3d444d" }
 /** 凡例の左に出す注記 (Issue #80)。**寸法を増やさないので、凡例の行の空きに置く** */
 export const START_NOTE = "点線は計測開始前";
 
+/**
+ * プロジェクト名と注記の間 (Issue #119)。
+ *
+ * **名前の幅は測れないので概算する** — SVG に文字の実測幅を持ち込めない。
+ * 9px の半角英数 1 文字をこの幅とみなす (太字ぶん広めに取る)。プロジェクト名は
+ * 英字・数字・ハイフンだけなので全角は来ない (`isValidProjectName`)。
+ * **多少ずれても困らない** — 凡例は右寄せで遠く、注記との間隔が少し空くか詰まるだけ。
+ */
+const BOLD_CHAR_WIDTH = 5.5;
+const NOTE_GAP = 8;
+
 // write モードは全マスのバランスを 0 とみなすので、凡例もバランス 0 の 1 列になる
 const WRITE_MODE_BALANCES: readonly number[] = [0];
 
@@ -111,6 +129,25 @@ function legendBalancesOf(params: Params, scheme: ColorScheme): readonly number[
 
 function label(x: number, y: number, text: string, anchor: Label["anchor"] = "start"): Label {
   return { x, y, text, anchor };
+}
+
+/**
+ * 凡例の行の左端に出す注記。**プロジェクト名 (太字) → 計測開始前の注記**の順に左から並べる。
+ *
+ * **ここに置くのは寸法を増やさないため** (Issue #80 と同じ理由)。草の高さが変わると、
+ * `<img>` に寸法を固定している UserScript 側 (`graph-dialog.ts` の `GRAPH_HEIGHT`) で絵が潰れる。
+ */
+function bottomNotes(projectName: string | undefined, hasBeforeStart: boolean, y: number): Label[] {
+  const notes: Label[] = [];
+  let x = PADDING;
+  if (projectName !== undefined) {
+    notes.push({ x, y, text: projectName, anchor: "start", weight: "bold" });
+    x += projectName.length * BOLD_CHAR_WIDTH + NOTE_GAP;
+  }
+  if (hasBeforeStart) {
+    notes.push(label(x, y, START_NOTE));
+  }
+  return notes;
 }
 
 type Block = { readonly width: number; readonly height: number };
@@ -230,7 +267,7 @@ export function layoutGraph(input: GraphInput): GraphLayout {
     textColor: TEXT_COLOR[params.theme],
     mutedColor: MUTED_COLOR[params.theme],
     labels: [
-      ...(hasBeforeStart ? [label(PADDING, legendY + LABEL_BASELINE, START_NOTE)] : []),
+      ...bottomNotes(input.label, hasBeforeStart, legendY + LABEL_BASELINE),
       ...monthLabels(cells).map((month) =>
         label(gridX + month.position * STEP, PADDING + LABEL_BASELINE, month.text),
       ),

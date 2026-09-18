@@ -16,7 +16,7 @@ import { renderStoredGraph } from "./graph-data.ts";
 import { googleKeys } from "./idtoken.ts";
 import { handleIngest } from "./ingest.ts";
 import { d1KeyResolver } from "./keys.ts";
-import { parseParams } from "./params.ts";
+import { parseLabel, parseParams } from "./params.ts";
 import { handleProbe } from "./probe.ts";
 import { HOME_PATH, handleHome, handlePrivacy, PRIVACY_PATH } from "./site.ts";
 import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
@@ -114,7 +114,13 @@ export default {
     if (publicId !== undefined && isValidPublicId(publicId)) {
       let body: string | undefined;
       try {
-        body = await renderStoredGraph(env.DB, publicId, parseParams(url.searchParams), Date.now());
+        body = await renderStoredGraph(
+          env.DB,
+          publicId,
+          parseParams(url.searchParams),
+          Date.now(),
+          parseLabel(url.searchParams),
+        );
       } catch {
         console.log(JSON.stringify({ event: "graph", status: 503 }));
         return unavailable();
@@ -165,7 +171,14 @@ function renderDemo(search: URLSearchParams): string {
   // 四分位と中心は**表示範囲とは別の母集団** (全期間) から取る (design §7)
   const scale = buildScale(population.map((d) => d.w + d.r));
   const center = centerOf(population);
-  return renderGraph({ today: DEMO_TODAY, days, scale, center, params: parseParams(search) });
+  return renderGraph({
+    today: DEMO_TODAY,
+    days,
+    scale,
+    center,
+    params: parseParams(search),
+    label: parseLabel(search),
+  });
 }
 
 /**

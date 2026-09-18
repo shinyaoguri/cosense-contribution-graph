@@ -88,3 +88,49 @@ describe("計測開始の印 (Issue #80)", () => {
     expect(light.mutedColor).not.toBe(dark.mutedColor);
   });
 });
+
+describe("プロジェクト名 (Issue #119)", () => {
+  it("**渡されたときだけ出す**", () => {
+    expect(layoutGraph(input()).labels.map((l) => l.text)).not.toContain("villagepump");
+    expect(layoutGraph(input({ label: "villagepump" })).labels.map((l) => l.text)).toContain(
+      "villagepump",
+    );
+  });
+
+  it("**太字にする。ほかのラベルは太字にしない** (下端の小さい文字なので、名前だけ立たせる)", () => {
+    const layout = layoutGraph(input({ label: "villagepump" }));
+
+    const bold = layout.labels.filter((l) => l.weight === "bold");
+    expect(bold.map((l) => l.text)).toEqual(["villagepump"]);
+  });
+
+  it("**寸法を変えない** (UserScript が `<img>` に固定寸法を指定しているため)", () => {
+    const withLabel = layoutGraph(input({ label: "a-very-long-project-name-here" }));
+    const without = layoutGraph(input());
+
+    expect(withLabel.width).toBe(without.width);
+    expect(withLabel.height).toBe(without.height);
+  });
+
+  it("**計測開始の注記と並べる。名前が先で、重ならない**", () => {
+    const layout = layoutGraph(input({ label: "villagepump", startDay: day(-30) }));
+
+    const name = layout.labels.find((l) => l.text === "villagepump");
+    const note = layout.labels.find((l) => l.text === START_NOTE);
+    expect(name).toBeDefined();
+    expect(note).toBeDefined();
+    // 同じ行に、名前 → 注記の順で左から並ぶ
+    expect(name?.y).toBe(note?.y);
+    expect(note?.x ?? 0).toBeGreaterThan(name?.x ?? 0);
+  });
+
+  it("名前だけのときは注記の位置に出る (注記が無くても左端から始まる)", () => {
+    const onlyName = layoutGraph(input({ label: "villagepump" }));
+    const onlyNote = layoutGraph(input({ startDay: day(-30) }));
+
+    const name = onlyName.labels.find((l) => l.text === "villagepump");
+    const note = onlyNote.labels.find((l) => l.text === START_NOTE);
+    expect(name?.x).toBe(note?.x);
+    expect(name?.y).toBe(note?.y);
+  });
+});
