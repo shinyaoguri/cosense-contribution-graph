@@ -53,6 +53,11 @@ type Label = {
   readonly anchor: "start" | "end";
   /** 太字にするか。プロジェクト名だけに付ける (Issue #119) */
   readonly weight?: "bold";
+  /**
+   * リンク先 (Issue #119)。**`<img>` で貼られている間は押せない** (research §3) が、
+   * 画像そのものを開けば飛べる。プロジェクトの行にだけ付ける
+   */
+  readonly href?: string;
 };
 
 type Swatch = { readonly x: number; readonly y: number; readonly fill: string };
@@ -105,19 +110,11 @@ const LEGEND_LEVELS = [1, 2, 3, 4] as const;
 /** 計測開始前のマスの枠 (design §8)。文字色より薄くして、記録のあるマスと取り違えないようにする */
 const MUTED_COLOR: Record<Theme, string> = { light: "#d0d7de", dark: "#3d444d" };
 
-/** 凡例の左に出す注記 (Issue #80)。**寸法を増やさないので、凡例の行の空きに置く** */
-export const START_NOTE = "点線は計測開始前";
-
 /**
- * プロジェクト名と注記の間 (Issue #119)。
- *
- * **名前の幅は測れないので概算する** — SVG に文字の実測幅を持ち込めない。
- * 9px の半角英数 1 文字をこの幅とみなす (太字ぶん広めに取る)。プロジェクト名は
- * 英字・数字・ハイフンだけなので全角は来ない (`isValidProjectName`)。
- * **多少ずれても困らない** — 凡例は右寄せで遠く、注記との間隔が少し空くか詰まるだけ。
+ * プロジェクトのページ (Issue #119)。**ラベルにも `href` にも同じものを使う** —
+ * 見れば行き先が読め、SVG を開けばそのまま飛べる。
  */
-const BOLD_CHAR_WIDTH = 5.5;
-const NOTE_GAP = 8;
+const COSENSE_ORIGIN = "https://scrapbox.io";
 
 // write モードは全マスのバランスを 0 とみなすので、凡例もバランス 0 の 1 列になる
 const WRITE_MODE_BALANCES: readonly number[] = [0];
@@ -132,22 +129,28 @@ function label(x: number, y: number, text: string, anchor: Label["anchor"] = "st
 }
 
 /**
- * 凡例の行の左端に出す注記。**プロジェクト名 (太字) → 計測開始前の注記**の順に左から並べる。
+ * 凡例の行の左端に出すプロジェクトの行 (Issue #119)。
  *
- * **ここに置くのは寸法を増やさないため** (Issue #80 と同じ理由)。草の高さが変わると、
- * `<img>` に寸法を固定している UserScript 側 (`graph-dialog.ts` の `GRAPH_HEIGHT`) で絵が潰れる。
+ * **`scrapbox.io/<名前>` と出し、同じ URL を `href` に持たせる。**
+ * `<img>` で貼られている間はクリックできない (research §3) が、**画像そのものを開けば飛べる**。
+ *
+ * **ここに置くのは寸法を増やさないため。** 草の高さが変わると、`<img>` に寸法を固定している
+ * UserScript 側 (`graph-dialog.ts` の `GRAPH_HEIGHT`) で絵が潰れる。
  */
-function bottomNotes(projectName: string | undefined, hasBeforeStart: boolean, y: number): Label[] {
-  const notes: Label[] = [];
-  let x = PADDING;
-  if (projectName !== undefined) {
-    notes.push({ x, y, text: projectName, anchor: "start", weight: "bold" });
-    x += projectName.length * BOLD_CHAR_WIDTH + NOTE_GAP;
+function projectLine(projectName: string | undefined, y: number): Label[] {
+  if (projectName === undefined) {
+    return [];
   }
-  if (hasBeforeStart) {
-    notes.push(label(x, y, START_NOTE));
-  }
-  return notes;
+  return [
+    {
+      x: PADDING,
+      y,
+      text: `scrapbox.io/${projectName}`,
+      anchor: "start",
+      weight: "bold",
+      href: `${COSENSE_ORIGIN}/${projectName}`,
+    },
+  ];
 }
 
 type Block = { readonly width: number; readonly height: number };
@@ -250,7 +253,6 @@ export function layoutGraph(input: GraphInput): GraphLayout {
       beforeStart,
     };
   });
-  const hasBeforeStart = grid.some((cell) => cell.beforeStart);
 
   const legendX = PADDING + contentWidth - legend.width;
   const legendY = gridY + gridHeight + LEGEND_GAP;
@@ -267,7 +269,7 @@ export function layoutGraph(input: GraphInput): GraphLayout {
     textColor: TEXT_COLOR[params.theme],
     mutedColor: MUTED_COLOR[params.theme],
     labels: [
-      ...bottomNotes(input.label, hasBeforeStart, legendY + LABEL_BASELINE),
+      ...projectLine(input.label, legendY + LABEL_BASELINE),
       ...monthLabels(cells).map((month) =>
         label(gridX + month.position * STEP, PADDING + LABEL_BASELINE, month.text),
       ),

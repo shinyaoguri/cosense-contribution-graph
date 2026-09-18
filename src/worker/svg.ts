@@ -51,7 +51,9 @@ function toSvg(layout: GraphLayout): string {
       const anchorAttr = label.anchor === "end" ? ' text-anchor="end"' : "";
       // 値は列挙 ("bold" だけ) なので、属性に入るのは固定の文字列
       const weightAttr = label.weight === undefined ? "" : ` font-weight="${label.weight}"`;
-      return `<text x="${label.x}" y="${label.y}"${anchorAttr}${weightAttr}>${escapeXml(label.text)}</text>`;
+      const text = `<text x="${label.x}" y="${label.y}"${anchorAttr}${weightAttr}>${escapeXml(label.text)}</text>`;
+      // **`<img>` で貼られている間は押せない** (research §3)。画像そのものを開いたときに効く
+      return label.href === undefined ? text : `<a href="${escapeXml(label.href)}">${text}</a>`;
     })
     .join("");
 

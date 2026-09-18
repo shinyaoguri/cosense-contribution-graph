@@ -325,11 +325,23 @@ describe("表示範囲と母集団を取り違えない (design §7)", () => {
 });
 
 describe("プロジェクト名 (Issue #119)", () => {
-  it("**`?l=` で渡された名前を描く**", async () => {
+  it("**`?l=` で渡された名前を `scrapbox.io/<名前>` として描く**", async () => {
     const svg = await (await fetchDemo("?l=villagepump")).text();
 
-    expect(svg).toContain(">villagepump</text>");
+    expect(svg).toContain(">scrapbox.io/villagepump</text>");
     expect(svg).toContain('font-weight="bold"');
+  });
+
+  it("**プロジェクトへのリンクを埋める** (`<img>` では押せないが、画像を開けば飛べる)", async () => {
+    const svg = await (await fetchDemo("?l=villagepump")).text();
+
+    expect(svg).toContain('<a href="https://scrapbox.io/villagepump">');
+  });
+
+  it("**名前が無ければリンクも出さない**", async () => {
+    const svg = await (await fetchDemo()).text();
+
+    expect(svg).not.toContain("<a ");
   });
 
   it("**渡さなければ描かない**", async () => {

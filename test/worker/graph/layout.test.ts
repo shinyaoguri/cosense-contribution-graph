@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { fromEpochDay, toEpochDay } from "../../../src/shared/epoch-day.ts";
 import type { Minutes } from "../../../src/worker/graph/balance.ts";
 import { DAYS, DEFAULT_PARAMS, MAX_WEEKS } from "../../../src/worker/graph/grid.ts";
-import { type GraphInput, layoutGraph, START_NOTE } from "../../../src/worker/graph/layout.ts";
+import { type GraphInput, layoutGraph } from "../../../src/worker/graph/layout.ts";
 import { buildScale } from "../../../src/worker/graph/scale.ts";
 
 const TODAY = "2026-09-15";
@@ -62,18 +62,16 @@ describe("計測開始の印 (Issue #80)", () => {
     const layout = layoutGraph(input({ days: new Map() }));
 
     expect(layout.grid.some((cell) => cell.beforeStart)).toBe(false);
-    expect(layout.labels.map((l) => l.text)).not.toContain(START_NOTE);
   });
 
-  it("**印があるときだけ注記を出す**", () => {
-    const withMark = layoutGraph(input({ startDay: day(-30) }));
-    const withoutMark = layoutGraph(input({ startDay: RANGE_START }));
+  it("**印の意味は文字で説明しない** (2026-09-18。点線の枠だけで活動ゼロと区別が付く)", () => {
+    const layout = layoutGraph(input({ startDay: day(-30) }));
 
-    expect(withMark.labels.map((l) => l.text)).toContain(START_NOTE);
-    expect(withoutMark.labels.map((l) => l.text)).not.toContain(START_NOTE);
+    expect(layout.grid.some((cell) => cell.beforeStart)).toBe(true);
+    expect(layout.labels.map((l) => l.text).join("")).not.toContain("計測開始");
   });
 
-  it("**寸法は変わらない** (注記は凡例の行の空きに置く)", () => {
+  it("**寸法は変わらない** (印を出しても出さなくても)", () => {
     const withMark = layoutGraph(input({ startDay: day(-30) }));
     const withoutMark = layoutGraph(input());
 
@@ -90,10 +88,10 @@ describe("計測開始の印 (Issue #80)", () => {
 });
 
 describe("プロジェクト名 (Issue #119)", () => {
-  it("**渡されたときだけ出す**", () => {
-    expect(layoutGraph(input()).labels.map((l) => l.text)).not.toContain("villagepump");
+  it("**渡されたときだけ出す。`scrapbox.io/` を前に付けて、行き先が読めるようにする**", () => {
+    expect(layoutGraph(input()).labels.map((l) => l.text)).not.toContain("scrapbox.io/villagepump");
     expect(layoutGraph(input({ label: "villagepump" })).labels.map((l) => l.text)).toContain(
-      "villagepump",
+      "scrapbox.io/villagepump",
     );
   });
 
@@ -101,7 +99,7 @@ describe("プロジェクト名 (Issue #119)", () => {
     const layout = layoutGraph(input({ label: "villagepump" }));
 
     const bold = layout.labels.filter((l) => l.weight === "bold");
-    expect(bold.map((l) => l.text)).toEqual(["villagepump"]);
+    expect(bold.map((l) => l.text)).toEqual(["scrapbox.io/villagepump"]);
   });
 
   it("**寸法を変えない** (UserScript が `<img>` に固定寸法を指定しているため)", () => {
@@ -112,25 +110,25 @@ describe("プロジェクト名 (Issue #119)", () => {
     expect(withLabel.height).toBe(without.height);
   });
 
-  it("**計測開始の注記と並べる。名前が先で、重ならない**", () => {
-    const layout = layoutGraph(input({ label: "villagepump", startDay: day(-30) }));
+  it("**プロジェクトへのリンクを持たせる** (`<img>` では押せないが、画像を開けば飛べる)", () => {
+    const layout = layoutGraph(input({ label: "villagepump" }));
 
-    const name = layout.labels.find((l) => l.text === "villagepump");
-    const note = layout.labels.find((l) => l.text === START_NOTE);
-    expect(name).toBeDefined();
-    expect(note).toBeDefined();
-    // 同じ行に、名前 → 注記の順で左から並ぶ
-    expect(name?.y).toBe(note?.y);
-    expect(note?.x ?? 0).toBeGreaterThan(name?.x ?? 0);
+    const line = layout.labels.find((l) => l.href !== undefined);
+    expect(line?.href).toBe("https://scrapbox.io/villagepump");
+    expect(line?.text).toBe("scrapbox.io/villagepump");
   });
 
-  it("名前だけのときは注記の位置に出る (注記が無くても左端から始まる)", () => {
-    const onlyName = layoutGraph(input({ label: "villagepump" }));
-    const onlyNote = layoutGraph(input({ startDay: day(-30) }));
+  it("**名前が無ければリンクも出さない**", () => {
+    expect(layoutGraph(input()).labels.some((l) => l.href !== undefined)).toBe(false);
+  });
 
-    const name = onlyName.labels.find((l) => l.text === "villagepump");
-    const note = onlyNote.labels.find((l) => l.text === START_NOTE);
-    expect(name?.x).toBe(note?.x);
-    expect(name?.y).toBe(note?.y);
+  it("計測開始の印があっても、出る位置は変わらない", () => {
+    const withMark = layoutGraph(input({ label: "villagepump", startDay: day(-30) }));
+    const without = layoutGraph(input({ label: "villagepump" }));
+
+    const a = withMark.labels.find((l) => l.href !== undefined);
+    const b = without.labels.find((l) => l.href !== undefined);
+    expect(a?.x).toBe(b?.x);
+    expect(a?.y).toBe(b?.y);
   });
 });
