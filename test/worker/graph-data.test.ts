@@ -188,8 +188,8 @@ describe("GET /v1/g/{publicId}.svg — D1 の記録", () => {
   });
 });
 
-describe("過去を見る (Issue #128)", () => {
-  it("**`end` より後の記録は表示範囲に入らない**", async () => {
+describe("年を振り返る (Issue #128)", () => {
+  it("**右端より後の記録は表示範囲に入らない**", async () => {
     const uid = randomUid();
     const publicId = await store(uid, PH_ALL, [
       ["2026-09-14", 40, 0],

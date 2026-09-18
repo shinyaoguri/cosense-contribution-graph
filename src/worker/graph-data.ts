@@ -45,8 +45,8 @@ async function loadGraph(
     return undefined;
   }
 
-  // **右端の日。** 既定は今日で、`end` があればその日まで遡る (Issue #128)。
-  // **未来は受けない** — 未来のマスを描いても意味がない
+  // **右端の日。** 既定は今日で、`?year=` があればその年の 12/31 まで遡る (Issue #128)。
+  // **未来は受けない** — 今年を指定したときは自然と「今日が右端」になる
   const realToday = todayIn(DEFAULT_TIME_ZONE, nowMs);
   const today = end !== undefined && end < realToday ? end : realToday;
   const start = fromEpochDay(toEpochDay(today) - DAYS * (MAX_WEEKS - 1));
@@ -93,7 +93,7 @@ export async function renderStoredGraph(
   nowMs: number,
   /** 画像に描くプロジェクト名 (`?l=`。Issue #119)。**保存されている値ではなく、その要求で渡されたもの** */
   label?: string,
-  /** 草の右端にする日 (`?end=`。Issue #128)。既定は今日 */
+  /** 草の右端にする日 (`?year=` から導く。Issue #128)。既定は今日 */
   end?: string,
 ): Promise<string | undefined> {
   const graph = await loadGraph(db, publicId, nowMs, end);

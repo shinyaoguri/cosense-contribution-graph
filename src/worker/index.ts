@@ -16,7 +16,7 @@ import { renderStoredGraph } from "./graph-data.ts";
 import { googleKeys } from "./idtoken.ts";
 import { handleIngest } from "./ingest.ts";
 import { d1KeyResolver } from "./keys.ts";
-import { parseEnd, parseLabel, parseParams } from "./params.ts";
+import { parseLabel, parseParams, parseYear } from "./params.ts";
 import { handleProbe } from "./probe.ts";
 import { HOME_PATH, handleHome, handlePrivacy, PRIVACY_PATH } from "./site.ts";
 import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
@@ -120,7 +120,7 @@ export default {
           parseParams(url.searchParams),
           Date.now(),
           parseLabel(url.searchParams),
-          parseEnd(url.searchParams),
+          parseYear(url.searchParams),
         );
       } catch {
         console.log(JSON.stringify({ event: "graph", status: 503 }));
@@ -172,7 +172,7 @@ function renderDemo(search: URLSearchParams): string {
   // 四分位と中心は**表示範囲とは別の母集団** (全期間) から取る (design §7)
   const scale = buildScale(population.map((d) => d.w + d.r));
   const center = centerOf(population);
-  const end = parseEnd(search);
+  const end = parseYear(search);
   return renderGraph({
     // デモも同じ扱いにする (過去を指定すれば、記録の無い期間として空の草が出る)
     today: end !== undefined && end < DEMO_TODAY ? end : DEMO_TODAY,

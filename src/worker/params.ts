@@ -43,22 +43,27 @@ export function parseLabel(search: URLSearchParams): string | undefined {
   return raw !== null && isValidProjectName(raw) ? raw : undefined;
 }
 
-/** `end` の形。実在しない日 (`2024-02-30`) は往復で弾く */
-const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const YEAR_PATTERN = /^\d{4}$/;
 
 /**
- * 草の右端にする日 (`?end=`。Issue #128)。
+ * 振り返る年 (`?year=`。Issue #128)。**その年の 12 月 31 日**を返す。
  *
- * **過去を振り返るためのもの。** 既定は今日で、それより後は受けない
- * (未来のマスを描いても意味がない)。形が外れていれば `undefined` を返し、
- * 呼び出し側が今日を使う。ほかのパラメータと同じく **400 にはしない**。
+ * **指定は年だけ。** 日付まで刻める必要がなく、年が分かれば「2025 年の草」として貼れる
+ * (2026-09-18 に決めた)。返した日は呼び出し側が草の右端にし、**今日より後なら今日に落とす** —
+ * 今年を指定したときは自然と「今日が右端」になる。
+ *
+ * **左端は厳密な 1 月 1 日にはならない。** 草は週単位の列で並ぶので、12/31 を右端に 53 週
+ * (371 日) 遡ると前年の末尾が 5〜13 日ぶん入る。**1 月 1 日は必ず含まれる** (365 < 371)。
+ * 週数を年ごとに変えると SVG の幅が変わり、`<img>` に寸法を固定している UserScript 側で絵が崩れる。
+ *
+ * 形が外れていれば `undefined` を返し、呼び出し側が今日を使う。ほかのクエリと同じく **400 にはしない**。
  */
-export function parseEnd(search: URLSearchParams): string | undefined {
-  const raw = search.get("end");
-  if (raw === null || !DAY_PATTERN.test(raw)) {
+export function parseYear(search: URLSearchParams): string | undefined {
+  const raw = search.get("year");
+  if (raw === null || !YEAR_PATTERN.test(raw)) {
     return undefined;
   }
-  // 2024-02-30 のような存在しない日は、通し日数へ往復させると別の日になる
-  const epochDay = toEpochDay(raw);
-  return Number.isFinite(epochDay) && fromEpochDay(epochDay) === raw ? raw : undefined;
+  const lastDay = `${raw}-12-31`;
+  // 4 桁ならここは必ず通るが、日付の組み立てが壊れていないことを往復で確かめる
+  return fromEpochDay(toEpochDay(lastDay)) === lastDay ? lastDay : undefined;
 }
