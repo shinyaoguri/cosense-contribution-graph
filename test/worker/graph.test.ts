@@ -378,3 +378,72 @@ describe("プロジェクト名 (Issue #119)", () => {
     expect(new Set(etags).size).toBe(3);
   });
 });
+
+describe("年を振り返る (Issue #128)", () => {
+  /** SVG の月ラベルを左から順に読む */
+  function monthLabels(svg: string): string[] {
+    return [...svg.matchAll(/>(\d{1,2}月)<\/text>/g)].map((m) => m[1] ?? "");
+  }
+
+  it("**`?year=` でその年の 12/31 を右端にする** (月ラベルの並びが変わる)", async () => {
+    const now = await (await fetchDemo()).text();
+    const past = await (await fetchDemo("?year=2025")).text();
+
+    expect(monthLabels(past)).not.toEqual(monthLabels(now));
+    expect(monthLabels(past)).toHaveLength(monthLabels(now).length);
+  });
+
+  it("**1 月 1 日は必ず入る** (53 週 = 371 日 > 365 日。前年の末尾も少し入る)", async () => {
+    const svg = await (await fetchDemo("?year=2025")).text();
+
+    // 2025 年を指定すると、1 月から 12 月までのすべての月ラベルが出る
+    expect(monthLabels(svg)).toContain("1月");
+    expect(monthLabels(svg)).toContain("12月");
+  });
+
+  it("**記録より前の年を指定すると、塗られたマスが 1 つも無くなる** (右端が本当に動いている)", async () => {
+    const svg = await (await fetchDemo("?year=2020")).text();
+
+    // デモの記録は 2026 年。2020 年の 53 週には 1 日も無いので、格子は Level 0 の色だけ
+    const grid = /<g data-part="grid">(.*?)<\/g>/s.exec(svg)?.[1] ?? "";
+    const gridFills = new Set([...grid.matchAll(/fill="([^"]+)"/g)].map((m) => m[1]));
+    expect([...gridFills]).toEqual(["#ebedf0"]);
+  });
+
+  it("**今年と未来の年は今日が右端になる** (未来のマスを描いても意味がない)", async () => {
+    const now = await (await fetchDemo()).text();
+    const thisYear = await (await fetchDemo("?year=2026")).text();
+    const future = await (await fetchDemo("?year=2099")).text();
+
+    // デモの「今日」は 2026 年。今年を指定しても未来を指定しても既定と同じ絵になる
+    expect(thisYear).toBe(now);
+    expect(future).toBe(now);
+  });
+
+  it("**形の違う値は今日に落とす** (400 にはしない)", async () => {
+    const now = await (await fetchDemo()).text();
+
+    for (const raw of ["abc", "20", "202", "20255", "2025-03", "-2025", ""]) {
+      const res = await fetchDemo(`?year=${encodeURIComponent(raw)}`);
+
+      expect(res.status).toBe(200);
+      expect(await res.text()).toBe(now);
+    }
+  });
+
+  it("**年が違えば ETag も違う**", async () => {
+    const a = await fetchDemo("?year=2024");
+    const b = await fetchDemo("?year=2025");
+
+    expect(a.headers.get("etag")).not.toBe(b.headers.get("etag"));
+  });
+
+  it("ほかのクエリと組み合わせられる", async () => {
+    const res = await fetchDemo("?year=2025&weeks=10&l=villagepump");
+    const svg = await res.text();
+
+    expect(res.status).toBe(200);
+    expect(svg).toContain("scrapbox.io/villagepump");
+    expect(monthLabels(svg).length).toBeLessThan(6);
+  });
+});
