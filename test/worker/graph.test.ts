@@ -323,3 +323,58 @@ describe("表示範囲と母集団を取り違えない (design §7)", () => {
     expect(MAX_WEEKS).toBe(53);
   });
 });
+
+describe("プロジェクト名 (Issue #119)", () => {
+  it("**`?l=` で渡された名前を `scrapbox.io/<名前>` として描く**", async () => {
+    const svg = await (await fetchDemo("?l=villagepump")).text();
+
+    expect(svg).toContain(">scrapbox.io/villagepump</text>");
+    expect(svg).toContain('font-weight="bold"');
+  });
+
+  it("**プロジェクトへのリンクを埋める** (`<img>` では押せないが、画像を開けば飛べる)", async () => {
+    const svg = await (await fetchDemo("?l=villagepump")).text();
+
+    expect(svg).toContain('<a href="https://scrapbox.io/villagepump">');
+  });
+
+  it("**名前が無ければリンクも出さない**", async () => {
+    const svg = await (await fetchDemo()).text();
+
+    expect(svg).not.toContain("<a ");
+  });
+
+  it("**渡さなければ描かない**", async () => {
+    const svg = await (await fetchDemo()).text();
+
+    expect(svg).not.toContain("font-weight");
+  });
+
+  it("**形の違う名前は描かない** (エラーにはせず、名前だけ落とす)", async () => {
+    for (const raw of ["-a", "a_b", "a b", "日本語", "a".repeat(65), ""]) {
+      const res = await fetchDemo(`?l=${encodeURIComponent(raw)}`);
+      const svg = await res.text();
+
+      expect(res.status).toBe(200);
+      expect(svg).not.toContain("font-weight");
+    }
+  });
+
+  it("**SVG を壊そうとする値も描かない** (形で落ちるので `escapeXml` の出番が来ない)", async () => {
+    const attack = '"><script>alert(1)</script>';
+
+    const svg = await (await fetchDemo(`?l=${encodeURIComponent(attack)}`)).text();
+
+    expect(svg).not.toContain("script");
+    expect(svg).not.toContain("alert");
+  });
+
+  it("**名前が違えば ETag も違う** (本文から作るので自動で追従する)", async () => {
+    const a = await fetchDemo("?l=aaa");
+    const b = await fetchDemo("?l=bbb");
+    const none = await fetchDemo();
+
+    const etags = [a, b, none].map((res) => res.headers.get("etag"));
+    expect(new Set(etags).size).toBe(3);
+  });
+});

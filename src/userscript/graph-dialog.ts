@@ -117,9 +117,16 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
    * **キャッシュを外すクエリは `<img>` にだけ付ける** (Issue #102)。
    * 共有 SVG は `max-age=900` なので、送った直後に同じ URL で読むとブラウザのキャッシュから古い絵が返る。
    * Worker は未知のクエリを無視する (`params.ts`)。**コピーする URL には混ぜない** (他人に渡すものなので)。
+   *
+   * **URL にすでにクエリが付いていることがある** — プロジェクト別の草には名前が `?l=` で載る
+   * (Issue #119)。`?` を 2 つ並べると URL が壊れるので、2 つ目からは `&` で継ぐ。
    */
-  const srcOf = (entry: GraphEntry, bust?: number) =>
-    bust === undefined ? entry.url : `${entry.url}?r=${bust}`;
+  const srcOf = (entry: GraphEntry, bust?: number) => {
+    if (bust === undefined) {
+      return entry.url;
+    }
+    return `${entry.url}${entry.url.includes("?") ? "&" : "?"}r=${bust}`;
+  };
 
   /** 草の画像。読めなければ文言に置き換える (送れているのに読めないのは、サーバに届かないとき) */
   const image = (entry: GraphEntry) => {

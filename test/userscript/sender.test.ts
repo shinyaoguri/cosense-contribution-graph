@@ -397,9 +397,15 @@ describe("createSender — status", () => {
       requests: 1,
       entries: 4,
     });
+    // **プロジェクト別の URL には名前が `?l=` で載る** (Issue #119)。合算 (上の graphUrl) には載らない
     expect(after.projects).toEqual([
-      { name: "p", graphUrl: graphUrl(await publicIdOf(UID, await phOf(UID, "p"))), sent: true },
+      {
+        name: "p",
+        graphUrl: graphUrl(await publicIdOf(UID, await phOf(UID, "p")), "p"),
+        sent: true,
+      },
     ]);
+    expect(after.projects[0]?.graphUrl).toMatch(/\?l=p$/);
     expect(after.backoffUntil).toBeUndefined();
   });
 

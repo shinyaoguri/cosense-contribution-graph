@@ -122,7 +122,6 @@ describe("共有 SVG を D1 から描く", () => {
     const svg = await renderStoredGraph(env.DB, publicId, DEFAULT_PARAMS, NOW);
 
     expect(svg).toContain("stroke-dasharray");
-    expect(svg).toContain("点線は計測開始前");
   });
 
   it("**開始日は * の全期間から取る** (プロジェクト別で範囲の端を開始と取り違えない)", async () => {
@@ -134,7 +133,6 @@ describe("共有 SVG を D1 から描く", () => {
     const svg = await renderStoredGraph(env.DB, publicId, DEFAULT_PARAMS, NOW);
 
     expect(svg).not.toContain("stroke-dasharray");
-    expect(svg).not.toContain("点線は計測開始前");
   });
 
   it("graphs に無い publicId は undefined", async () => {

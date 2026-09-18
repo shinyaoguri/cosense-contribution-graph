@@ -38,6 +38,11 @@ export type GraphInput = {
    * 表示範囲より前なら印は出ない (全マスが計測済みなので区別する必要が無い)
    */
   readonly startDay?: string;
+  /**
+   * この画像に描くプロジェクト名 (`?l=`。Issue #119)。**サーバは保存しない** —
+   * 呼び出し側がクエリから読み、`isValidProjectName` を通ったものだけを渡す (ADR-0007 決定 2 の再改訂)
+   */
+  readonly label?: string;
   readonly params: Params;
 };
 
@@ -46,6 +51,13 @@ type Label = {
   readonly y: number;
   readonly text: string;
   readonly anchor: "start" | "end";
+  /** 太字にするか。プロジェクト名だけに付ける (Issue #119) */
+  readonly weight?: "bold";
+  /**
+   * リンク先 (Issue #119)。**`<img>` で貼られている間は押せない** (research §3) が、
+   * 画像そのものを開けば飛べる。プロジェクトの行にだけ付ける
+   */
+  readonly href?: string;
 };
 
 type Swatch = { readonly x: number; readonly y: number; readonly fill: string };
@@ -98,8 +110,11 @@ const LEGEND_LEVELS = [1, 2, 3, 4] as const;
 /** 計測開始前のマスの枠 (design §8)。文字色より薄くして、記録のあるマスと取り違えないようにする */
 const MUTED_COLOR: Record<Theme, string> = { light: "#d0d7de", dark: "#3d444d" };
 
-/** 凡例の左に出す注記 (Issue #80)。**寸法を増やさないので、凡例の行の空きに置く** */
-export const START_NOTE = "点線は計測開始前";
+/**
+ * プロジェクトのページ (Issue #119)。**ラベルにも `href` にも同じものを使う** —
+ * 見れば行き先が読め、SVG を開けばそのまま飛べる。
+ */
+const COSENSE_ORIGIN = "https://scrapbox.io";
 
 // write モードは全マスのバランスを 0 とみなすので、凡例もバランス 0 の 1 列になる
 const WRITE_MODE_BALANCES: readonly number[] = [0];
@@ -111,6 +126,31 @@ function legendBalancesOf(params: Params, scheme: ColorScheme): readonly number[
 
 function label(x: number, y: number, text: string, anchor: Label["anchor"] = "start"): Label {
   return { x, y, text, anchor };
+}
+
+/**
+ * 凡例の行の左端に出すプロジェクトの行 (Issue #119)。
+ *
+ * **`scrapbox.io/<名前>` と出し、同じ URL を `href` に持たせる。**
+ * `<img>` で貼られている間はクリックできない (research §3) が、**画像そのものを開けば飛べる**。
+ *
+ * **ここに置くのは寸法を増やさないため。** 草の高さが変わると、`<img>` に寸法を固定している
+ * UserScript 側 (`graph-dialog.ts` の `GRAPH_HEIGHT`) で絵が潰れる。
+ */
+function projectLine(projectName: string | undefined, y: number): Label[] {
+  if (projectName === undefined) {
+    return [];
+  }
+  return [
+    {
+      x: PADDING,
+      y,
+      text: `scrapbox.io/${projectName}`,
+      anchor: "start",
+      weight: "bold",
+      href: `${COSENSE_ORIGIN}/${projectName}`,
+    },
+  ];
 }
 
 type Block = { readonly width: number; readonly height: number };
@@ -213,7 +253,6 @@ export function layoutGraph(input: GraphInput): GraphLayout {
       beforeStart,
     };
   });
-  const hasBeforeStart = grid.some((cell) => cell.beforeStart);
 
   const legendX = PADDING + contentWidth - legend.width;
   const legendY = gridY + gridHeight + LEGEND_GAP;
@@ -230,7 +269,7 @@ export function layoutGraph(input: GraphInput): GraphLayout {
     textColor: TEXT_COLOR[params.theme],
     mutedColor: MUTED_COLOR[params.theme],
     labels: [
-      ...(hasBeforeStart ? [label(PADDING, legendY + LABEL_BASELINE, START_NOTE)] : []),
+      ...projectLine(input.label, legendY + LABEL_BASELINE),
       ...monthLabels(cells).map((month) =>
         label(gridX + month.position * STEP, PADDING + LABEL_BASELINE, month.text),
       ),

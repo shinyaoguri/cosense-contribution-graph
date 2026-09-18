@@ -1,3 +1,4 @@
+import { isValidProjectName } from "../shared/project-name.ts";
 import { DEFAULT_PARAMS, MAX_WEEKS, type Params } from "./graph/grid.ts";
 import { isSchemeName } from "./graph/scheme.ts";
 
@@ -27,4 +28,16 @@ export function parseParams(search: URLSearchParams): Params {
   }
 
   return { theme, weeks, mode, palette };
+}
+
+/**
+ * 画像に描くプロジェクト名 (`?l=`。Issue #119、ADR-0007 決定 2 の再改訂)。
+ *
+ * **サーバは保存しない。** 描くときにだけ受け取り、`isValidProjectName` を通ったものだけ返す。
+ * 形が外れていれば `undefined` — **描かないだけで 400 にはしない** (画像として読まれるので、
+ * エラーにしても壊れた画像になるだけ。ほかのパラメータと同じ扱い)。
+ */
+export function parseLabel(search: URLSearchParams): string | undefined {
+  const raw = search.get("l");
+  return raw !== null && isValidProjectName(raw) ? raw : undefined;
 }

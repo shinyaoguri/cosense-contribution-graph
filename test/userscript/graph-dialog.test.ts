@@ -414,6 +414,33 @@ describe("createGraphDialog", () => {
     expect(t.find()?.querySelector("img")?.getAttribute("src")).toMatch(/\?r=\d+$/);
   });
 
+  it("**すでにクエリのある URL は `&` で継ぐ** (プロジェクト名の `?l=` を壊さない。Issue #119)", async () => {
+    const t = setup(undefined, () =>
+      Promise.resolve({ text: "送りました。", view: SYNC, refresh: true }),
+    );
+    const labelled = `${url("aa")}?l=villagepump`;
+    t.open({
+      kind: "graphs",
+      total: { label: "すべて", url: labelled, sent: true },
+      projects: [],
+      sync: { lines: [], canSend: true },
+    });
+    const created: HTMLImageElement[] = [];
+    const original = document.createElement.bind(document);
+    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+      const node = original(tag);
+      if (tag === "img") created.push(node as HTMLImageElement);
+      return node;
+    });
+
+    t.buttons(SEND_NOW_LABEL)[0]?.click();
+    await settle();
+
+    expect(created.map((img) => img.getAttribute("src"))).toEqual([
+      expect.stringMatching(/\?l=villagepump&r=\d+$/),
+    ]);
+  });
+
   it("**取り直しのクエリはコピーする URL に混ぜない** (他人に渡すもの)", async () => {
     const t = setup(undefined, () =>
       Promise.resolve({ text: "送りました。", view: SYNC, refresh: true }),

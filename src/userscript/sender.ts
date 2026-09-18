@@ -173,7 +173,12 @@ export function createSender(deps: SenderDependencies): Sender {
           .sort((a, b) => a.localeCompare(b))
           .map(async (name) => {
             const ph = await phOf(uid, name);
-            return { name, graphUrl: graphUrl(await publicIdOf(uid, ph)), sent: sentPhs.has(ph) };
+            // **プロジェクト別にだけ名前を渡す** (Issue #119)。合算はどのプロジェクトのものでもない
+            return {
+              name,
+              graphUrl: graphUrl(await publicIdOf(uid, ph), name),
+              sent: sentPhs.has(ph),
+            };
           }),
       );
       const backoffUntil = sent.failure ? sent.failure.at + backoffMs(sent.failure.n) : undefined;

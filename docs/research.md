@@ -473,6 +473,16 @@ Cosense は拡張子を見て `<img>` にするかを決め、描画できるか
 - `width` / `height` / `viewBox` の3つを埋める。埋めないとサイズが崩れ、拡大表示も小さくなる
 - 画像全体が `<a>` で包まれるので、SVG 内部のリンクはクリックできない
 
+**ただし画像そのものを開けばリンクは効く** (2026-09-18 実測、Issue #119)。
+SVG を URL で直接開くとドキュメントとして描画されるので、`<a href>` がクリックでき、実際に遷移する。
+**応答に付けている `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'` は
+ナビゲーションを止めない** (`default-src` は fetch ディレクティブで、リンクの遷移は対象外)。
+ローカルの `wrangler dev` で `/v1/g/demo.svg?l=villagepump` を開き、
+埋め込んだ `scrapbox.io/villagepump` のリンクを押して `https://scrapbox.io` へ遷移するのを確認した。
+
+**Cosense に貼られた `<img>` からは 2 段階になる** — 画像をクリックして画像そのものを開き、
+そこでリンクを押す。**1 段階目の挙動 (画像 URL へ遷移するのか、拡大モーダルなのか) は未確認。**
+
 ### キャッシュ (グラフの鮮度に直結)
 
 - **Cosense 側にプロキシもサーバキャッシュもない。** `<img src>`、ページの `image` フィールド、
