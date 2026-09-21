@@ -14,6 +14,7 @@ import {
 import { AUTH_COOKIE_NAME, openAuthCookie } from "../../src/worker/auth-cookie.ts";
 import { AUTH_PAGE_SCRIPT, AUTH_PAGE_STYLE } from "../../src/worker/auth-page.ts";
 import { handleEnroll } from "../../src/worker/enroll.ts";
+import { FAVICON_LINK } from "../../src/worker/favicon.ts";
 import { googleKeys } from "../../src/worker/idtoken.ts";
 import { openSession, SESSION_COOKIE_NAME } from "../../src/worker/session.ts";
 import { uidOf } from "../../src/worker/uid.ts";
@@ -278,6 +279,9 @@ describe("GET /auth/callback — 成功", () => {
     expect(csp).toContain(`style-src '${await hash(style)}'`);
     expect(csp).toContain("default-src 'none'");
     expect(csp).toContain("frame-ancestors 'none'");
+    // **favicon のために同じオリジンの画像だけ通す** (`default-src 'none'` のままだと落ちる。Issue #130)
+    expect(html).toContain(FAVICON_LINK);
+    expect(csp).toContain("img-src 'self'");
   });
 
   it("**成功しても cookie を消す**", async () => {

@@ -18,6 +18,7 @@
  */
 import { ACCOUNT_PATH, AUTH_START_PATH, AUTH_TO_ACCOUNT, AUTH_TO_PARAM } from "../shared/auth.ts";
 import { isValidKid, PH_ALL, publicIdOf } from "../shared/ids.ts";
+import { FAVICON_LINK } from "./favicon.ts";
 import { csrfToken, openSession, type Session, verifyCsrf } from "./session.ts";
 
 /** 全削除のフォームに打ち込む言葉。**押し間違いで消えないように**する (design §6 の `confirm=1` の代わり) */
@@ -272,6 +273,7 @@ async function page(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
+${FAVICON_LINK}
 <title>cosense-grass の端末</title>
 <style>${STYLE}</style>
 </head>

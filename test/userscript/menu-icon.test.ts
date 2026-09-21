@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { grassIconSvg } from "../../src/shared/grass-icon.ts";
 import { describeMenuState, type MenuState, menuIcon } from "../../src/userscript/menu-icon.ts";
 import type { SendStatus } from "../../src/userscript/sender.ts";
 
@@ -44,35 +45,20 @@ describe("アイコン", () => {
   it("**data: URI の SVG を返す** (Cosense の CSP は `img-src * data:`。外へ取りに行かない)", () => {
     for (const state of states) {
       expect(menuIcon(state)).toMatch(/^data:image\/svg\+xml,/);
-      expect(decodeURIComponent(menuIcon(state))).toContain(
-        '<svg xmlns="http://www.w3.org/2000/svg"',
-      );
     }
   });
 
-  it("**3 つの状態が別の絵になる** (アイコンだけで見分けられる)", () => {
-    const icons = new Set(
-      ["not-installed", "local-only", "synced"].map((s) => menuIcon(s as MenuState)),
-    );
+  it("**中身は共有の絵そのまま** (Worker の favicon と同じ絵。絵のテストは `test/shared/grass-icon.test.ts`)", () => {
+    for (const state of states) {
+      const encoded = menuIcon(state).slice("data:image/svg+xml,".length);
 
-    expect(icons.size).toBe(3);
+      expect(decodeURIComponent(encoded)).toBe(grassIconSvg(state));
+    }
   });
 
-  it("**判定の最中は `local-only` と同じ絵** (決まるまでちらつかせない)", () => {
-    expect(menuIcon("unknown")).toBe(menuIcon("local-only"));
-  });
-
-  it("**数えていないときは塗らず、点線の枠だけ** (design §9 の「点線は計測開始前」と同じ使い方)", () => {
-    const svg = decodeURIComponent(menuIcon("not-installed"));
-
-    expect(svg).toContain("stroke-dasharray");
-    expect(svg).not.toContain('fill="#');
-  });
-
-  it("送っているときは塗る", () => {
-    const svg = decodeURIComponent(menuIcon("synced"));
-
-    expect(svg).toContain('fill="#');
-    expect(svg).not.toContain("stroke-dasharray");
+  it("**`#` をそのまま残さない** (data: URI では `#` 以降がフラグメントになり、色が欠ける)", () => {
+    for (const state of states) {
+      expect(menuIcon(state)).not.toContain("#");
+    }
   });
 });

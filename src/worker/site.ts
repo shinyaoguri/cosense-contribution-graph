@@ -10,6 +10,7 @@
  */
 import privacyMarkdown from "../../docs/privacy.md";
 import { ACCOUNT_PATH, AUTH_START_PATH, AUTH_TO_ACCOUNT, AUTH_TO_PARAM } from "../shared/auth.ts";
+import { FAVICON_LINK } from "./favicon.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { DEMO_PUBLIC_ID } from "./svg.ts";
 
@@ -97,6 +98,7 @@ async function page(title: string, body: string): Promise<Response> {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
+${FAVICON_LINK}
 <title>${title}</title>
 <style>${STYLE}</style>
 </head>
