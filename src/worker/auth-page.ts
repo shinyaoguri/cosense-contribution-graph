@@ -9,6 +9,7 @@
  * - Google が返す `error_description` は受け取らない。文言は理由の種類から選ぶ固定文だけ
  */
 import { AUTH_MESSAGE_TYPE, AUTH_OPENER_ORIGIN } from "../shared/auth.ts";
+import { FAVICON_LINK } from "./favicon.ts";
 
 export type AuthFailure = "cancelled" | "expired" | "failed";
 
@@ -53,7 +54,8 @@ async function authPageCsp(): Promise<string> {
       cspHash(AUTH_PAGE_SCRIPT),
       cspHash(AUTH_PAGE_STYLE),
     ]);
-    cachedCsp = `default-src 'none'; script-src '${script}'; style-src '${style}'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
+    // `img-src 'self'` は favicon のため (Issue #130)。ページの中に画像は無い
+    cachedCsp = `default-src 'none'; script-src '${script}'; style-src '${style}'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
   }
   return cachedCsp;
 }
@@ -76,6 +78,7 @@ export async function authPageResponse(
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
+${FAVICON_LINK}
 <title>cosense-grass のサインイン</title>
 <style>${AUTH_PAGE_STYLE}</style>
 </head>

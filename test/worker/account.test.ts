@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { ACCOUNT_PATH } from "../../src/shared/auth.ts";
 import { PH_ALL, publicIdOf } from "../../src/shared/ids.ts";
 import { DELETE_CONFIRM_WORD, handleAccount } from "../../src/worker/account.ts";
+import { FAVICON_LINK } from "../../src/worker/favicon.ts";
 import { csrfToken, sealSession } from "../../src/worker/session.ts";
 import { createSigner, NOW, randomUid } from "./beacon-helpers.ts";
 
@@ -235,6 +236,14 @@ describe("あなたの草", () => {
     const res = await get(await cookieFor(uid));
 
     expect(res.headers.get("content-security-policy")).toContain("img-src 'self'");
+  });
+
+  it("**favicon を指す** (Cosense のボタンと同じ絵。Issue #130)", async () => {
+    const { uid } = await withGraph();
+
+    const html = await (await get(await cookieFor(uid))).text();
+
+    expect(html).toContain(FAVICON_LINK);
   });
 
   it("まだ草が無ければその旨を出し、画像も出さない", async () => {

@@ -10,6 +10,7 @@ import { type AuthDeps, handleAuthCallback, handleAuthStart } from "./auth.ts";
 import { deleteExpiredEnrollTokens, deleteOldDaybits } from "./cron.ts";
 import { DEMO_TODAY, demoData } from "./demo.ts";
 import { handleEnroll, handleRevoke } from "./enroll.ts";
+import { FAVICON_CACHE_CONTROL, FAVICON_PATH, FAVICON_SVG } from "./favicon.ts";
 import { centerOf } from "./graph/balance.ts";
 import { buildScale } from "./graph/scale.ts";
 import { renderStoredGraph } from "./graph-data.ts";
@@ -26,7 +27,7 @@ import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
  *
  * 経路は `/v1/p.gif` (記録の受け口)、`/v1/enroll.gif` (デバイスの登録)、`/v1/revoke.gif` (デバイスの失効)、
  * `/account` (端末の一覧と失効・共有 URL・全削除)、`/` と `/privacy` (人が読むページ)、`/v1/g/{publicId}.svg`、
- * `/v1/probe.gif` (送信の疎通確認)、`/auth/start` と `/auth/callback` (Google サインイン)。
+ * `/v1/probe.gif` (送信の疎通確認)、`/auth/start` と `/auth/callback` (Google サインイン)、`/favicon.svg`。
  * グラフは `demo` ならデモを、それ以外は D1 の記録から描く。
  */
 
@@ -104,6 +105,9 @@ export default {
     }
     if (url.pathname === PRIVACY_PATH) {
       return handlePrivacy();
+    }
+    if (url.pathname === FAVICON_PATH) {
+      return svgResponse(request, FAVICON_SVG, FAVICON_CACHE_CONTROL);
     }
 
     const publicId = GRAPH_PATH.exec(url.pathname)?.[1];
@@ -191,12 +195,16 @@ function renderDemo(search: URLSearchParams): string {
  * 直してデプロイしても、キャッシュを持つ側に 304 が返り続けて古い画像が残る。本文から作れば
  * 描画が変わったときだけ変わり、常に正しい。
  */
-async function svgResponse(request: Request, body: string): Promise<Response> {
+async function svgResponse(
+  request: Request,
+  body: string,
+  cacheControl = CACHE_CONTROL,
+): Promise<Response> {
   const etag = `"${await sha256Hex(body, ETAG_LENGTH)}"`;
 
   if (ifNoneMatch(request.headers.get("if-none-match"), etag)) {
     // 304 にも ETag と Cache-Control を付ける (RFC 9110)
-    return new Response(null, { status: 304, headers: { etag, "cache-control": CACHE_CONTROL } });
+    return new Response(null, { status: 304, headers: { etag, "cache-control": cacheControl } });
   }
 
   return new Response(body, {
@@ -205,8 +213,8 @@ async function svgResponse(request: Request, body: string): Promise<Response> {
       // **これが無いと Cosense で表示されない。** Cosense は拡張子で <img> にするかを決め、
       // 描画できるかはブラウザが Content-Type で決める (research §3、過去に踏まれた唯一の落とし穴)
       "content-type": "image/svg+xml; charset=utf-8",
-      // 送信が 1 日数回なので短くする意味がない (design §6)
-      "cache-control": CACHE_CONTROL,
+      // 草は、送信が 1 日数回なので短くする意味がない (design §6)
+      "cache-control": cacheControl,
       // SVG を直接開くとアクティブコンテンツが実行されうるので、何も読ませない (design §6)
       "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'",
       "x-content-type-options": "nosniff",

@@ -72,6 +72,7 @@ src/shared/                 Worker と UserScript の両方から import する
   enroll.ts                 GET /v1/enroll.gif のクエリの組み立てと厳密な読み取り、応答の幅
   auth.ts                   サインインのコード (uid と登録トークンの 48 文字) の組み立てと読み取り
   epoch-day.ts              YYYY-MM-DD と通し日数の変換 (UTC だけで計算する)
+  grass-icon.ts             草のマス目 3×3 のアイコン。UserScript のボタンと Worker の favicon が同じ絵を使う
 src/worker/
   index.ts                  ルーティング
   auth.ts                   /auth/start と /auth/callback
@@ -119,12 +120,13 @@ src/userscript/
   account.ts                /account の一覧・失効・共有 URL・全削除 (ADR-0017・0018)
   session.ts                サインイン済みを 30 分覚える cookie (ADR-0017)
   site.ts                   / と /privacy (ADR-0018)
+  favicon.ts                /favicon.svg (Cosense のボタンと同じ絵。Issue #130)
   markdown.ts               privacy.md を HTML にする部分集合の変換
 scripts/build-userscript.mjs esbuild でバンドルする (配布ページへの反映は手動。ADR-0013 決定 3)
 ```
 
 `shared/` に置くのは**両端が同じ文字列・同じ値を作ることが前提のもの**だけ (署名の正規化・ビーコンの
-取り決め・識別子・日付)。**片側しか使わないものを置かない** — esbuild の tree-shaking は
+取り決め・識別子・日付・アイコンの絵)。**片側しか使わないものを置かない** — esbuild の tree-shaking は
 トップレベルの関数呼び出しや二項演算を落とさないので、shared に置いた Worker 専用のコードは
 未参照のまま利用者のブラウザへ配られる (ADR-0019 の 2026-09-16 の改訂、research §6)。
 `scripts/build-userscript.mjs` が `src/worker/` の混入をビルドで止める。
@@ -667,6 +669,21 @@ POST で行う。破壊的な操作に Google サインインを必須にでき�
 - どちらも**スクリプトを 1 行も載せず**、スタイルは固定の文字列 (CSP はハッシュ)。
   中身はデプロイでしか変わらないので `public, max-age=3600`
 
+### `GET /favicon.svg` — ページの favicon
+
+**Cosense のページメニューのボタンと同じ絵** (2026-09-21、`src/worker/favicon.ts`、Issue #130)。
+草のマス目 3×3 で、ボタンの 3 状態のうち **`synced` (紫) を固定で使う** (Worker のページは「送っている」側)。
+絵は `src/shared/grass-icon.ts` が 1 か所で作り、UserScript は data: URI に、Worker はこのパスにする。
+
+- **data: URI にしない。** 各ページの CSP は `img-src 'self'` で、favicon の取得も `img-src` に従う。
+  CSP を緩めず、同じオリジンのパスで配信する。`/`・`/privacy`・`/account`・`/auth/callback` の HTML が
+  `<link rel="icon" href="/favicon.svg" type="image/svg+xml">` で指す
+- 応答のヘッダは草の SVG と同じ (`image/svg+xml`・`nosniff`・`default-src 'none'`・ETag)。
+  **絵が固定なので `public, max-age=86400`** (草の 15 分は変えない)
+- **SVG だけを出す。** PNG や ICO を作るには Worker に画像のエンコーダを持ち込むことになり、釣り合わない。
+  SVG の favicon を読まないブラウザでは既定の絵になる。**`/favicon.ico` は 404 のまま**
+  (中身が SVG なのに `.ico` を名乗らせない)
+
 ### `GET /account` — 管理のページ
 
 **サインインした本人だけが開けるページ** (ADR-0017・0018、2026-09-15、`src/worker/account.ts`)。
@@ -784,7 +801,7 @@ X-Content-Type-Options: nosniff
 **`/auth/callback` の HTML** (2026-09-14、`src/worker/auth-page.ts`、Issue #61)。
 
 ```
-Content-Security-Policy: default-src 'none'; script-src 'sha256-…'; style-src 'sha256-…'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+Content-Security-Policy: default-src 'none'; script-src 'sha256-…'; style-src 'sha256-…'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
 Cache-Control: no-store
 Referrer-Policy: no-referrer
 X-Content-Type-Options: nosniff
@@ -793,6 +810,7 @@ X-Content-Type-Options: nosniff
 - **値をスクリプトに埋め込まない。** スクリプトとスタイルは固定の文字列で、コードは `data-code` 属性から読む。CSP をハッシュで書け、値で CSP が変わらない。
   ハッシュは標準の base64 (パディングあり) で、テストが HTML の中身と突き合わせる
 - **COOP を付けない。** `same-origin` を付けると opener が切れて postMessage が壊れる (research §6)
+- **`img-src 'self'` は favicon のため** (2026-09-21、Issue #130)。ページの中に画像は無い
 - スクリプトは `postMessage` を `https://scrapbox.io` だけに送り、`history.replaceState` でアドレスバーと履歴から code と state を消す
 
 ラベルをサーバに置かないので SVG に出る動的な文字列は日付と数値だけだが、
@@ -1202,6 +1220,7 @@ IndexedDB も同様なので、同じブラウザなら鍵は 1 つで足りる�
 ハンバーガーの中の項目ではなく、`div.page-menu` の**独立したボタン**にする。草を見るのに 2 クリック
 要っていたのが 1 クリックになる。**占有は 1 つのままなので、#95 の「占有を最小に」は崩れていない。**
 アイコン (`src/userscript/menu-icon.ts`) は data: URI の SVG で、**3 つの状態を絵で示す**。
+絵は `src/shared/grass-icon.ts` が作り、Worker の favicon と共有する (2026-09-21、Issue #130)。
 
 | アイコン | 状態 | 判定 |
 |---|---|---|
