@@ -84,7 +84,7 @@ export type GraphLayout = {
   })[];
   /** 計測開始前のマスの枠の色。`beforeStart` が 1 つも無ければ描かない */
   readonly mutedColor: string;
-  /** 凡例のマス。2 次元なら Level の行ごとにバランスの列の順 */
+  /** 凡例のマス。量の帯 (Level 1〜4) → 読み書きの帯 (バランスの列) の順。write モードは量の帯だけ */
   readonly legend: readonly Swatch[];
 };
 
@@ -93,7 +93,18 @@ const WEEKDAY_LABEL_WIDTH = 20;
 const MONTH_LABEL_HEIGHT = 14;
 const LEGEND_GAP = 10;
 const LEGEND_AXIS_WIDTH = 30;
-const LEGEND_AXIS_HEIGHT = 12;
+/** 帯の右端の文字 (「多い」「書く」) の幅 */
+const LEGEND_TAIL_WIDTH = 24;
+/** 量の帯と読み書きの帯の間 */
+const LEGEND_STRIP_GAP = 8;
+/** プロジェクト名と凡例の間 */
+const PROJECT_LEGEND_GAP = 12;
+/**
+ * プロジェクト名の 1 文字あたりの見積もり幅。太字 9px の数字の実測 (6.4px) に合わせた
+ * (2026-09-23、Hiragino Sans)。名前は英数字とハイフンだけ (`isValidProjectName`) なので、
+ * `m` や大文字ばかりの名前でなければこれに収まる。**上限の 64 文字でも 53 週の幅 (775px) に収まる値**
+ */
+const PROJECT_CHAR_WIDTH = 6.5;
 const LABEL_BASELINE = 9;
 const FONT_SIZE = 9;
 const CELL_RADIUS = 2;
@@ -107,6 +118,18 @@ const TEXT_COLOR: Record<Theme, string> = { light: "#57606a", dark: "#9198a1" };
 
 const LEGEND_LEVELS = [1, 2, 3, 4] as const;
 
+/**
+ * 読み書きの帯を塗る Level。**Level 4 はライトで暗く、色相の違いが読みにくい**ので、
+ * 1 段下で見せる
+ */
+const BALANCE_STRIP_LEVEL = 3;
+
+/**
+ * 量の帯のバランス。中央の列 (読みと書きが半々) の色で濃淡だけを見せる。
+ * **write モードの全マスと同じ値** (`WRITE_MODE_BALANCES`) なので、write モードの凡例は量の帯そのもの
+ */
+const AMOUNT_STRIP_BALANCE = 0;
+
 /** 計測開始前のマスの枠 (design §8)。文字色より薄くして、記録のあるマスと取り違えないようにする */
 const MUTED_COLOR: Record<Theme, string> = { light: "#d0d7de", dark: "#3d444d" };
 
@@ -115,6 +138,7 @@ const MUTED_COLOR: Record<Theme, string> = { light: "#d0d7de", dark: "#3d444d" }
  * 見れば行き先が読め、SVG を開けばそのまま飛べる。
  */
 const COSENSE_ORIGIN = "https://scrapbox.io";
+const PROJECT_PREFIX = "scrapbox.io/";
 
 // write モードは全マスのバランスを 0 とみなすので、凡例もバランス 0 の 1 列になる
 const WRITE_MODE_BALANCES: readonly number[] = [0];
@@ -134,8 +158,9 @@ function label(x: number, y: number, text: string, anchor: Label["anchor"] = "st
  * **`scrapbox.io/<名前>` と出し、同じ URL を `href` に持たせる。**
  * `<img>` で貼られている間はクリックできない (research §3) が、**画像そのものを開けば飛べる**。
  *
- * **ここに置くのは寸法を増やさないため。** 草の高さが変わると、`<img>` に寸法を固定している
- * UserScript 側 (`graph-dialog.ts` の `GRAPH_HEIGHT`) で絵が潰れる。
+ * **ここに置くのは寸法を増やさないため。** 草の寸法が変わると、`<img>` に寸法を固定している
+ * UserScript 側 (`graph-dialog.ts` の `GRAPH_WIDTH` / `GRAPH_HEIGHT`) で絵が縮む。
+ * 週数が少なく凡例と重なるときだけ横に広げる (`projectWidth`)。
  */
 function projectLine(projectName: string | undefined, y: number): Label[] {
   if (projectName === undefined) {
@@ -145,7 +170,7 @@ function projectLine(projectName: string | undefined, y: number): Label[] {
     {
       x: PADDING,
       y,
-      text: `scrapbox.io/${projectName}`,
+      text: `${PROJECT_PREFIX}${projectName}`,
       anchor: "start",
       weight: "bold",
       href: `${COSENSE_ORIGIN}/${projectName}`,
@@ -153,22 +178,49 @@ function projectLine(projectName: string | undefined, y: number): Label[] {
   ];
 }
 
-type Block = { readonly width: number; readonly height: number };
+/** プロジェクト名が凡例と重ならないために取っておく幅 (見積もり)。名前が無ければ 0 */
+function projectWidth(projectName: string | undefined): number {
+  if (projectName === undefined) {
+    return 0;
+  }
+  return (
+    Math.ceil((PROJECT_PREFIX.length + projectName.length) * PROJECT_CHAR_WIDTH) +
+    PROJECT_LEGEND_GAP
+  );
+}
+
+/** 「少ない ■■■■ 多い」の形の帯 1 本の幅 */
+function stripWidth(count: number): number {
+  return LEGEND_AXIS_WIDTH + count * STEP - GAP + LEGEND_TAIL_WIDTH;
+}
 
 /**
- * 凡例の寸法。
+ * 凡例の幅。**格子の下 1 行に、量の帯と読み書きの帯を並べる** (2026-09-23 改訂、Issue #133)。
  *
- * - 列が 2 本以上なら **行 = Level 1〜4、列 = バランスの見本** の 2 次元 (design §8)
- * - 列が 1 本 (write モード) なら 2 次元にしても意味が無いので **1 行 × 4 (Level 1〜4)** を横に並べる
+ * 4 行 × 5 列の 2 次元凡例は格子の下に 65px の高さを取り、左はプロジェクト名 1 行だけなので
+ * 空白が目立った。2 つの軸それぞれの見本があれば色の意味は復元できる。
+ * write モードは全マスのバランスが 0 なので、量の帯だけになる。
  */
-function legendBlock(balances: readonly number[]): Block {
-  if (balances.length === 1) {
-    // 「少ない ■■■■ 多い」
-    return { width: LEGEND_AXIS_WIDTH + LEGEND_LEVELS.length * STEP - GAP + 24, height: CELL };
-  }
+function legendWidth(balances: readonly number[]): number {
+  const amount = stripWidth(LEGEND_LEVELS.length);
+  return balances.length === 1 ? amount : amount + LEGEND_STRIP_GAP + stripWidth(balances.length);
+}
+
+/** 帯 1 本 (`lowText` ■■■■ `highText`)。`x` は帯の左端 */
+function layoutStrip(
+  fills: readonly string[],
+  lowText: string,
+  highText: string,
+  x: number,
+  y: number,
+): { readonly swatches: Swatch[]; readonly labels: Label[] } {
+  const cellsX = x + LEGEND_AXIS_WIDTH;
   return {
-    width: LEGEND_AXIS_WIDTH + balances.length * STEP - GAP,
-    height: LEGEND_AXIS_HEIGHT + LEGEND_LEVELS.length * STEP - GAP,
+    swatches: fills.map((fill, i) => ({ x: cellsX + i * STEP, y, fill })),
+    labels: [
+      label(cellsX - 4, y + LABEL_BASELINE, lowText, "end"),
+      label(cellsX + fills.length * STEP, y + LABEL_BASELINE, highText),
+    ],
   };
 }
 
@@ -179,41 +231,31 @@ function layoutLegend(
   x: number,
   y: number,
 ): { readonly swatches: Swatch[]; readonly labels: Label[] } {
-  const cellsX = x + LEGEND_AXIS_WIDTH;
   // 凡例のマスは total = Infinity で渡す。合計分数で彩度を変える配色でも飽和させるため
   const swatch = (level: (typeof LEGEND_LEVELS)[number], balance: number) =>
     scheme.cell({ level, balance, total: Number.POSITIVE_INFINITY }, theme);
 
+  const amount = layoutStrip(
+    LEGEND_LEVELS.map((level) => swatch(level, AMOUNT_STRIP_BALANCE)),
+    "少ない",
+    "多い",
+    x,
+    y,
+  );
+  // write モードはバランス 0 の 1 列だけなので、読み書きの帯は出さない
   if (balances.length === 1) {
-    const balance = balances[0] ?? 0;
-    return {
-      swatches: LEGEND_LEVELS.map((level, i) => ({
-        x: cellsX + i * STEP,
-        y,
-        fill: swatch(level, balance),
-      })),
-      labels: [
-        label(cellsX - 4, y + LABEL_BASELINE, "少ない", "end"),
-        label(cellsX + LEGEND_LEVELS.length * STEP, y + LABEL_BASELINE, "多い"),
-      ],
-    };
+    return amount;
   }
-
-  const cellsY = y + LEGEND_AXIS_HEIGHT;
+  const balance = layoutStrip(
+    balances.map((b) => swatch(BALANCE_STRIP_LEVEL, b)),
+    "読む",
+    "書く",
+    x + stripWidth(LEGEND_LEVELS.length) + LEGEND_STRIP_GAP,
+    y,
+  );
   return {
-    swatches: LEGEND_LEVELS.flatMap((level, row) =>
-      balances.map((balance, column) => ({
-        x: cellsX + column * STEP,
-        y: cellsY + row * STEP,
-        fill: swatch(level, balance),
-      })),
-    ),
-    labels: [
-      label(cellsX, y + LABEL_BASELINE, "読む"),
-      label(cellsX + balances.length * STEP - GAP, y + LABEL_BASELINE, "書く", "end"),
-      label(cellsX - 4, cellsY + LABEL_BASELINE, "少ない", "end"),
-      label(cellsX - 4, cellsY + (LEGEND_LEVELS.length - 1) * STEP + LABEL_BASELINE, "多い", "end"),
-    ],
+    swatches: [...amount.swatches, ...balance.swatches],
+    labels: [...amount.labels, ...balance.labels],
   };
 }
 
@@ -221,7 +263,8 @@ function layoutLegend(
  * 草のレイアウトを返す。
  *
  * **凡例は格子の下に右寄せで置く。** 右に置くと幅が増え、Cosense の本文幅で縮小される
- * (53 週で 870px 対 775px)。全体の幅は格子と凡例の大きい方 (`weeks` が小さいと凡例が広い)。
+ * (53 週で 870px 対 775px)。全体の幅は格子と「プロジェクト名 + 凡例」の大きい方
+ * (`weeks` が小さいと凡例の行が広い)。
  */
 export function layoutGraph(input: GraphInput): GraphLayout {
   const { params } = input;
@@ -231,8 +274,11 @@ export function layoutGraph(input: GraphInput): GraphLayout {
 
   const gridWidth = params.weeks * STEP - GAP;
   const gridHeight = DAYS * STEP - GAP;
-  const legend = legendBlock(legendBalances);
-  const contentWidth = Math.max(WEEKDAY_LABEL_WIDTH + gridWidth, legend.width);
+  const legend = legendWidth(legendBalances);
+  const contentWidth = Math.max(
+    WEEKDAY_LABEL_WIDTH + gridWidth,
+    projectWidth(input.label) + legend,
+  );
 
   const gridX = PADDING + WEEKDAY_LABEL_WIDTH;
   const gridY = PADDING + MONTH_LABEL_HEIGHT;
@@ -254,14 +300,14 @@ export function layoutGraph(input: GraphInput): GraphLayout {
     };
   });
 
-  const legendX = PADDING + contentWidth - legend.width;
+  const legendX = PADDING + contentWidth - legend;
   const legendY = gridY + gridHeight + LEGEND_GAP;
   const legendParts = layoutLegend(legendBalances, scheme, params.theme, legendX, legendY);
 
   return {
     // width / height / viewBox の 3 つを必ず出す。欠けると Cosense でサイズが崩れる (design §8)
     width: PADDING * 2 + contentWidth,
-    height: PADDING + MONTH_LABEL_HEIGHT + gridHeight + LEGEND_GAP + legend.height + PADDING,
+    height: PADDING + MONTH_LABEL_HEIGHT + gridHeight + LEGEND_GAP + CELL + PADDING,
     cellSize: CELL,
     cellRadius: CELL_RADIUS,
     fontFamily: FONT_FAMILY,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fromEpochDay, toEpochDay } from "../../../src/shared/epoch-day.ts";
+import { MAX_PROJECT_NAME_LENGTH } from "../../../src/shared/project-name.ts";
 import type { Minutes } from "../../../src/worker/graph/balance.ts";
 import { DAYS, DEFAULT_PARAMS, MAX_WEEKS } from "../../../src/worker/graph/grid.ts";
 import { type GraphInput, layoutGraph } from "../../../src/worker/graph/layout.ts";
@@ -102,8 +103,8 @@ describe("プロジェクト名 (Issue #119)", () => {
     expect(bold.map((l) => l.text)).toEqual(["scrapbox.io/villagepump"]);
   });
 
-  it("**寸法を変えない** (UserScript が `<img>` に固定寸法を指定しているため)", () => {
-    const withLabel = layoutGraph(input({ label: "a-very-long-project-name-here" }));
+  it("**53 週では上限の長さでも寸法を変えない** (UserScript が `<img>` に固定寸法を指定しているため)", () => {
+    const withLabel = layoutGraph(input({ label: "a".repeat(MAX_PROJECT_NAME_LENGTH) }));
     const without = layoutGraph(input());
 
     expect(withLabel.width).toBe(without.width);
@@ -130,5 +131,81 @@ describe("プロジェクト名 (Issue #119)", () => {
     const b = without.labels.find((l) => l.href !== undefined);
     expect(a?.x).toBe(b?.x);
     expect(a?.y).toBe(b?.y);
+  });
+});
+
+describe("凡例 (Issue #133)", () => {
+  /** 太字 9px の数字の実測 (6.4px/字、2026-09-23) を切り上げた見積もり。layout.ts と独立に持つ */
+  const PROJECT_CHAR_WIDTH = 6.5;
+  /** 凡例の文字は 9px の全角 */
+  const CJK_WIDTH = 9;
+
+  it("**53 週の寸法は 775 × 146** (UserScript の `GRAPH_WIDTH` / `GRAPH_HEIGHT` と同じにする)", () => {
+    const layout = layoutGraph(input());
+
+    expect(layout.width).toBe(775);
+    expect(layout.height).toBe(146);
+  });
+
+  it("**凡例は格子の下の 1 行に収まる** (量の 4 マス + 読み書きの 5 マス)", () => {
+    const layout = layoutGraph(input());
+    const gridBottom = Math.max(...layout.grid.map((cell) => cell.y)) + layout.cellSize;
+
+    expect(layout.legend).toHaveLength(4 + 5);
+    expect(new Set(layout.legend.map((swatch) => swatch.y)).size).toBe(1);
+    expect(layout.legend[0]?.y).toBeGreaterThan(gridBottom);
+    expect(layout.height).toBe((layout.legend[0]?.y ?? 0) + layout.cellSize + 8);
+  });
+
+  it("**量の帯は読み寄りの帯より左で、帯どうしのマスは重ならない**", () => {
+    const layout = layoutGraph(input());
+    const xs = layout.legend.map((swatch) => swatch.x);
+
+    expect(xs).toEqual([...xs].sort((a, b) => a - b));
+    for (let i = 1; i < xs.length; i++) {
+      expect((xs[i] ?? 0) - (xs[i - 1] ?? 0)).toBeGreaterThanOrEqual(layout.cellSize);
+    }
+    expect(Math.max(...xs) + layout.cellSize).toBeLessThanOrEqual(layout.width - 8);
+  });
+
+  it("**軸の文字は 4 つ** (少ない / 多い / 読む / 書く)", () => {
+    const texts = layoutGraph(input()).labels.map((l) => l.text);
+
+    for (const text of ["少ない", "多い", "読む", "書く"]) {
+      expect(texts).toContain(text);
+    }
+  });
+
+  it("**write モードは量の帯だけ** (全マスのバランスが 0 なので読み書きの見本は意味が無い)", () => {
+    const layout = layoutGraph(input({ params: { ...DEFAULT_PARAMS, mode: "write" } }));
+    const texts = layout.labels.map((l) => l.text);
+
+    expect(layout.legend).toHaveLength(4);
+    expect(texts).not.toContain("読む");
+    expect(texts).not.toContain("書く");
+    expect(layout.height).toBe(146);
+  });
+
+  it.each([1, 10, 20, MAX_WEEKS])(
+    "**%i 週でも、上限の長さのプロジェクト名と凡例が重ならない**",
+    (weeks) => {
+      const name = "0".repeat(MAX_PROJECT_NAME_LENGTH);
+      const layout = layoutGraph(input({ label: name, params: { ...DEFAULT_PARAMS, weeks } }));
+      const project = layout.labels.find((l) => l.href !== undefined);
+      const projectEnd = (project?.x ?? 0) + `scrapbox.io/${name}`.length * PROJECT_CHAR_WIDTH;
+      // 「少ない」は右揃えで置くので、左端は x − 文字幅
+      const low = layout.labels.find((l) => l.text === "少ない");
+      const legendStart = (low?.x ?? 0) - "少ない".length * CJK_WIDTH;
+
+      expect(projectEnd).toBeLessThan(legendStart);
+    },
+  );
+
+  it("**週数が少ないときは、名前のぶんだけ横に広げる** (凡例と重ならないように)", () => {
+    const params = { ...DEFAULT_PARAMS, weeks: 1 };
+    const without = layoutGraph(input({ params }));
+    const withLabel = layoutGraph(input({ params, label: "villagepump" }));
+
+    expect(withLabel.width).toBeGreaterThan(without.width);
   });
 });

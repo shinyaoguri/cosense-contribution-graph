@@ -38,7 +38,7 @@ const BORDER_COLOR = "#d0d7de";
 
 /** 53 週の既定の SVG の寸法 (design §8)。先に確保して、読み込みでダイアログの大きさが変わらないようにする */
 export const GRAPH_WIDTH = 775;
-export const GRAPH_HEIGHT = 200;
+export const GRAPH_HEIGHT = 146;
 
 export type GraphDialogDependencies = {
   /** `navigator.clipboard.writeText`。**クリックの処理から await を挟まずに呼ぶ** (Safari はユーザー操作の直後でないと拒む) */
