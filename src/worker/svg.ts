@@ -7,13 +7,10 @@
  * **寸法・色・ラベルの位置は `src/worker/graph/layout.ts` が決める。** ここはそれを文字列にするだけ。
  * **草を描くのはこの経路だけ** (ADR-0019)。UserScript は数えて送るだけで、描かない。
  */
-import { type GraphInput, type GraphLayout, layoutGraph } from "./graph/layout.ts";
+import { type GraphInput, type GraphLayout, layoutGraph, SUFFIX_GAP } from "./graph/layout.ts";
 
 /** 疎通確認と見た目の確認のために予約した publicId。 */
 export const DEMO_PUBLIC_ID = "demo";
-
-/** ラベルの続き (`suffix`) の前に空ける幅 (px)。9px の文字で 1 文字弱 */
-const SUFFIX_GAP = 6;
 
 /**
  * SVG に出す文字列をエスケープする。原則として全部通す (design §6)。
