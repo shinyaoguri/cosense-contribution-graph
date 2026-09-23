@@ -49,12 +49,12 @@ const CASES: readonly (readonly [string, () => string, string])[] = [
   [
     "デモ (ライト)",
     () => demo({}),
-    "4ffbf2f4c794e6f4d76e1777051269e87bc6f8fd24ce801899a55f90361bd160",
+    "772a7b2108179039ff8cb5e91cd957b1579a7f17c907f7ccbed985d8274e699a",
   ],
   [
     "デモ (ダーク)",
     () => demo({ theme: "dark" }),
-    "69866ff88de6d3f7cca40cfe1a7061f64f6822bdc9bb9db0317a41db6f0550b3",
+    "82f0331dd8f9114b3f15e57a4d656cb8c9e994361f5fd3b18c2b2e0b872866c0",
   ],
   [
     "mode=write",
@@ -64,38 +64,38 @@ const CASES: readonly (readonly [string, () => string, string])[] = [
   [
     "weeks=10",
     () => demo({ weeks: 10 }),
-    "bafd7e698fe1b819970b270013998fd13f81e8ffd22e79657e64f3f8b56b70c4",
+    "fd136d650bf1caf33a194fb4fab938874deaa66b280d6ae345ee26e529795c1d",
   ],
   [
     "weeks=1 (凡例の方が広い)",
     () => demo({ weeks: 1 }),
-    "54f4a2af1d2e9483e74bed76dd2250ea1cd1af9c66073645f6cf057f579e3619",
+    "1b57fecb4251186fbf79e9ebeb6da3f6eb0aaa221c06abbcc19e3a65adfd2d74",
   ],
   [
     "palette=blue-yellow (ダーク)",
     () => demo({ palette: "blue-yellow", theme: "dark" }),
-    "2cc2fd95c90ec80f5260fe7fd7e6f3a0df3b1a469aa7426ef956b629e4f4e352",
+    "c5e913baf108c59bb5115c2a90fc39655091562db5f0b96af187139ec0132974",
   ],
-  ["母集団が空", empty, "a694fee1e74d4d40761f2cdeefd6be29377ed2c0a5b698d950e57a7d82ec0acb"],
+  ["母集団が空", empty, "263e4181ce57aad511d3054a67f67e0f120caecaf86d0599763f6d9bdf9d3cad"],
   [
     "計測開始の印 (Issue #80)",
     () => demo({}, DEMO_TODAY, "2026-06-01"),
-    "06bc43c240d48e5d3da034f7e7d21d6e391938a0c1ae938237320952a575d42f",
+    "51e69316cd9b66f34f3de3cd42b5b14bb60a42481afa056aaf9844bcb4e4a860",
   ],
   [
     "プロジェクト名とリンク (Issue #119)",
     () => demo({}, DEMO_TODAY, undefined, "villagepump"),
-    "c343d1cf375982951e615289c3a4635b9155fbd9f12af01076df479a91cc68b3",
+    "565ac213a481ab344ddfef350daddddcd629a0758cef995fac9a0441bdf0a5f6",
   ],
   [
     "今日が日曜",
     () => demo({}, "2026-09-13"),
-    "b77c3cd5b3d2dec44720bf5d89ee436517b5ee1bd6cf70ab4fd96c771cf301c6",
+    "f0f68a8accc341032119dfab48404ac653487f93b4af34f87472bef77499e8d6",
   ],
   [
     "今日が土曜",
     () => demo({}, "2026-09-12"),
-    "5af6b533a2b4377e8a8e90cc6ca381da4f467ec73e66f19b5ce794e80c8f1973",
+    "47bdaf5ecfc5c16cd6010118351c6415e7e2dc9f16c4da7fe2dc7bb9379a18b4",
   ],
 ];
 

@@ -168,11 +168,11 @@ describe("SVG の構造", () => {
     expect(attrs.viewBox).toBe(`0 0 ${attrs.width} ${attrs.height}`);
   });
 
-  it(`格子は 365 マス、凡例は 5 列 × 4 行 = 20 マス`, async () => {
+  it("格子は 365 マス、凡例は量の 4 マス + 読み書きの 5 マス = 9 マス (1 行。Issue #133)", async () => {
     const svg = await (await fetchDemo()).text();
 
     expect(rectCount(part(svg, "grid"))).toBe(365);
-    expect(rectCount(part(svg, "legend"))).toBe(20);
+    expect(rectCount(part(svg, "legend"))).toBe(9);
   });
 
   it("write の凡例は 1 行 × 4 マス (バランスが 0 の 1 列なので 2 次元にしない)", async () => {
@@ -248,17 +248,21 @@ describe("デモの草", () => {
 });
 
 describe.each(SCHEME_NAMES)("palette=%s の凡例 (スキームから組み立てる)", (name) => {
-  /** 凡例は 行 = Level 1〜4、列 = スキームのバランスの見本。マスは飽和させる (total = Infinity)。 */
+  /**
+   * 凡例は 量の帯 (Level 1〜4、バランス 0) → 読み書きの帯 (Level 3、スキームのバランスの見本)。
+   * マスは飽和させる (total = Infinity)。
+   */
   function expectedLegend(theme: Theme): string[] {
     const scheme = schemeOf(name);
-    return ([1, 2, 3, 4] as const).flatMap((level) =>
-      scheme.legendBalances.map((balance) =>
-        scheme.cell({ level, balance, total: Number.POSITIVE_INFINITY }, theme),
-      ),
-    );
+    const cell = (level: 1 | 2 | 3 | 4, balance: number) =>
+      scheme.cell({ level, balance, total: Number.POSITIVE_INFINITY }, theme);
+    return [
+      ...([1, 2, 3, 4] as const).map((level) => cell(level, 0)),
+      ...scheme.legendBalances.map((balance) => cell(3, balance)),
+    ];
   }
 
-  it("ライトの凡例は、スキームの Level × バランスの見本の色", async () => {
+  it("ライトの凡例は、量の帯とスキームのバランスの見本の帯の色", async () => {
     const legend = fills(part(await (await fetchDemo(`?palette=${name}`)).text(), "legend"));
 
     expect(legend).toEqual(expectedLegend("light"));
