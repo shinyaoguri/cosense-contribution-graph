@@ -528,6 +528,22 @@ SVG を URL で直接開くとドキュメントとして描画されるので�
 - `ph` の材料 (`SHA-256(uid + ":" + プロジェクト名)`) としては文字種を問わない。
   **この事実が要るのは、草の画像にプロジェクト名を描く案 (Issue #119) で受け取った文字列を検証するとき**
 
+**本体のバンドルにある名前の検証** (2026-09-23、`https://scrapbox.io/assets/chunks/chunk-*.js` の
+`combineValidators` を読んだ。チャンク名はビルドごとに変わる)。上のメッセージはここから出ている。
+
+| 検証 | メッセージ |
+|---|---|
+| 2 文字以上 | `Name is too short` |
+| **48 文字以下** | `Name is too long` |
+| `/^[a-z0-9][a-z0-9-]*[a-z0-9]$/i` | `Name can contain only alphabets, numbers and hyphens. ...` |
+| 予約語 (`api` `assets` `login` `settings` `user` `users` など) でない | `the name is reserved for system` |
+
+- 上限は **48 文字**と読めた (上の「長さの上限は確かめていない」を補う)。受け取る側の上限 64 はこれより長いので、実在する名前はすべて通る
+- **プロジェクトを作る画面と、ページ内の `[/project]` リンクの判定がこの検証を呼んでいる**のは確かめた
+- **ユーザー名にも同じ検証が使われているかは確かめられていない。** ユーザー名を変える画面 (`/settings/profile`、
+  `/setup-profile`) の検証は静的に読めるバンドルに見当たらず、サーバ側で見ている可能性がある。
+  草の画像にユーザー名を描く (Issue #134) ときは、**分かるまでプロジェクト名と同じ形に倒し**、外れた名前は描かない
+
 ## 4. REST API
 
 型の一次情報は公式 org の [scrapbox-jp/types](https://github.com/scrapbox-jp/types)

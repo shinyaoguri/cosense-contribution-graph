@@ -31,6 +31,8 @@ function harness(
     writeFails?: boolean;
     image?: ImageResult | ((url: string) => ImageResult);
     confirm?: boolean;
+    /** Cosense のユーザー名 (Issue #134)。省略は未ログイン */
+    userName?: string;
   } = {},
 ) {
   const popup = {
@@ -111,6 +113,7 @@ function harness(
     },
     now: () => new Date("2026-09-15T01:00:00Z"),
     log: (message) => logs.push(message),
+    userName: () => options.userName,
   };
 
   function post(data: unknown, from: { origin?: string; source?: unknown } = {}) {
@@ -188,6 +191,19 @@ describe("createSignIn — ポップアップ", () => {
     expect(t.view.finished?.lines.join("\n")).toContain("新しく登録しました");
     expect(t.view.finished?.lines.join("\n")).toContain("ポップアップ");
     expect(t.view.finished?.link).toBe(graphUrl(await publicIdOf(code.uid, PH_ALL)));
+  });
+
+  it("**ユーザー名が分かれば、登録直後に見せる合算の草にも `u=` を付ける** (Issue #134)", async () => {
+    const t = harness({ userName: "example-user" });
+    const code = randomCode();
+    const done = t.signIn();
+    t.post(message(code.text));
+
+    expect(await done).toBe("added");
+    expect(t.view.finished?.link).toBe(
+      graphUrl(await publicIdOf(code.uid, PH_ALL), { user: "example-user" }),
+    );
+    expect(t.view.finished?.link).toMatch(/\?u=example-user$/);
   });
 
   it.each([

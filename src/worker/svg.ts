@@ -7,7 +7,7 @@
  * **寸法・色・ラベルの位置は `src/worker/graph/layout.ts` が決める。** ここはそれを文字列にするだけ。
  * **草を描くのはこの経路だけ** (ADR-0019)。UserScript は数えて送るだけで、描かない。
  */
-import { type GraphInput, type GraphLayout, layoutGraph } from "./graph/layout.ts";
+import { type GraphInput, type GraphLayout, layoutGraph, SUFFIX_GAP } from "./graph/layout.ts";
 
 /** 疎通確認と見た目の確認のために予約した publicId。 */
 export const DEMO_PUBLIC_ID = "demo";
@@ -15,8 +15,9 @@ export const DEMO_PUBLIC_ID = "demo";
 /**
  * SVG に出す文字列をエスケープする。原則として全部通す (design §6)。
  *
- * **プロジェクト名 (`?l=`) だけは外から来る** (Issue #119)。受け口の `isValidProjectName` が
- * 英字・数字・ハイフンしか通さないのでここに来る時点で危険な文字は無いが、**二重に塞ぐ**。
+ * **プロジェクト名 (`?l=`) とユーザー名 (`?u=`) だけは外から来る** (Issue #119・#134)。受け口の
+ * `isValidProjectName` / `isValidUserName` が英字・数字・ハイフンしか通さないのでここに来る時点で
+ * 危険な文字は無いが、**二重に塞ぐ**。
  */
 function escapeXml(text: string): string {
   return text
@@ -51,9 +52,17 @@ function toSvg(layout: GraphLayout): string {
       const anchorAttr = label.anchor === "end" ? ' text-anchor="end"' : "";
       // 値は列挙 ("bold" だけ) なので、属性に入るのは固定の文字列
       const weightAttr = label.weight === undefined ? "" : ` font-weight="${label.weight}"`;
-      const text = `<text x="${label.x}" y="${label.y}"${anchorAttr}${weightAttr}>${escapeXml(label.text)}</text>`;
-      // **`<img>` で貼られている間は押せない** (research §3)。画像そのものを開いたときに効く
-      return label.href === undefined ? text : `<a href="${escapeXml(label.href)}">${text}</a>`;
+      const link = (inner: string) =>
+        // **`<img>` で貼られている間は押せない** (research §3)。画像そのものを開いたときに効く
+        label.href === undefined ? inner : `<a href="${escapeXml(label.href)}">${inner}</a>`;
+      const position = `x="${label.x}" y="${label.y}"${anchorAttr}`;
+      if (label.suffix === undefined) {
+        return link(`<text ${position}${weightAttr}>${escapeXml(label.text)}</text>`);
+      }
+      // **続きは太字にもリンクにもしない** (Issue #134)。同じ `<text>` に並べ、位置はブラウザに任せる。
+      // 太字とリンクは前半の `<tspan>` だけに掛ける (SVG 2 は `<text>` の中の `<a>` を許す)
+      const head = link(`<tspan${weightAttr}>${escapeXml(label.text)}</tspan>`);
+      return `<text ${position}>${head}<tspan dx="${SUFFIX_GAP}">${escapeXml(label.suffix)}</tspan></text>`;
     })
     .join("");
 

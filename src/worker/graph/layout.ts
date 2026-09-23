@@ -43,6 +43,11 @@ export type GraphInput = {
    * 呼び出し側がクエリから読み、`isValidProjectName` を通ったものだけを渡す (ADR-0007 決定 2 の再改訂)
    */
   readonly label?: string;
+  /**
+   * この画像に描くユーザー名 (`?u=`。Issue #134)。`label` と同じく**サーバは保存しない** —
+   * 呼び出し側が `isValidUserName` を通したものだけを渡す
+   */
+  readonly user?: string;
   readonly params: Params;
 };
 
@@ -58,6 +63,11 @@ type Label = {
    * 画像そのものを開けば飛べる。プロジェクトの行にだけ付ける
    */
   readonly href?: string;
+  /**
+   * 同じ行に続けて描く文字列 (Issue #134。プロジェクト名の後のユーザー名)。**太字にもリンクにもしない。**
+   * 位置を文字幅の見積もりで決めず、同じ `<text>` の `<tspan>` にしてブラウザに実際の幅で並べさせる
+   */
+  readonly suffix?: string;
 };
 
 type Swatch = { readonly x: number; readonly y: number; readonly fill: string };
@@ -105,6 +115,13 @@ const PROJECT_LEGEND_GAP = 12;
  * `m` や大文字ばかりの名前でなければこれに収まる。**上限の 64 文字でも 53 週の幅 (775px) に収まる値**
  */
 const PROJECT_CHAR_WIDTH = 6.5;
+/**
+ * ラベルの続き (`suffix`) の前に空ける幅 (px)。9px の文字で 1 文字弱。
+ * `svg.ts` が `<tspan dx>` に使い、ここでは幅の見積もりに使う
+ */
+export const SUFFIX_GAP = 6;
+/** ユーザー名の前に付ける印 (Issue #134) */
+const USER_PREFIX = "@";
 const LABEL_BASELINE = 9;
 const FONT_SIZE = 9;
 const CELL_RADIUS = 2;
@@ -153,18 +170,27 @@ function label(x: number, y: number, text: string, anchor: Label["anchor"] = "st
 }
 
 /**
- * 凡例の行の左端に出すプロジェクトの行 (Issue #119)。
+ * 凡例の行の左端に出す名前の行 (Issue #119・#134)。
  *
- * **`scrapbox.io/<名前>` と出し、同じ URL を `href` に持たせる。**
+ * **プロジェクトは `scrapbox.io/<名前>` と太字で出し、同じ URL を `href` に持たせる。**
  * `<img>` で貼られている間はクリックできない (research §3) が、**画像そのものを開けば飛べる**。
+ *
+ * **ユーザー名は `@<名前>` として同じ行に続ける** (`suffix`)。太字にもリンクにもしない —
+ * Cosense のユーザーページはプロジェクトに属し、全体で共通のページが無いのでリンク先が決まらない。
+ * 合算の草 (プロジェクト名なし) ではユーザー名だけが左端に来る。
  *
  * **ここに置くのは寸法を増やさないため。** 草の寸法が変わると、`<img>` に寸法を固定している
  * UserScript 側 (`graph-dialog.ts` の `GRAPH_WIDTH` / `GRAPH_HEIGHT`) で絵が縮む。
  * 週数が少なく凡例と重なるときだけ横に広げる (`projectWidth`)。
  */
-function projectLine(projectName: string | undefined, y: number): Label[] {
+function projectLine(
+  projectName: string | undefined,
+  userName: string | undefined,
+  y: number,
+): Label[] {
+  const user = userName === undefined ? undefined : `${USER_PREFIX}${userName}`;
   if (projectName === undefined) {
-    return [];
+    return user === undefined ? [] : [label(PADDING, y, user)];
   }
   return [
     {
@@ -174,19 +200,26 @@ function projectLine(projectName: string | undefined, y: number): Label[] {
       anchor: "start",
       weight: "bold",
       href: `${COSENSE_ORIGIN}/${projectName}`,
+      ...(user === undefined ? {} : { suffix: user }),
     },
   ];
 }
 
-/** プロジェクト名が凡例と重ならないために取っておく幅 (見積もり)。名前が無ければ 0 */
-function projectWidth(projectName: string | undefined): number {
-  if (projectName === undefined) {
-    return 0;
-  }
-  return (
-    Math.ceil((PROJECT_PREFIX.length + projectName.length) * PROJECT_CHAR_WIDTH) +
-    PROJECT_LEGEND_GAP
-  );
+/**
+ * 名前の行が凡例と重ならないために取っておく幅 (見積もり)。名前が 1 つも無ければ 0。
+ * ユーザー名は太字でないので実際は見積もりより狭いが、同じ幅で見積もって重ならない側に倒す
+ */
+function projectWidth(projectName: string | undefined, userName: string | undefined): number {
+  const project =
+    projectName === undefined
+      ? 0
+      : (PROJECT_PREFIX.length + projectName.length) * PROJECT_CHAR_WIDTH;
+  const user =
+    userName === undefined
+      ? 0
+      : (project === 0 ? 0 : SUFFIX_GAP) +
+        (USER_PREFIX.length + userName.length) * PROJECT_CHAR_WIDTH;
+  return project + user === 0 ? 0 : Math.ceil(project + user) + PROJECT_LEGEND_GAP;
 }
 
 /** 「少ない ■■■■ 多い」の形の帯 1 本の幅 */
@@ -277,7 +310,7 @@ export function layoutGraph(input: GraphInput): GraphLayout {
   const legend = legendWidth(legendBalances);
   const contentWidth = Math.max(
     WEEKDAY_LABEL_WIDTH + gridWidth,
-    projectWidth(input.label) + legend,
+    projectWidth(input.label, input.user) + legend,
   );
 
   const gridX = PADDING + WEEKDAY_LABEL_WIDTH;
@@ -315,7 +348,7 @@ export function layoutGraph(input: GraphInput): GraphLayout {
     textColor: TEXT_COLOR[params.theme],
     mutedColor: MUTED_COLOR[params.theme],
     labels: [
-      ...projectLine(input.label, legendY + LABEL_BASELINE),
+      ...projectLine(input.label, input.user, legendY + LABEL_BASELINE),
       ...monthLabels(cells).map((month) =>
         label(gridX + month.position * STEP, PADDING + LABEL_BASELINE, month.text),
       ),

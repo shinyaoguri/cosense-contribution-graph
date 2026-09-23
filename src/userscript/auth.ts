@@ -71,6 +71,11 @@ export type SignInDependencies = {
   readonly now: () => Date;
   /** 結果の種類だけを出す */
   readonly log: (message: string) => void;
+  /**
+   * 草の画像に描く Cosense のユーザー名 (Issue #134)。本番は `cosense.User?.name`。
+   * **未ログインなら `undefined`** で、そのときは URL に付けない
+   */
+  readonly userName: () => string | undefined;
 };
 
 export type SignInOutcome =
@@ -344,7 +349,7 @@ async function enrollUnsafe(
       `端末の識別子 (kid): ${key.kid}`,
       "合算の草 (同じ Google アカウントなら、どの端末でも同じ URL になります):",
     ],
-    link: graphUrl(await publicIdOf(code.uid, PH_ALL)),
+    link: graphUrl(await publicIdOf(code.uid, PH_ALL), { user: deps.userName() }),
   };
 }
 

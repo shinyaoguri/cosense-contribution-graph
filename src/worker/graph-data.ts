@@ -95,6 +95,8 @@ export async function renderStoredGraph(
   label?: string,
   /** 草の右端にする日 (`?year=` から導く。Issue #128)。既定は今日 */
   end?: string,
+  /** 画像に描くユーザー名 (`?u=`。Issue #134)。`label` と同じく、その要求で渡されたもの */
+  user?: string,
 ): Promise<string | undefined> {
   const graph = await loadGraph(db, publicId, nowMs, end);
   if (!graph) {
@@ -107,6 +109,7 @@ export async function renderStoredGraph(
     center: centerOf(graph.population),
     startDay: graph.startDay,
     label,
+    user,
     params,
   });
 }

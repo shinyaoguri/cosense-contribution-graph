@@ -25,3 +25,16 @@ const PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?$/;
 export function isValidProjectName(text: string): boolean {
   return text.length <= MAX_PROJECT_NAME_LENGTH && PATTERN.test(text);
 }
+
+/**
+ * Cosense のユーザー名の形 (Issue #134)。**草の画像に `@<名前>` として描くときの許可リスト。**
+ * 名前はクエリ `?u=` で渡され、プロジェクト名と同じく**サーバは保存しない**。
+ *
+ * **形はプロジェクト名と同じにしている。** Cosense 本体の名前の検証 (英字・数字・ハイフン、2〜48 文字) を
+ * 実測したが、**それがユーザー名にも使われているかは確かめきれていない** (research §2、2026-09-23)。
+ * 外れた名前は描かないだけで壊れないので、分かるまでは狭い方に倒す。
+ * 規則が分かれても呼び出し側を変えずに済むよう、関数は分けておく。
+ */
+export function isValidUserName(text: string): boolean {
+  return isValidProjectName(text);
+}

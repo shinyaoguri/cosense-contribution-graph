@@ -1,5 +1,5 @@
 import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
-import { isValidProjectName } from "../shared/project-name.ts";
+import { isValidProjectName, isValidUserName } from "../shared/project-name.ts";
 import { DEFAULT_PARAMS, MAX_WEEKS, type Params } from "./graph/grid.ts";
 import { isSchemeName } from "./graph/scheme.ts";
 
@@ -41,6 +41,15 @@ export function parseParams(search: URLSearchParams): Params {
 export function parseLabel(search: URLSearchParams): string | undefined {
   const raw = search.get("l");
   return raw !== null && isValidProjectName(raw) ? raw : undefined;
+}
+
+/**
+ * 画像に描くユーザー名 (`?u=`。Issue #134)。扱いは `parseLabel` と同じで、**サーバは保存しない**。
+ * `isValidUserName` を通ったものだけ返し、外れていれば `undefined` (描かないだけ)。
+ */
+export function parseUser(search: URLSearchParams): string | undefined {
+  const raw = search.get("u");
+  return raw !== null && isValidUserName(raw) ? raw : undefined;
 }
 
 const YEAR_PATTERN = /^\d{4}$/;

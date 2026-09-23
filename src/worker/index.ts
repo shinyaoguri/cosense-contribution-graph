@@ -17,7 +17,7 @@ import { renderStoredGraph } from "./graph-data.ts";
 import { googleKeys } from "./idtoken.ts";
 import { handleIngest } from "./ingest.ts";
 import { d1KeyResolver } from "./keys.ts";
-import { parseLabel, parseParams, parseYear } from "./params.ts";
+import { parseLabel, parseParams, parseUser, parseYear } from "./params.ts";
 import { handleProbe } from "./probe.ts";
 import { HOME_PATH, handleHome, handlePrivacy, PRIVACY_PATH } from "./site.ts";
 import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
@@ -125,6 +125,7 @@ export default {
           Date.now(),
           parseLabel(url.searchParams),
           parseYear(url.searchParams),
+          parseUser(url.searchParams),
         );
       } catch {
         console.log(JSON.stringify({ event: "graph", status: 503 }));
@@ -185,6 +186,7 @@ function renderDemo(search: URLSearchParams): string {
     center,
     params: parseParams(search),
     label: parseLabel(search),
+    user: parseUser(search),
   });
 }
 

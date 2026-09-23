@@ -56,6 +56,8 @@ async function harness(
     device: options.device ?? (await device()),
     image: options.image ?? (() => ({ kind: "loaded", width: 17 }) as ImageResult),
     keyReads: 0,
+    // 既定は未ログイン (ユーザー名が無い)。付けるテストだけが書き換える (Issue #134)
+    userName: undefined as string | undefined,
   };
   // 本物のロックの代わりに直列のキュー
   let queue: Promise<unknown> = Promise.resolve();
@@ -80,6 +82,7 @@ async function harness(
     now: () => new Date(clock.ms),
     withLock,
     warn: (message: string) => warnings.push(message),
+    userName: () => state.userName,
   };
   const record = (activity: Activity) => store.record(activity);
   return { deps, sender: createSender(deps), store, record, map, clock, urls, warnings, state };
@@ -401,12 +404,38 @@ describe("createSender — status", () => {
     expect(after.projects).toEqual([
       {
         name: "p",
-        graphUrl: graphUrl(await publicIdOf(UID, await phOf(UID, "p")), "p"),
+        graphUrl: graphUrl(await publicIdOf(UID, await phOf(UID, "p")), { project: "p" }),
         sent: true,
       },
     ]);
     expect(after.projects[0]?.graphUrl).toMatch(/\?l=p$/);
     expect(after.backoffUntil).toBeUndefined();
+  });
+
+  it("**ユーザー名が分かれば、合算にもプロジェクト別にも `u=` を付ける** (Issue #134)", async () => {
+    const t = await harness();
+    t.state.userName = "example-user";
+    t.record({ kind: "read", project: "p", day: YESTERDAY, minute: 1 });
+    await t.sender.trigger("hidden");
+
+    const status = await t.sender.status();
+    if (status.kind !== "enrolled") throw new Error(status.kind);
+    expect(status.graphUrl).toMatch(
+      /^https:\/\/grass\.soui\.dev\/v1\/g\/[0-9a-f]{32}\.svg\?u=example-user$/,
+    );
+    expect(status.projects[0]?.graphUrl).toMatch(/\?l=p&u=example-user$/);
+  });
+
+  it("**ユーザー名を毎回読み直す** (Cosense でログインし直しても、開き直さずに新しい名前になる)", async () => {
+    const t = await harness();
+    t.record({ kind: "read", project: "p", day: YESTERDAY, minute: 1 });
+    const before = await t.sender.status();
+    t.state.userName = "later";
+    const after = await t.sender.status();
+
+    if (before.kind !== "enrolled" || after.kind !== "enrolled") throw new Error();
+    expect(before.graphUrl).not.toContain("u=");
+    expect(after.graphUrl).toMatch(/\?u=later$/);
   });
 
   it("**まだ送れていないプロジェクトは sent: false** (URL は 404 になる)", async () => {
