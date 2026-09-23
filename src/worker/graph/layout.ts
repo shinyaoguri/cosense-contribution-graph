@@ -43,6 +43,11 @@ export type GraphInput = {
    * 呼び出し側がクエリから読み、`isValidProjectName` を通ったものだけを渡す (ADR-0007 決定 2 の再改訂)
    */
   readonly label?: string;
+  /**
+   * この画像に描くユーザー名 (`?u=`。Issue #134)。`label` と同じく**サーバは保存しない** —
+   * 呼び出し側が `isValidUserName` を通したものだけを渡す
+   */
+  readonly user?: string;
   readonly params: Params;
 };
 
@@ -58,6 +63,11 @@ type Label = {
    * 画像そのものを開けば飛べる。プロジェクトの行にだけ付ける
    */
   readonly href?: string;
+  /**
+   * 同じ行に続けて描く文字列 (Issue #134。プロジェクト名の後のユーザー名)。**太字にもリンクにもしない。**
+   * 位置を文字幅の見積もりで決めず、同じ `<text>` の `<tspan>` にしてブラウザに実際の幅で並べさせる
+   */
+  readonly suffix?: string;
 };
 
 type Swatch = { readonly x: number; readonly y: number; readonly fill: string };

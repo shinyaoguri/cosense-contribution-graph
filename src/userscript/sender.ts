@@ -59,6 +59,11 @@ export type SenderDependencies = {
   readonly withLock: <T>(run: () => Promise<T>) => Promise<T>;
   /** 結果の種類だけを出す */
   readonly warn: (message: string) => void;
+  /**
+   * 草の画像に描く Cosense のユーザー名 (Issue #134)。本番は `cosense.User?.name`。
+   * **未ログインなら `undefined`** で、そのときは URL に付けない
+   */
+  readonly userName: () => string | undefined;
 };
 
 /** 「草: センサーの記録」に出す送信の状況 */
@@ -167,6 +172,8 @@ export function createSender(deps: SenderDependencies): Sender {
         }
       }
       // プロジェクト名はこのブラウザにだけある。publicId は uid からしか導けないので、ここで作って見せる
+      // **ユーザー名は合算にもプロジェクト別にも付ける** (Issue #134)。どのプロジェクトでも同じ名前なので
+      const user = deps.userName();
       const names = new Set(days.flatMap((day) => [...deps.store.readDay(day).projects.keys()]));
       const projects = await Promise.all(
         [...names]
@@ -176,7 +183,7 @@ export function createSender(deps: SenderDependencies): Sender {
             // **プロジェクト別にだけ名前を渡す** (Issue #119)。合算はどのプロジェクトのものでもない
             return {
               name,
-              graphUrl: graphUrl(await publicIdOf(uid, ph), name),
+              graphUrl: graphUrl(await publicIdOf(uid, ph), { project: name, user }),
               sent: sentPhs.has(ph),
             };
           }),
@@ -185,7 +192,7 @@ export function createSender(deps: SenderDependencies): Sender {
       return {
         kind: "enrolled",
         kid,
-        graphUrl: graphUrl(await publicIdOf(uid, PH_ALL)),
+        graphUrl: graphUrl(await publicIdOf(uid, PH_ALL), { user }),
         totalSent: sentPhs.has(PH_ALL),
         projects,
         todaySends: sent.days[today]?.n ?? 0,

@@ -241,6 +241,7 @@ if (typeof window !== "undefined" && window.scrapbox) {
     withLock: (run) =>
       window.navigator.locks ? window.navigator.locks.request("cosense-grass:send", run) : run(),
     warn,
+    userName: () => cosense.User?.name,
   });
   start(cosense, {
     sender,
@@ -265,6 +266,7 @@ if (typeof window !== "undefined" && window.scrapbox) {
       sendImage: (url) => requestImage(url),
       now: () => new Date(),
       log: (message) => console.info(message),
+      userName: () => cosense.User?.name,
     }),
     startSensor: () =>
       // Symbol のキーで window に置く。別の版のバンドルからも同じキーで見つかる
