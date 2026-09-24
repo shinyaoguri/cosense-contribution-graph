@@ -4,10 +4,12 @@
  * - **ページに挿さずダイアログにする** (ADR-0003 の 2026-09-15 の改訂。`graph-dialog.ts` と同じ)
  * - 文言は `textContent`、ハンドラは `addEventListener` (Cosense の CSP。research §1)
  * - キー入力・貼り付け・コピーをダイアログの外へ伝えない (Cosense のショートカットに拾わせない)
+ * - **閉じるのは外側のクリックと Esc** (2026-09-24。草のダイアログと揃えて「閉じる」ボタンを撤去した。`dialog.ts`)
  * - **サインインはクリックの同期区間で始める。** `await` を挟むとポップアップがブロックされる (design §3)。
  *   先にこのダイアログを閉じてから呼ぶ (サインインのダイアログと重ねない)。
  *   始め方は開くたびに渡す (`sign-in-dialog.ts` と同じ handlers の形)
  */
+import { closeOnBackdropClick } from "./dialog.ts";
 import {
   CLEAR_NOTE,
   COUNT_READ_LABEL,
@@ -197,6 +199,7 @@ export function createSettingsDialog(
           close();
         }
       });
+      closeOnBackdropClick(node, close);
 
       node.append(
         element("h2", SETTINGS_DIALOG_TITLE),
@@ -204,9 +207,6 @@ export function createSettingsDialog(
         countRead(model),
         clear(model, handlers),
       );
-      const buttonLine = element("p");
-      buttonLine.append(button("閉じる", close));
-      node.append(buttonLine);
 
       doc.body.append(node);
       dialog = node;

@@ -4,7 +4,9 @@
  * - **ページに挿さずダイアログにする。** Cosense の遷移で消えないので、再マウントが要らない (ADR-0003 の改訂)
  * - **草は常にライトで出す。** 素の `<dialog>` は Cosense のどのテーマでも白地に黒 (research §3 の 2026-09-15 の実測)
  * - **出すのは Worker が作った共有 SVG の `<img>` だけ** (ADR-0019、Issue #109)。ここは草を描かない。
- *   **このブラウザから送れていないものは、押されるまで読まない**
+ *   ~~このブラウザから送れていないものは、押されるまで読まない~~ **2026-09-24 に最初から読むよう改めた**
+ *   (押す手間の方が煩わしかった)。読めなかったときの文言だけを、送れたかどうかで言い分ける
+ * - **閉じるのは外側のクリックと Esc** (2026-09-24。「閉じる」ボタンは撤去した。`dialog.ts`)
  * - 文言は `textContent`、ハンドラは `addEventListener` (`sign-in-dialog.ts` と同じ約束。research §1)
  * - キー入力・貼り付け・コピーをダイアログの外へ伝えない (Cosense のショートカットとコピーの処理に拾わせない)
  * - **同期の状態と「今すぐ送る」を合算の草の直後に置く** (Issue #102)。押した後は
@@ -14,6 +16,7 @@
  *   設定への入口はここが唯一。サインインは設定のダイアログの中のクリックで始まるので、
  *   ポップアップを開く同期区間は分断されない
  */
+import { closeOnBackdropClick } from "./dialog.ts";
 import { MENU_TITLE, SETTINGS_LABEL } from "./settings.ts";
 import {
   type GraphEntry,
@@ -128,7 +131,11 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     return `${entry.url}${entry.url.includes("?") ? "&" : "?"}r=${bust}`;
   };
 
-  /** 草の画像。読めなければ文言に置き換える (送れているのに読めないのは、サーバに届かないとき) */
+  /**
+   * 草の画像。読めなければ文言に置き換える。**送れていない草も最初から読む** (2026-09-24) —
+   * ほかの端末から送っていれば草はある。読めなかったときは、送れたかどうかで理由を言い分ける
+   * (送れているのに読めないのは、サーバに届かないとき)
+   */
   const image = (entry: GraphEntry) => {
     const frame = element("div");
     // 狭い画面では横にスクロールする (style 属性は Cosense の CSP で許されている。research §1)
@@ -138,7 +145,9 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
       frame.replaceChildren(
         element(
           "p",
-          "草を表示できませんでした (サーバに届かないか、まだ記録が反映されていません)。",
+          entry.sent
+            ? "草を表示できませんでした (サーバに届かないか、まだ記録が反映されていません)。"
+            : "このブラウザからはまだ送っていません。ほかの端末からも送っていなければ、草はまだありません。",
         ),
       );
     });
@@ -255,21 +264,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     block.style.margin = `${OUTER_GAP}px 0`;
     const heading = element("h4", entry.label);
     heading.style.margin = `0 0 ${INNER_GAP}px`;
-    block.append(heading);
-    if (entry.sent) {
-      block.append(image(entry));
-    } else {
-      const note = element("p", "このブラウザからはまだ送っていません。 ");
-      note.style.margin = "0";
-      note.append(
-        button("表示してみる", () => {
-          // ほかの端末から送っていれば草はある
-          note.replaceWith(image(entry));
-        }),
-      );
-      block.append(note);
-    }
-    block.append(copyLine(entry));
+    block.append(heading, image(entry), copyLine(entry));
     return block;
   };
 
@@ -336,12 +331,11 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
           close();
         }
       });
+      closeOnBackdropClick(node, close);
 
       node.append(element("h2", MENU_TITLE), integrated(view, handlers));
       const buttonLine = element("p");
       buttonLine.append(
-        button("閉じる", close),
-        doc.createTextNode(" "),
         // 閉じてから開く。設定のダイアログは自分で状況を読み直す
         button(SETTINGS_LABEL, () => {
           close();
