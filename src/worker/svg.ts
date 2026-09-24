@@ -47,11 +47,16 @@ function toSvg(layout: GraphLayout): string {
     swatch.beforeStart
       ? `<rect x="${swatch.x}" y="${swatch.y}" width="${cellSize}" height="${cellSize}" rx="${cellRadius}" fill="none" stroke="${layout.mutedColor}" stroke-dasharray="1 1"/>`
       : rect(swatch);
+  const markCell = (swatch: { readonly x: number; readonly y: number; readonly fill: string }) =>
+    `<rect x="${swatch.x}" y="${swatch.y}" width="${layout.markCellSize}" height="${layout.markCellSize}" rx="${layout.markCellRadius}" fill="${swatch.fill}"/>`;
   const labels = layout.labels
     .map((label) => {
       const anchorAttr = label.anchor === "end" ? ' text-anchor="end"' : "";
       // 値は列挙 ("bold" だけ) なので、属性に入るのは固定の文字列
-      const weightAttr = label.weight === undefined ? "" : ` font-weight="${label.weight}"`;
+      // 色も固定の値 (layout.ts の定数) だけ
+      const weightAttr =
+        (label.weight === undefined ? "" : ` font-weight="${label.weight}"`) +
+        (label.fill === undefined ? "" : ` fill="${label.fill}"`);
       const link = (inner: string) =>
         // **`<img>` で貼られている間は押せない** (research §3)。画像そのものを開いたときに効く
         label.href === undefined ? inner : `<a href="${escapeXml(label.href)}">${inner}</a>`;
@@ -59,10 +64,10 @@ function toSvg(layout: GraphLayout): string {
       if (label.suffix === undefined) {
         return link(`<text ${position}${weightAttr}>${escapeXml(label.text)}</text>`);
       }
-      // **続きは太字にもリンクにもしない** (Issue #134)。同じ `<text>` に並べ、位置はブラウザに任せる。
-      // 太字とリンクは前半の `<tspan>` だけに掛ける (SVG 2 は `<text>` の中の `<a>` を許す)
+      // **続きは太字・濃い色で、リンクにはしない** (Issue #134、2026-09-24)。同じ `<text>` に並べ、
+      // 位置はブラウザに任せる。リンクは前半の `<tspan>` だけに掛ける (SVG 2 は `<text>` の中の `<a>` を許す)
       const head = link(`<tspan${weightAttr}>${escapeXml(label.text)}</tspan>`);
-      return `<text ${position}>${head}<tspan dx="${SUFFIX_GAP}">${escapeXml(label.suffix)}</tspan></text>`;
+      return `<text ${position}>${head}<tspan dx="${SUFFIX_GAP}" font-weight="bold" fill="${label.suffix.fill}">${escapeXml(label.suffix.text)}</tspan></text>`;
     })
     .join("");
 
@@ -72,6 +77,10 @@ function toSvg(layout: GraphLayout): string {
     `<g data-part="labels" font-family="${layout.fontFamily}" font-size="${layout.fontSize}" fill="${layout.textColor}">${labels}</g>` +
     `<g data-part="grid">${layout.grid.map(cell).join("")}</g>` +
     `<g data-part="legend">${layout.legend.map(rect).join("")}</g>` +
+    // **合算の印は合算の草にだけ出す。** ほかの草の本文 (と ETag) を変えないよう、グループごと省く
+    (layout.mark.length === 0
+      ? ""
+      : `<g data-part="mark">${layout.mark.map(markCell).join("")}</g>`) +
     "</svg>"
   );
 }

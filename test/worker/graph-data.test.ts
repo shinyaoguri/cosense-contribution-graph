@@ -34,8 +34,8 @@ async function store(uid: string, ph: string, rows: readonly Row[]): Promise<str
   return publicId;
 }
 
-/** 期待値。表示範囲の日と、母集団 (* の全期間) を別々に渡す。 */
-function expected(display: readonly Row[], population: readonly Row[]): string {
+/** 期待値。表示範囲の日と、母集団 (* の全期間) を別々に渡す。`total` は合算の草か (印が付く) */
+function expected(display: readonly Row[], population: readonly Row[], total = false): string {
   const minutes = ([, w, r]: Row): Minutes => ({ w, r });
   const all = population.map(minutes);
   return renderGraph({
@@ -43,6 +43,7 @@ function expected(display: readonly Row[], population: readonly Row[]): string {
     days: new Map(display.map((row) => [row[0], minutes(row)])),
     scale: buildScale(all.map((d) => d.w + d.r)),
     center: centerOf(all),
+    total,
     params: DEFAULT_PARAMS,
   });
 }
@@ -64,9 +65,9 @@ describe("共有 SVG を D1 から描く", () => {
 
     const svg = await renderStoredGraph(env.DB, publicId, DEFAULT_PARAMS, NOW);
 
-    expect(svg).toBe(expected(whole.slice(1), whole));
+    expect(svg).toBe(expected(whole.slice(1), whole, true));
     // 母集団から古い日を外すと色が変わる (上の比較が母集団の違いを見分けられること)
-    expect(svg).not.toBe(expected(whole.slice(1), whole.slice(1)));
+    expect(svg).not.toBe(expected(whole.slice(1), whole.slice(1), true));
   });
 
   it("**プロジェクト別の草も * の全期間のスケールで塗る** (ADR-0007 決定 4)", async () => {
@@ -93,11 +94,23 @@ describe("共有 SVG を D1 から描く", () => {
     const projectId = await store(uid, PH, project);
 
     expect(await renderStoredGraph(env.DB, wholeId, DEFAULT_PARAMS, NOW)).toBe(
-      expected(whole.slice(1), whole),
+      expected(whole.slice(1), whole, true),
     );
     expect(await renderStoredGraph(env.DB, projectId, DEFAULT_PARAMS, NOW)).toBe(
       expected(project, whole),
     );
+  });
+
+  it("**合算の草にだけ、マスを重ねた印を描く** (2026-09-24。合算かどうかは publicId が決める)", async () => {
+    const uid = randomUid();
+    const wholeId = await store(uid, PH_ALL, whole);
+    const projectId = await store(uid, PH, [["2026-09-14", 40, 0]]);
+
+    const total = await renderStoredGraph(env.DB, wholeId, DEFAULT_PARAMS, NOW);
+    const project = await renderStoredGraph(env.DB, projectId, DEFAULT_PARAMS, NOW);
+
+    expect(total).toContain('<g data-part="mark">');
+    expect(project).not.toContain('data-part="mark"');
   });
 
   it("**「今日」は日本時間で決める** (UTC の日付では右端の列が 1 日遅れる)", async () => {

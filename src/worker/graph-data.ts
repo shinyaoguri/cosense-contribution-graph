@@ -20,6 +20,8 @@ type DayRow = { readonly day: string; readonly w: number; readonly r: number };
 
 type StoredGraph = {
   readonly today: string;
+  /** 合算の草 (`ph = '*'`) か */
+  readonly total: boolean;
   /** 表示範囲の日ごとの分数 */
   readonly days: ReadonlyMap<string, Minutes>;
   /** `ph = '*'` の全期間 */
@@ -79,6 +81,7 @@ async function loadGraph(
   );
   return {
     today,
+    total: graph.ph === PH_ALL,
     days: new Map(displayRows.map((row) => [row.day, minutes(row)])),
     population: populationRows.map(minutes),
     startDay,
@@ -110,6 +113,8 @@ export async function renderStoredGraph(
     startDay: graph.startDay,
     label,
     user,
+    // 合算かどうかは publicId が決める (クエリでは指定しない)。合算の草にだけ印を描く
+    total: graph.total,
     params,
   });
 }
