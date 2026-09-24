@@ -43,23 +43,32 @@ describe("草の画像のユーザー名 (Issue #134)", () => {
     const svg = await (await fetchDemo("?l=villagepump&u=example-user")).text();
 
     expect(svg).toMatch(
-      /<text x="8" y="\d+"><a href="https:\/\/scrapbox\.io\/villagepump"><tspan font-weight="bold">scrapbox\.io\/villagepump<\/tspan><\/a><tspan dx="6">@example-user<\/tspan><\/text>/,
+      /<text x="8" y="\d+"><a href="https:\/\/scrapbox\.io\/villagepump"><tspan font-weight="bold">scrapbox\.io\/villagepump<\/tspan><\/a><tspan dx="6" [^>]*>@example-user<\/tspan><\/text>/,
     );
   });
 
-  it("**ユーザー名は太字にもリンクにもしない** (`<a>` の外、`font-weight` の無い `<tspan>`)", async () => {
+  it("**ユーザー名は太字・濃い色にし、リンクにはしない** (2026-09-24。`<a>` の外の `<tspan>`)", async () => {
     const svg = await (await fetchDemo("?l=villagepump&u=example-user")).text();
 
-    expect(svg).toContain('</a><tspan dx="6">@example-user</tspan>');
+    expect(svg).toContain(
+      '</a><tspan dx="6" font-weight="bold" fill="#1f2328">@example-user</tspan>',
+    );
     expect(svg.match(/<a /g)).toHaveLength(1);
   });
 
-  it("**合算 (プロジェクト名なし) ではユーザー名だけを左端に描く**", async () => {
+  it("**ダークでは濃い色の代わりに明るい色にする** (背景に沈まないように)", async () => {
+    const svg = await (await fetchDemo("?l=villagepump&u=example-user&theme=dark")).text();
+
+    expect(svg).toContain('font-weight="bold" fill="#e6edf3">@example-user</tspan>');
+  });
+
+  it("**プロジェクト名が無ければユーザー名だけを左端に描く** (太字・濃い色、リンクなし)", async () => {
     const svg = await (await fetchDemo("?u=example-user")).text();
 
-    expect(svg).toMatch(/<text x="8" y="\d+">@example-user<\/text>/);
+    expect(svg).toMatch(
+      /<text x="8" y="\d+" font-weight="bold" fill="#1f2328">@example-user<\/text>/,
+    );
     expect(svg).not.toContain("<a ");
-    expect(svg).not.toContain("font-weight");
   });
 
   it("**プロジェクト名だけなら今までと 1 文字も変わらない** (既存の画像の ETag を変えない)", async () => {

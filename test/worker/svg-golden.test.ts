@@ -21,6 +21,7 @@ function demo(
   today = DEMO_TODAY,
   startDay?: string,
   label?: string,
+  extra: { readonly user?: string; readonly total?: boolean } = {},
 ): string {
   const { days, population } = demoData();
   return renderGraph({
@@ -30,6 +31,7 @@ function demo(
     center: centerOf(population),
     startDay,
     label,
+    ...extra,
     params: { ...DEFAULT_PARAMS, ...params },
   });
 }
@@ -86,6 +88,21 @@ const CASES: readonly (readonly [string, () => string, string])[] = [
     "プロジェクト名とリンク (Issue #119)",
     () => demo({}, DEMO_TODAY, undefined, "villagepump"),
     "565ac213a481ab344ddfef350daddddcd629a0758cef995fac9a0441bdf0a5f6",
+  ],
+  [
+    "プロジェクト名とユーザー名 (Issue #134、2026-09-24 に太字・濃い色へ)",
+    () => demo({}, DEMO_TODAY, undefined, "villagepump", { user: "example-user" }),
+    "55ae0c637f86dfb2c3da5062b9c8966d78bcb571450491266f4d74803890a96a",
+  ],
+  [
+    "合算の印とユーザー名 (2026-09-24)",
+    () => demo({}, DEMO_TODAY, undefined, undefined, { user: "example-user", total: true }),
+    "c05f06090e9fa49ba27b35eae8b63b94fda07f49ad59a6acdda3d3a47aa51dfd",
+  ],
+  [
+    "合算の印 (ダーク)",
+    () => demo({ theme: "dark" }, DEMO_TODAY, undefined, undefined, { total: true }),
+    "279c0adb05d23830690c932a04f4e9725321634c84b4786a6d5d09bd121a04b6",
   ],
   [
     "今日が日曜",

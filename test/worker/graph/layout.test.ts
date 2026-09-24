@@ -209,3 +209,113 @@ describe("凡例 (Issue #133)", () => {
     expect(withLabel.width).toBeGreaterThan(without.width);
   });
 });
+
+describe("合算の印 (2026-09-24)", () => {
+  /** 太字 9px の見積もり (上の「凡例」と同じ)。layout.ts と独立に持つ */
+  const CHAR_WIDTH = 6.5;
+  const CJK_WIDTH = 9;
+
+  it("**合算の草にだけ出す**", () => {
+    expect(layoutGraph(input()).mark).toEqual([]);
+    expect(layoutGraph(input({ label: "villagepump", user: "example-user" })).mark).toEqual([]);
+    expect(layoutGraph(input({ total: true })).mark).toHaveLength(3);
+  });
+
+  it("**奥 (右上) から手前 (左下) の順に並び、ずらして重ねる**", () => {
+    const [back, middle, front] = layoutGraph(input({ total: true })).mark;
+
+    expect(back?.x).toBeGreaterThan(middle?.x ?? 0);
+    expect(middle?.x).toBeGreaterThan(front?.x ?? 0);
+    expect(back?.y).toBeLessThan(middle?.y ?? 0);
+    expect(middle?.y).toBeLessThan(front?.y ?? 0);
+  });
+
+  it("**色はスキームから取り、手前ほど濃い** (3 枚とも違う色。テーマで変わる)", () => {
+    const light = layoutGraph(input({ total: true })).mark.map((s) => s.fill);
+    const dark = layoutGraph(
+      input({ total: true, params: { ...DEFAULT_PARAMS, theme: "dark" } }),
+    ).mark.map((s) => s.fill);
+
+    expect(new Set(light).size).toBe(3);
+    expect(light).not.toEqual(dark);
+    // 凡例の量の帯 (Level 1〜4) の先頭 3 つと同じ色
+    expect(light).toEqual(
+      layoutGraph(input())
+        .legend.slice(0, 3)
+        .map((s) => s.fill),
+    );
+  });
+
+  it("**凡例の行の高さに収まり、寸法を変えない**", () => {
+    const layout = layoutGraph(input({ total: true, user: "example-user" }));
+    const rowTop = layout.legend[0]?.y ?? 0;
+
+    for (const swatch of layout.mark) {
+      expect(swatch.y).toBeGreaterThanOrEqual(rowTop);
+      expect(swatch.y + layout.markCellSize).toBeLessThanOrEqual(rowTop + layout.cellSize);
+    }
+    expect(layout.width).toBe(775);
+    expect(layout.height).toBe(146);
+  });
+
+  it("**ユーザー名は印の右に置き、重ならない**", () => {
+    const layout = layoutGraph(input({ total: true, user: "example-user" }));
+    const markEnd = Math.max(...layout.mark.map((s) => s.x + layout.markCellSize));
+    const user = layout.labels.find((l) => l.text === "@example-user");
+
+    expect(user?.x).toBeGreaterThan(markEnd);
+  });
+
+  it("**印の意味は文字で説明しない** (絵で示す)", () => {
+    const withMark = layoutGraph(input({ total: true })).labels.map((l) => l.text);
+    const without = layoutGraph(input()).labels.map((l) => l.text);
+
+    expect(withMark).toEqual(without);
+  });
+
+  it.each([1, 10, MAX_WEEKS])(
+    "**%i 週でも、印と上限の長さのユーザー名が凡例と重ならない**",
+    (weeks) => {
+      const name = "0".repeat(MAX_PROJECT_NAME_LENGTH);
+      const layout = layoutGraph(
+        input({ total: true, user: name, params: { ...DEFAULT_PARAMS, weeks } }),
+      );
+      const user = layout.labels.find((l) => l.text === `@${name}`);
+      const userEnd = (user?.x ?? 0) + `@${name}`.length * CHAR_WIDTH;
+      const low = layout.labels.find((l) => l.text === "少ない");
+      const legendStart = (low?.x ?? 0) - "少ない".length * CJK_WIDTH;
+
+      expect(userEnd).toBeLessThan(legendStart);
+    },
+  );
+});
+
+describe("ユーザー名 (Issue #134、2026-09-24 の改訂)", () => {
+  it("**プロジェクト名の後に続けるときは、太字・濃い色にする**", () => {
+    const light = layoutGraph(input({ label: "villagepump", user: "example-user" }));
+    const dark = layoutGraph(
+      input({
+        label: "villagepump",
+        user: "example-user",
+        params: { ...DEFAULT_PARAMS, theme: "dark" },
+      }),
+    );
+
+    const lightSuffix = light.labels.find((l) => l.suffix !== undefined)?.suffix;
+    const darkSuffix = dark.labels.find((l) => l.suffix !== undefined)?.suffix;
+    expect(lightSuffix?.text).toBe("@example-user");
+    expect(lightSuffix?.fill).not.toBe(light.textColor);
+    expect(darkSuffix?.fill).not.toBe(dark.textColor);
+    expect(lightSuffix?.fill).not.toBe(darkSuffix?.fill);
+  });
+
+  it("**ユーザー名だけのときも太字・濃い色にする**", () => {
+    const layout = layoutGraph(input({ user: "example-user" }));
+    const user = layout.labels.find((l) => l.text === "@example-user");
+
+    expect(user?.weight).toBe("bold");
+    expect(user?.fill).toBeDefined();
+    expect(user?.fill).not.toBe(layout.textColor);
+    expect(user?.href).toBeUndefined();
+  });
+});

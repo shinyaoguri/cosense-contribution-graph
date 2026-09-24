@@ -48,6 +48,11 @@ export type GraphInput = {
    * 呼び出し側が `isValidUserName` を通したものだけを渡す
    */
   readonly user?: string;
+  /**
+   * 合算の草 (`ph = '*'`) か。**名前の行の左端に、マスを重ねた印を描く** (2026-09-24)。
+   * 文字では示さない — 草の絵のまま「複数のプロジェクトを束ねた草」と読めるようにする
+   */
+  readonly total?: boolean;
   readonly params: Params;
 };
 
@@ -56,18 +61,20 @@ type Label = {
   readonly y: number;
   readonly text: string;
   readonly anchor: "start" | "end";
-  /** 太字にするか。プロジェクト名だけに付ける (Issue #119) */
+  /** 太字にするか。プロジェクト名とユーザー名だけに付ける (Issue #119・#134) */
   readonly weight?: "bold";
+  /** 文字色。省略時はほかのラベルと同じ `textColor`。ユーザー名だけ濃くする */
+  readonly fill?: string;
   /**
    * リンク先 (Issue #119)。**`<img>` で貼られている間は押せない** (research §3) が、
    * 画像そのものを開けば飛べる。プロジェクトの行にだけ付ける
    */
   readonly href?: string;
   /**
-   * 同じ行に続けて描く文字列 (Issue #134。プロジェクト名の後のユーザー名)。**太字にもリンクにもしない。**
+   * 同じ行に続けて描く文字列 (Issue #134。プロジェクト名の後のユーザー名)。**太字・濃い色で、リンクにはしない。**
    * 位置を文字幅の見積もりで決めず、同じ `<text>` の `<tspan>` にしてブラウザに実際の幅で並べさせる
    */
-  readonly suffix?: string;
+  readonly suffix?: { readonly text: string; readonly fill: string };
 };
 
 type Swatch = { readonly x: number; readonly y: number; readonly fill: string };
@@ -96,6 +103,11 @@ export type GraphLayout = {
   readonly mutedColor: string;
   /** 凡例のマス。量の帯 (Level 1〜4) → 読み書きの帯 (バランスの列) の順。write モードは量の帯だけ */
   readonly legend: readonly Swatch[];
+  /** 合算の印のマス。奥から手前の順 (後のものが上に重なる)。合算でなければ空 */
+  readonly mark: readonly Swatch[];
+  /** 合算の印のマスの一辺と角の丸み */
+  readonly markCellSize: number;
+  readonly markCellRadius: number;
 };
 
 const PADDING = 8;
@@ -122,6 +134,19 @@ const PROJECT_CHAR_WIDTH = 6.5;
 export const SUFFIX_GAP = 6;
 /** ユーザー名の前に付ける印 (Issue #134) */
 const USER_PREFIX = "@";
+/**
+ * 合算の印 (2026-09-24)。一辺 `MARK_CELL` のマスを `MARK_OFFSET` ずつずらして 3 枚重ねる。
+ * **全体の一辺は格子のマス (`CELL`) と同じ**にして、凡例の行の高さに収める
+ */
+const MARK_CELL = 7;
+const MARK_OFFSET = 2;
+const MARK_SIZE = MARK_CELL + MARK_OFFSET * 2;
+/** マスが格子より小さいので、丸みも小さくする */
+const MARK_RADIUS = 1.5;
+/** 印を塗る Level。奥ほど薄く、手前ほど濃い。**白の縁取りは使わない** (ダークで浮く)。濃淡の差で重なりを見せる */
+const MARK_LEVELS = [1, 2, 3] as const;
+/** 印と後ろの名前の間 */
+const MARK_GAP = 5;
 const LABEL_BASELINE = 9;
 const FONT_SIZE = 9;
 const CELL_RADIUS = 2;
@@ -132,6 +157,12 @@ const FONT_FAMILY =
 
 // 背景は両テーマとも透明。埋め込み側がテーマを選ぶ前提で、文字色だけ変える
 const TEXT_COLOR: Record<Theme, string> = { light: "#57606a", dark: "#9198a1" };
+
+/**
+ * ユーザー名の文字色 (2026-09-24)。ほかのラベルより濃くして、誰の草かを先に読ませる。
+ * GitHub の fg.default に揃えた
+ */
+const STRONG_TEXT_COLOR: Record<Theme, string> = { light: "#1f2328", dark: "#e6edf3" };
 
 const LEGEND_LEVELS = [1, 2, 3, 4] as const;
 
@@ -175,9 +206,10 @@ function label(x: number, y: number, text: string, anchor: Label["anchor"] = "st
  * **プロジェクトは `scrapbox.io/<名前>` と太字で出し、同じ URL を `href` に持たせる。**
  * `<img>` で貼られている間はクリックできない (research §3) が、**画像そのものを開けば飛べる**。
  *
- * **ユーザー名は `@<名前>` として同じ行に続ける** (`suffix`)。太字にもリンクにもしない —
+ * **ユーザー名は `@<名前>` として同じ行に続ける** (`suffix`)。**太字・濃い色にする** (2026-09-24) —
+ * プロジェクト名と並んだときに誰の草かが埋もれないように。リンクにはしない —
  * Cosense のユーザーページはプロジェクトに属し、全体で共通のページが無いのでリンク先が決まらない。
- * 合算の草 (プロジェクト名なし) ではユーザー名だけが左端に来る。
+ * プロジェクト名が無いときはユーザー名だけが来る。`x` は行の左端 (合算の印があればその右)。
  *
  * **ここに置くのは寸法を増やさないため。** 草の寸法が変わると、`<img>` に寸法を固定している
  * UserScript 側 (`graph-dialog.ts` の `GRAPH_WIDTH` / `GRAPH_HEIGHT`) で絵が縮む。
@@ -186,15 +218,22 @@ function label(x: number, y: number, text: string, anchor: Label["anchor"] = "st
 function projectLine(
   projectName: string | undefined,
   userName: string | undefined,
+  x: number,
   y: number,
+  theme: Theme,
 ): Label[] {
-  const user = userName === undefined ? undefined : `${USER_PREFIX}${userName}`;
+  const user =
+    userName === undefined
+      ? undefined
+      : { text: `${USER_PREFIX}${userName}`, fill: STRONG_TEXT_COLOR[theme] };
   if (projectName === undefined) {
-    return user === undefined ? [] : [label(PADDING, y, user)];
+    return user === undefined
+      ? []
+      : [{ x, y, text: user.text, anchor: "start", weight: "bold", fill: user.fill }];
   }
   return [
     {
-      x: PADDING,
+      x,
       y,
       text: `${PROJECT_PREFIX}${projectName}`,
       anchor: "start",
@@ -206,10 +245,34 @@ function projectLine(
 }
 
 /**
- * 名前の行が凡例と重ならないために取っておく幅 (見積もり)。名前が 1 つも無ければ 0。
- * ユーザー名は太字でないので実際は見積もりより狭いが、同じ幅で見積もって重ならない側に倒す
+ * 合算の印 (2026-09-24)。**マスを 3 枚ずらして重ね、「複数の草を束ねた草」を絵で示す。**
+ * 奥 (右上) を薄く、手前 (左下) を濃く。色はスキームから量の帯と同じ取り方 (バランス 0) で取るので、
+ * 配色とテーマに追従する。`(x, y)` は印の左上
  */
-function projectWidth(projectName: string | undefined, userName: string | undefined): number {
+function layoutMark(scheme: ColorScheme, theme: Theme, x: number, y: number): Swatch[] {
+  return MARK_LEVELS.map((level, i) => {
+    const depth = MARK_LEVELS.length - 1 - i;
+    return {
+      x: x + depth * MARK_OFFSET,
+      y: y + i * MARK_OFFSET,
+      fill: scheme.cell(
+        { level, balance: AMOUNT_STRIP_BALANCE, total: Number.POSITIVE_INFINITY },
+        theme,
+      ),
+    };
+  });
+}
+
+/**
+ * 名前の行 (合算の印を含む) が凡例と重ならないために取っておく幅 (見積もり)。何も無ければ 0。
+ * ユーザー名も太字なので、プロジェクト名と同じ幅で見積もる
+ */
+function projectWidth(
+  projectName: string | undefined,
+  userName: string | undefined,
+  total: boolean,
+): number {
+  const mark = total ? MARK_SIZE : 0;
   const project =
     projectName === undefined
       ? 0
@@ -219,7 +282,9 @@ function projectWidth(projectName: string | undefined, userName: string | undefi
       ? 0
       : (project === 0 ? 0 : SUFFIX_GAP) +
         (USER_PREFIX.length + userName.length) * PROJECT_CHAR_WIDTH;
-  return project + user === 0 ? 0 : Math.ceil(project + user) + PROJECT_LEGEND_GAP;
+  const text = project + user;
+  const width = mark + (mark > 0 && text > 0 ? MARK_GAP : 0) + text;
+  return width === 0 ? 0 : Math.ceil(width) + PROJECT_LEGEND_GAP;
 }
 
 /** 「少ない ■■■■ 多い」の形の帯 1 本の幅 */
@@ -310,7 +375,7 @@ export function layoutGraph(input: GraphInput): GraphLayout {
   const legend = legendWidth(legendBalances);
   const contentWidth = Math.max(
     WEEKDAY_LABEL_WIDTH + gridWidth,
-    projectWidth(input.label, input.user) + legend,
+    projectWidth(input.label, input.user, input.total === true) + legend,
   );
 
   const gridX = PADDING + WEEKDAY_LABEL_WIDTH;
@@ -336,6 +401,8 @@ export function layoutGraph(input: GraphInput): GraphLayout {
   const legendX = PADDING + contentWidth - legend;
   const legendY = gridY + gridHeight + LEGEND_GAP;
   const legendParts = layoutLegend(legendBalances, scheme, params.theme, legendX, legendY);
+  const mark = input.total === true ? layoutMark(scheme, params.theme, PADDING, legendY) : [];
+  const nameX = mark.length > 0 ? PADDING + MARK_SIZE + MARK_GAP : PADDING;
 
   return {
     // width / height / viewBox の 3 つを必ず出す。欠けると Cosense でサイズが崩れる (design §8)
@@ -348,7 +415,7 @@ export function layoutGraph(input: GraphInput): GraphLayout {
     textColor: TEXT_COLOR[params.theme],
     mutedColor: MUTED_COLOR[params.theme],
     labels: [
-      ...projectLine(input.label, input.user, legendY + LABEL_BASELINE),
+      ...projectLine(input.label, input.user, nameX, legendY + LABEL_BASELINE, params.theme),
       ...monthLabels(cells).map((month) =>
         label(gridX + month.position * STEP, PADDING + LABEL_BASELINE, month.text),
       ),
@@ -359,5 +426,8 @@ export function layoutGraph(input: GraphInput): GraphLayout {
     ],
     grid,
     legend: legendParts.swatches,
+    mark,
+    markCellSize: MARK_CELL,
+    markCellRadius: MARK_RADIUS,
   };
 }
