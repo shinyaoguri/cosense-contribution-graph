@@ -55,6 +55,7 @@ export function handleHome(): Promise<Response> {
   const body = `<h1>cosense-grass</h1>
 <p>Cosense (旧 Scrapbox) での活動を、1 年分の「草」として見えるようにするツールです。
 書いた時間と読んだ時間を分単位で数え、日ごとの量を色の濃さ、読み書きの比を色合いで表します。</p>
+<p><small>Cosense の公式サービスではありません。運営元の株式会社 Helpfeel とは関係のない、個人のプロジェクトです。</small></p>
 
 <img src="/v1/g/${DEMO_PUBLIC_ID}.svg" width="775" height="200" alt="草の例 (デモ)">
 <p><small>デモの草です。実際の記録ではありません。</small></p>

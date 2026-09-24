@@ -21,6 +21,16 @@ describe("トップ /", () => {
     expect(html).toContain("/privacy");
   });
 
+  it("**OAuth の同意画面の審査が見るものを満たす** — 公式サービスと紛らわしくなく、ポリシーへリンクする", async () => {
+    const { html } = await fetchPage("/");
+
+    // アプリ名 (同意画面の App name と同じ) と、Cosense の公式ではないこと (Issue #141、research §6)
+    expect(html).toContain("<h1>cosense-grass</h1>");
+    expect(html).toContain("Cosense の公式サービスではありません");
+    // 同意画面に登録するポリシーの URL と同じパス
+    expect(html).toContain('href="/privacy"');
+  });
+
   it("**サインインの導線を出す** (押すとそのまま自分の草に行ける)", async () => {
     const { html } = await fetchPage("/");
 
@@ -57,6 +67,16 @@ describe("プライバシーポリシー /privacy", () => {
     expect(html).toContain("<code>__Host-grass-auth</code>");
     // 草案の但し書きは消えている (配信するので)
     expect(html).not.toContain("草案");
+  });
+
+  it("**Google から受け取る情報の扱いを開示する** (OAuth の同意画面の審査の要件、Issue #141)", async () => {
+    const { html } = await fetchPage("/privacy");
+
+    expect(html).toContain(
+      '<a href="https://developers.google.com/terms/api-services-user-data-policy"',
+    );
+    expect(html).toContain("Limited Use");
+    expect(html).toContain("Cosense の公式サービスではありません");
   });
 
   it("正本のリンクは a になる", async () => {

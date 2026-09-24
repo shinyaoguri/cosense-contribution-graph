@@ -3,6 +3,7 @@
 ## このサービスについて
 
 Cosense (旧 Scrapbox) での活動量を可視化するツールです。
+**Cosense の公式サービスではありません。** 運営元の株式会社 Helpfeel とは関係のない、個人のプロジェクトです。
 ソースコードと設計は [GitHub](https://github.com/shinyaoguri/cosense-contribution-graph) で公開しています。
 
 ## 保存するもの
@@ -37,6 +38,11 @@ Google から受け取る ID トークンは本人確認に使うだけで、保
 
 サインインは最初の 1 回と、デバイスを追加するときだけ必要です。以降の記録の送信は
 各デバイスの鍵による署名で認証します。
+
+Google から受け取る情報 (`sub`) は、**同じ Google アカウントのデバイスを 1 人の利用者の記録にまとめるためだけ**に使います。
+保存するのは上の HMAC の結果だけで、第三者に渡すことも、広告や別の目的に使うこともありません。
+Google API から受け取った情報の利用は、Limited Use の要件を含む
+[Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy) に従います。
 
 ## Cookie
 
