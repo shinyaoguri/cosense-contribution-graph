@@ -103,7 +103,7 @@ function setup(outcome: ReturnType<SettingsDialogDependencies["setCountRead"]> =
 }
 
 describe("開く", () => {
-  it("題と、この端末の状態と、閉じるボタンを出す", () => {
+  it("題と、この端末の状態を出す。**「閉じる」ボタンは出さない** (2026-09-24)", () => {
     const t = setup();
 
     t.open(ENROLLED);
@@ -113,7 +113,7 @@ describe("開く", () => {
     expect(text).toContain(SETTINGS_DIALOG_TITLE);
     expect(text).toContain("この端末は登録済みです。");
     expect(text).toContain("0123456789abcdef");
-    expect(t.button("閉じる")).toBeDefined();
+    expect(t.button("閉じる")).toBeUndefined();
   });
 
   it("**押し直しても 1 枚しか残らない**", () => {
@@ -126,12 +126,24 @@ describe("開く", () => {
     expect(t.node()?.textContent).toContain("まだ登録されていません");
   });
 
-  it("閉じると DOM から消える", () => {
+  it("**外側のクリックで閉じ、DOM から消える** (2026-09-24)", () => {
     const t = setup();
-
     t.open(ENROLLED);
-    t.button("閉じる")?.click();
+    const node = t.node();
+    if (!node) {
+      throw new Error("開いていない");
+    }
+    // jsdom は矩形を持たないので、(100, 100)〜(500, 400) に置いたことにする
+    node.getBoundingClientRect = () => new DOMRect(100, 100, 400, 300);
+    const at = (position: number) => ({ bubbles: true, clientX: position, clientY: position });
 
+    // 中で押して外で離しても閉じない
+    node.dispatchEvent(new MouseEvent("pointerdown", at(200)));
+    node.dispatchEvent(new MouseEvent("click", at(20)));
+    expect(document.querySelector("dialog")).not.toBeNull();
+
+    node.dispatchEvent(new MouseEvent("pointerdown", at(20)));
+    node.dispatchEvent(new MouseEvent("click", at(20)));
     expect(document.querySelector("dialog")).toBeNull();
   });
 
@@ -170,7 +182,6 @@ describe("サインイン", () => {
 
     expect([...(t.node()?.querySelectorAll("button") ?? [])].map((b) => b.textContent)).toEqual([
       CLEAR.label,
-      "閉じる",
     ]);
   });
 });

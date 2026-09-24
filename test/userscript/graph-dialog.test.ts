@@ -61,6 +61,30 @@ function message(...lines: string[]): IntegratedView {
   return { kind: "message", lines };
 }
 
+const INSIDE = 200;
+const OUTSIDE = 20;
+
+/**
+ * 押して離す。jsdom は矩形を持たないので、ダイアログを (100, 100)〜(500, 400) に置いたことにする。
+ * `pressed` / `released` は押した位置と離した位置 (x・y とも同じ値)。`pressTarget` を渡すと、押したのは中の要素
+ */
+function clickAt(
+  dialog: HTMLDialogElement | null,
+  pressed: number,
+  released: number,
+  pressTarget?: Element | null,
+) {
+  if (dialog === null) {
+    return;
+  }
+  dialog.getBoundingClientRect = () => new DOMRect(100, 100, 400, 300);
+  const at = (position: number) => ({ bubbles: true, clientX: position, clientY: position });
+  (pressTarget ?? dialog).dispatchEvent(new MouseEvent("pointerdown", at(pressed)));
+  // 押した所と離した所が違えば、click は共通の祖先 (ここではダイアログ) に届く
+  const clickTarget = pressed === released ? (pressTarget ?? dialog) : dialog;
+  clickTarget.dispatchEvent(new MouseEvent("click", at(released)));
+}
+
 function setup(
   writeText: (text: string) => Promise<void> = () => Promise.resolve(),
   sendNow: () => Promise<SendNowResult> = () =>
@@ -94,6 +118,46 @@ function setup(
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+describe("外側のクリックで閉じる (2026-09-24)", () => {
+  it("**「閉じる」ボタンは出さない**", () => {
+    const t = setup();
+    t.open(graphs([]));
+
+    expect(t.buttons("閉じる")).toEqual([]);
+  });
+
+  it("**背景で押して背景で離すと閉じる**", () => {
+    const t = setup();
+    t.open(graphs([]));
+
+    clickAt(t.find(), OUTSIDE, OUTSIDE);
+
+    expect(t.find()).toBeNull();
+  });
+
+  it("**中身のクリックでは閉じない** (ダイアログの余白・中の要素)", () => {
+    const t = setup();
+    t.open(graphs([]));
+
+    clickAt(t.find(), INSIDE, INSIDE);
+    const heading = t.find()?.querySelector("h2");
+    clickAt(t.find(), INSIDE, INSIDE, heading);
+    // 中の要素なら、矩形の外にはみ出した位置でも閉じない (target で見分ける)
+    clickAt(t.find(), OUTSIDE, OUTSIDE, heading);
+
+    expect(t.find()).not.toBeNull();
+  });
+
+  it("**中で押して外で離しても閉じない** (文字を選んだまま外へ出たとき)", () => {
+    const t = setup();
+    t.open(graphs([]));
+
+    clickAt(t.find(), INSIDE, OUTSIDE);
+
+    expect(t.find()).not.toBeNull();
+  });
+});
 
 describe("createGraphDialog", () => {
   it("**「設定」を押すと、このダイアログを閉じてから開く** (2 枚重ねない。Issue #95)", () => {
@@ -209,20 +273,28 @@ describe("createGraphDialog", () => {
     expect(t.find()?.textContent).toContain("草を表示できませんでした");
   });
 
-  it("**このブラウザから送れていない草は、押されるまで読まない**", () => {
+  it("**このブラウザから送れていない草も、最初から読む** (2026-09-24。押す手間をなくした)", () => {
     const t = setup();
-    t.open(graphs([{ label: "beta", sent: false }]));
-
-    expect(
-      [...(t.find()?.querySelectorAll("img") ?? [])].map((i) => i.getAttribute("src")),
-    ).toEqual([url("aa")]);
-    expect(t.find()?.textContent).toContain("このブラウザからはまだ送っていません");
-
-    t.buttons("表示してみる")[0]?.click();
+    t.open(graphs([{ label: "beta", sent: false }], false));
 
     expect(
       [...(t.find()?.querySelectorAll("img") ?? [])].map((i) => i.getAttribute("src")),
     ).toEqual([url("aa"), url("b0")]);
+    expect(t.buttons("表示してみる")).toEqual([]);
+  });
+
+  it("**送れていない草が読めなかったときは、まだ送っていないと言う** (サーバの不調と取り違えない)", () => {
+    const t = setup();
+    t.open(graphs([{ label: "beta", sent: false }]));
+    const [total, beta] = t.sections().filter((s) => s.firstElementChild?.tagName === "H4");
+
+    for (const img of t.find()?.querySelectorAll("img") ?? []) {
+      img.dispatchEvent(new Event("error"));
+    }
+
+    expect(total?.textContent).toContain("草を表示できませんでした");
+    expect(beta?.textContent).toContain("このブラウザからはまだ送っていません");
+    expect(beta?.textContent).not.toContain("草を表示できませんでした");
   });
 
   it(`**プロジェクト別は ${INITIAL_PROJECT_GRAPHS} 件まで出し、残りは押すと出す**`, () => {
@@ -295,7 +367,7 @@ describe("createGraphDialog", () => {
     expect(seen).toEqual([]);
   });
 
-  it("**開き直すと前のダイアログを消す。** 閉じる・Esc で消える", () => {
+  it("**開き直すと前のダイアログを消す。** 外側のクリック・Esc で消える", () => {
     const t = setup();
     t.open(graphs([]));
     t.open(message("2 回目"));
@@ -303,7 +375,7 @@ describe("createGraphDialog", () => {
     expect(document.querySelectorAll("dialog")).toHaveLength(1);
     expect(t.find()?.textContent).toContain("2 回目");
 
-    t.buttons("閉じる")[0]?.click();
+    clickAt(t.find(), OUTSIDE, OUTSIDE);
     expect(document.querySelectorAll("dialog")).toHaveLength(0);
 
     t.open(graphs([]));
@@ -327,7 +399,6 @@ describe("createGraphDialog", () => {
     for (const copy of t.buttons("URL をコピー")) {
       copy.click();
     }
-    t.buttons("表示してみる")[0]?.click();
     for (const img of t.find()?.querySelectorAll("img") ?? []) {
       img.dispatchEvent(new Event("error"));
     }
