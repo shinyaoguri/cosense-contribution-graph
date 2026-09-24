@@ -2,7 +2,7 @@ import { ACCOUNT_PATH, AUTH_CALLBACK_PATH, AUTH_START_PATH } from "../shared/aut
 import { INGEST_PATH } from "../shared/beacon.ts";
 import { ENROLL_PATH } from "../shared/enroll.ts";
 import { sha256Hex } from "../shared/hash.ts";
-import { isValidPublicId } from "../shared/ids.ts";
+import { isValidDataKey, isValidPublicId } from "../shared/ids.ts";
 import { PROBE_PATH } from "../shared/probe.ts";
 import { REVOKE_PATH } from "../shared/revoke.ts";
 import { type AccountDeps, handleAccount } from "./account.ts";
@@ -16,6 +16,7 @@ import { buildScale } from "./graph/scale.ts";
 import { renderStoredGraph } from "./graph-data.ts";
 import { googleKeys } from "./idtoken.ts";
 import { handleIngest } from "./ingest.ts";
+import { type GraphData, loadGraphData } from "./json.ts";
 import { d1KeyResolver } from "./keys.ts";
 import { parseLabel, parseParams, parseUser, parseYear } from "./params.ts";
 import { handleProbe } from "./probe.ts";
@@ -27,12 +28,16 @@ import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
  *
  * 経路は `/v1/p.gif` (記録の受け口)、`/v1/enroll.gif` (デバイスの登録)、`/v1/revoke.gif` (デバイスの失効)、
  * `/account` (端末の一覧と失効・共有 URL・全削除)、`/` と `/privacy` (人が読むページ)、`/v1/g/{publicId}.svg`、
+ * `/v1/g/{publicId}/{dataKey}.json` (日ごとの集計値。ADR-0020)、
  * `/v1/probe.gif` (送信の疎通確認)、`/auth/start` と `/auth/callback` (Google サインイン)、`/favicon.svg`。
  * グラフは `demo` ならデモを、それ以外は D1 の記録から描く。
  */
 
 /** `publicId` は URL で決まる。どのプロジェクトを描くかをクエリで指定しない (design §6)。 */
 const GRAPH_PATH = /^\/v1\/g\/([^/]+)\.svg$/;
+
+/** 日ごとの集計値。**草の URL からは導けない鍵を並べる** (ADR-0020)。 */
+const GRAPH_DATA_PATH = /^\/v1\/g\/([^/]+)\/([^/]+)\.json$/;
 
 const CACHE_CONTROL = "public, max-age=900";
 
@@ -108,6 +113,22 @@ export default {
     }
     if (url.pathname === FAVICON_PATH) {
       return svgResponse(request, FAVICON_SVG, FAVICON_CACHE_CONTROL);
+    }
+
+    const data = GRAPH_DATA_PATH.exec(url.pathname);
+    // 形の違う publicId と dataKey は D1 を引かずに 404
+    if (data?.[1] && data[2] && isValidPublicId(data[1]) && isValidDataKey(data[2])) {
+      let graphData: GraphData | undefined;
+      try {
+        graphData = await loadGraphData(env.DB, data[1], data[2]);
+      } catch {
+        console.log(JSON.stringify({ event: "graph-data", status: 503 }));
+        return unavailable();
+      }
+      if (graphData !== undefined) {
+        return cachedResponse(request, JSON.stringify(graphData), JSON_HEADERS);
+      }
+      return notFound();
     }
 
     const publicId = GRAPH_PATH.exec(url.pathname)?.[1];
@@ -191,15 +212,52 @@ function renderDemo(search: URLSearchParams): string {
 }
 
 /**
- * SVG を返す。**ETag は本文の SHA-256** (ADR-0015 決定 2)。
+ * SVG の応答ヘッダ。
+ *
+ * - **Content-Type が無いと Cosense で表示されない。** Cosense は拡張子で <img> にするかを決め、
+ *   描画できるかはブラウザが Content-Type で決める (research §3、過去に踏まれた唯一の落とし穴)
+ * - SVG を直接開くとアクティブコンテンツが実行されうるので、何も読ませない (design §6)
+ */
+const SVG_HEADERS = {
+  "content-type": "image/svg+xml; charset=utf-8",
+  "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'",
+  "x-content-type-options": "nosniff",
+};
+
+/**
+ * 日ごとの集計値の JSON の応答ヘッダ (ADR-0020)。
+ *
+ * - **ほかのサイトのスクリプトから読めるようにする。** Cookie を使わない公開の値なので `*` でよい。
+ *   Cosense の中からは CSP の `connect-src` で読めないのは変わらない
+ * - **検索に載せない。** URL が公開の場に貼られても、内訳を検索で拾わせない
+ */
+const JSON_HEADERS = {
+  "content-type": "application/json; charset=utf-8",
+  "content-security-policy": "default-src 'none'",
+  "x-content-type-options": "nosniff",
+  "access-control-allow-origin": "*",
+  "x-robots-tag": "noindex",
+};
+
+function svgResponse(
+  request: Request,
+  body: string,
+  cacheControl = CACHE_CONTROL,
+): Promise<Response> {
+  return cachedResponse(request, body, SVG_HEADERS, cacheControl);
+}
+
+/**
+ * キャッシュさせる応答。**ETag は本文の SHA-256** (ADR-0015 決定 2)。
  *
  * design §6 は「`users.ver` と描画パラメータから作る」としていたが、それだと配色やレイアウトを
  * 直してデプロイしても、キャッシュを持つ側に 304 が返り続けて古い画像が残る。本文から作れば
  * 描画が変わったときだけ変わり、常に正しい。
  */
-async function svgResponse(
+async function cachedResponse(
   request: Request,
   body: string,
+  headers: Readonly<Record<string, string>>,
   cacheControl = CACHE_CONTROL,
 ): Promise<Response> {
   const etag = `"${await sha256Hex(body, ETAG_LENGTH)}"`;
@@ -211,17 +269,8 @@ async function svgResponse(
 
   return new Response(body, {
     status: 200,
-    headers: {
-      // **これが無いと Cosense で表示されない。** Cosense は拡張子で <img> にするかを決め、
-      // 描画できるかはブラウザが Content-Type で決める (research §3、過去に踏まれた唯一の落とし穴)
-      "content-type": "image/svg+xml; charset=utf-8",
-      // 草は、送信が 1 日数回なので短くする意味がない (design §6)
-      "cache-control": cacheControl,
-      // SVG を直接開くとアクティブコンテンツが実行されうるので、何も読ませない (design §6)
-      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'",
-      "x-content-type-options": "nosniff",
-      etag,
-    },
+    // 草は、送信が 1 日数回なので短くする意味がない (design §6)
+    headers: { ...headers, "cache-control": cacheControl, etag },
   });
 }
 

@@ -17,7 +17,7 @@
  * - 値をスクリプトに埋め込まない。スタイルは固定の文字列で、CSP はハッシュで書く (`auth-page.ts` と同じ)
  */
 import { ACCOUNT_PATH, AUTH_START_PATH, AUTH_TO_ACCOUNT, AUTH_TO_PARAM } from "../shared/auth.ts";
-import { isValidKid, PH_ALL, publicIdOf } from "../shared/ids.ts";
+import { dataKeyOf, isValidKid, PH_ALL, publicIdOf } from "../shared/ids.ts";
 import { FAVICON_LINK } from "./favicon.ts";
 import { csrfToken, openSession, type Session, verifyCsrf } from "./session.ts";
 
@@ -175,9 +175,14 @@ async function shareSection(session: Session, deps: AccountDeps): Promise<string
   }
   const path = `/v1/g/${publicId}.svg`;
   const url = `${deps.publicOrigin}${path}`;
+  // 草の URL からは導けない鍵を並べる (ADR-0020)
+  const dataUrl = `${deps.publicOrigin}/v1/g/${publicId}/${await dataKeyOf(session.uid, PH_ALL)}.json`;
   return `<p>全プロジェクトを合算した草です。<strong>URL を知っている人は誰でも見られます。</strong></p>
 <img src="${escapeHtml(path)}" width="775" height="200" alt="全プロジェクトを合算した草">
 <p><code>${escapeHtml(url)}</code></p>
+<p>日ごとの数値 (書いた分・読んだ分・編集したページ数・作ったページ数) の JSON です。
+<strong>この URL を知っている人は、草には出ない内訳まで読めます。</strong>草の URL からは作れない別の URL です。</p>
+<p><code>${escapeHtml(dataUrl)}</code></p>
 <p><small>プロジェクト別の草の URL は、Cosense のページメニュー「cosense-grass」にプロジェクト名つきで並びます
 (サーバはプロジェクト名を持たないので、この画面では名前を出せません)。</small></p>`;
 }

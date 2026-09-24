@@ -87,7 +87,7 @@ src/worker/
   days.ts                   記録を受け付ける日付の窓と、ビットマップの保持日数
   keys.ts                   署名の検証に使う公開鍵を keys テーブルから引く
   svg.ts                    GET /v1/g/{publicId}.svg。graph/layout.ts のレイアウトを文字列にする
-  json.ts                   GET /v1/g/{publicId}.json
+  json.ts                   GET /v1/g/{publicId}/{dataKey}.json。日ごとの集計値 (ADR-0020)
   admin.ts                  全削除
   cron.ts                   古いビットマップの削除
   graph/                    草を描く一式。**Worker だけが持つ** (ADR-0019、Issue #110)
@@ -159,6 +159,7 @@ kid        SHA-256(公開鍵)[0:16]                          デバイス識別�
 ph         SHA-256(uid + ":" + プロジェクト名)[0:16]       プロジェクト識別子。'*' は全体
 publicId   SHA-256(uid + ":*")[0:32]                     全体の共有 URL
 publicId_p SHA-256(uid + ":" + ph)[0:32]                 プロジェクトの共有 URL
+dataKey    SHA-256("data:" + uid + ":" + ph)[0:32]       日ごとの集計値の JSON の鍵。publicId と並べる (ADR-0020)
 ```
 
 ### `sub` は Worker 固有の秘密で HMAC する
@@ -794,6 +795,35 @@ Cosense では画像が壊れて表示されるので、「無い」ことが見
   Workers Cache を有効にすればヒット時は Worker を実行せず、日次リクエスト枠も節約できる
 - `Content-Type: image/svg+xml; charset=utf-8` を必ず付ける。これがないと Cosense で表示されない
 
+### `GET /v1/g/{publicId}/{dataKey}.json` — 日ごとの集計値
+
+**2026-09-24、ADR-0020** (`src/worker/json.ts`)。その `(uid, ph)` の `daily` を**全期間**、日付の昇順で返す。
+
+```json
+{
+  "total": true,
+  "days": [{ "day": "2026-09-01", "w": 12, "r": 30, "pages": 3, "created": 1 }]
+}
+```
+
+- **草と同じ `publicId` に `.json` を付けるだけにしない。** `dataKey = SHA-256("data:" + uid + ":" + ph)[0:32]` を並べる。
+  計算に uid が要るので、**草の URL を受け取った人は JSON の URL を作れない** (§10)
+- **表を持たない。** `graphs` を `publicId` で引いて `(uid, ph)` を得て、`dataKey` を計算し直して定数時間で比べる
+- `publicId` か `dataKey` の形が 32 桁の小文字 16 進でなければ D1 を引かずに 404。`graphs` に無いのと鍵が違うのは**区別せず 404**
+- `total` は合算 (`ph = '*'`) か。**uid も ph も本文に出さない。** 絵のクエリ (`weeks` / `year` など) は受けない
+- `pages` / `created` は複数端末で少なく出ることがある (Issue #71)
+- **D1 が読めなければ 503 と `Cache-Control: no-store`** (草と同じ)
+- ETag・304・`Cache-Control: public, max-age=900` は草と同じ
+
+| ヘッダ | 値 | 理由 |
+|---|---|---|
+| `Content-Type` | `application/json; charset=utf-8` | |
+| `Access-Control-Allow-Origin` | `*` | ほかのサイトのスクリプトから読ませる。Cookie を使わない公開の値。Cosense の中からは CSP で読めないのは変わらない |
+| `X-Robots-Tag` | `noindex` | URL が公開の場に貼られても検索に拾わせない |
+| `Content-Security-Policy` | `default-src 'none'` | 直接開いても何も読ませない |
+
+**URL を出すのは `/account` の合算だけ** (サーバはプロジェクト名を持たない)。プロジェクト別の URL は UserScript なら計算できるが、まだ出していない。
+
 ### セキュリティヘッダ
 
 SVG と JSON のレスポンスに付ける。
@@ -1341,6 +1371,8 @@ UserScript は一度読み込まれると全プロジェクトで常駐する (r
 ### 受容する脆弱性
 
 - `publicId` を知る人に日別活動量が見える。共有するかはユーザーの選択
+- **JSON の URL (`publicId` と `dataKey`) を知る人には、日ごとの書いた分・読んだ分・ページ数まで見える** (ADR-0020)。
+  草の URL からは作れないので、内訳を渡すかは草とは別に選べる
 - **草のダイアログで開いた草の URL は、scrapbox.io の Cache Storage に 48 時間残る** (Cosense の Service Worker が画像を保存する。research §3)。
   同じオリジンで動くスクリプトから列挙できるが、それらは IndexedDB の鍵も使えるので、新しく増える露出は無い。
   UserScript のコードからは URL をコンソールにもログにも出さない
