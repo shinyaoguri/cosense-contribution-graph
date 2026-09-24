@@ -1062,7 +1062,7 @@ Worker が Cosense とは独立に OpenID Connect のリライングパーティ
 [Unverified apps](https://support.google.com/cloud/answer/7454865),
 [FAQ](https://support.google.com/cloud/answer/13463817)
 
-### ポリシー URL (不明が残る)
+### ポリシー URL (必須として扱う。2026-09-24)
 
 [App Branding](https://support.google.com/cloud/answer/15549049) に
 「**These links are required for all external production apps.** You will not be able to submit your
@@ -1074,6 +1074,49 @@ app for verification if it is missing these links.」とある。
 Testing モードには例外がある。「The only exception to this behavior is if your app requests a
 subset of the following: name, email address, and user profile」の場合、テストユーザー登録が
 不要で警告も出ず、7 日で失効もしない。
+
+**2026-09-24 の再調査で、External の本番アプリには必須と読める記述が他にもあった** (Issue #141)。
+publish の画面が未設定を止めるかは試していないが、ホームページとポリシーの URL は揃っているので入れる。
+
+- [Branding](https://support.google.com/cloud/answer/15549049) の上の一文 (production apps に必須)
+- [Policy compliance](https://developers.google.com/identity/protocols/oauth2/production-readiness/policy-compliance):
+  「Every production app that uses OAuth 2.0 must have a publicly accessible home page.」
+- [User Data Policy](https://developers.google.com/terms/api-services-user-data-policy):
+  「You must list the privacy policy URL in your OAuth client configuration when your application is made available to the public.」
+
+### ブランドの表示と brand verification (基準日 2026-09-24)
+
+**Publish app (Testing → In production) は `openid` のみなら審査なしで押せる。** ただし同意画面に出る名前は別の審査。
+
+- **brand verification を通すまで、アプリ名もロゴも同意画面に出ない。** 「Without verification, only your application
+  domain will be visible to users.」([Branding](https://support.google.com/cloud/answer/15549049))。
+  どのドメイン (リダイレクト URI かホームページか) が出るかは未確認
+- **ロゴを上げると検証が要る。** 差し替えのたびにやり直し。1MB 以下、JPG / PNG / BMP、正方形で 120×120 が推奨
+- 検証の要件 ([Verification requirements](https://support.google.com/cloud/answer/13464321)、
+  [Brand verification](https://developers.google.com/identity/protocols/oauth2/production-readiness/brand-verification))
+  - Authorized domains は**すべて Search Console で所有確認**する (プロジェクトの Owner か Editor の Google アカウントで)
+  - ホームページは所有確認したドメインにあり、**アプリの機能を説明し、ログインページだけではなく、ログインなしで見られる**
+  - ホームページから**同意画面に登録したものと同じ**ポリシーの URL へリンクする
+  - ポリシーは「how your app accesses, uses, stores, and/or shares Google user data」を開示する
+- 自動の審査は数分、人手に回ると 2〜3 営業日。**合格から 7 日以内に Publish branding を押さないとやり直し**
+- 名前・ロゴ・ホームページ・ポリシーの URL・Authorized domains を変えると再審査になり、それまで反映されない
+- 名前は「Google's or other organizations' brands」と紛らわしくしない。許される例は「PDF Viewer for Google Drive」。
+  **`cosense-grass` のままにし、トップとポリシーに Cosense の公式ではないことを書いた** (Issue #141)
+- **Limited Use の定型文が non-sensitive だけのアプリに必須だという明文は無い** (Limited Use は sensitive / restricted の
+  追加要件)。ただし brand verification の要件に「should conform with Google's Limited use requirements」とあるので、
+  安全側に倒してポリシーに書いた
+
+Testing のままでも `openid` だけならテストユーザー以外がサインインできる、という上の例外の記述は、
+[Production readiness](https://developers.google.com/identity/protocols/oauth2/production-readiness/overview) の
+「Users see a warning UI indicating the app is in testing」と食い違う。どちらになるかは試していない。
+In production にすればこの食い違いに依存しない。
+
+### 本番化した後の運用 (基準日 2026-09-24)
+
+- **6 か月使われないクライアントは自動で消える** (トークンの要求も設定の変更も無い状態。2025-10-27 に追加された規則)。
+  30 日前にメールが来て、消えた後も約 30 日は戻せる ([Clients](https://support.google.com/cloud/answer/15549257))
+- client secret は作ったときにしか見られない。2 本まで持てるので、足してから古い方を無効にして回す
+- 連絡先 (Owner・Editor・サポートメール) を最新に保つ。通知に応じないと API を使えなくなることがある
 
 ### `sub` は public subject type (設計への影響大)
 
