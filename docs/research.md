@@ -1118,6 +1118,13 @@ In production にすればこの食い違いに依存しない。
 ポリシーの要件 ([answer 13806988](https://support.google.com/cloud/answer/13806988)) は access / use / share / protect / retain・delete の 5 つと
 「Clearly associated with your application」で、`<h1>` にアプリ名が無かった。
 
+**要件を満たしていても同じ指摘が返り続ける、という報告が Google Developer forums に複数ある** (2026-07〜08、基準日 2026-09-24)。
+アプリ名の不一致・目的の説明なしが多い。「the identical findings return near-instantly each time, which suggests the
+automated checker is serving a cached verdict rather than refetching」という観察もあり
+([forum](https://discuss.google.dev/t/oauth-brand-verification-stuck-in-instant-rejection-loop-findings-provably-false-checker-appears-to-not-refetch/390870))、
+解決策の報告は無い。勧められているのは審査のメールへの返信で人の再確認を頼むこと。
+本プロジェクトでも 2 回目 (トップとポリシーを直して本番で確かめた後) に、所有権以外の 4 点が同じ文面で返った。
+
 ### 本番化した後の運用 (基準日 2026-09-24)
 
 - **6 か月使われないクライアントは自動で消える** (トークンの要求も設定の変更も無い状態。2025-10-27 に追加された規則)。
