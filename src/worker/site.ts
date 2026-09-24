@@ -9,7 +9,7 @@
  * - **キャッシュする。** 中身はデプロイでしか変わらないので、ページは 1 時間 (`account.ts` の `no-store` と対照的)
  */
 import privacyMarkdown from "../../docs/privacy.md";
-import { ACCOUNT_PATH, AUTH_START_PATH, AUTH_TO_ACCOUNT, AUTH_TO_PARAM } from "../shared/auth.ts";
+import { ACCOUNT_PATH } from "../shared/auth.ts";
 import { FAVICON_LINK } from "./favicon.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { DEMO_PUBLIC_ID } from "./svg.ts";
@@ -53,6 +53,18 @@ async function siteCsp(): Promise<string> {
 
 export function handleHome(): Promise<Response> {
   const body = `<h1>cosense-grass</h1>
+<h2 lang="en">About cosense-grass</h2>
+<div lang="en">
+<p><strong>cosense-grass</strong> visualizes your activity on Cosense (formerly Scrapbox) as a one-year contribution graph ("grass").
+A user script counts the minutes you spend writing and reading in each Cosense project, and this service draws the graph as an image
+that you can embed or share.</p>
+<p>Google Sign-In is used only to merge records from your devices into one graph. We request the <code>openid</code> scope only and
+never receive your email address or name. Signing in is not required to read this page or to view a shared graph.
+See the <a href="${PRIVACY_PATH}">privacy policy</a> for details.</p>
+<p>cosense-grass is a personal project and is not affiliated with Cosense or Helpfeel Inc.</p>
+</div>
+
+<h2>cosense-grass について</h2>
 <p>Cosense (旧 Scrapbox) での活動を、1 年分の「草」として見えるようにするツールです。
 書いた時間と読んだ時間を分単位で数え、日ごとの量を色の濃さ、読み書きの比を色合いで表します。</p>
 <p><small>Cosense の公式サービスではありません。運営元の株式会社 Helpfeel とは関係のない、個人のプロジェクトです。</small></p>
@@ -76,24 +88,12 @@ export function handleHome(): Promise<Response> {
 複数のプロジェクトで使うときは、それぞれのユーザーページに同じ 1 行を書きます。</p>
 <p>ページメニューに「cosense-grass」が増えます。
 草をほかの端末とまとめたり、共有 URL を作ったりするには、そのダイアログの「設定」から Google でサインインします。</p>
-<p>すでに Cosense で設定を済ませている方は、
-<a href="${AUTH_START_PATH}?${AUTH_TO_PARAM}=${AUTH_TO_ACCOUNT}">Google でサインインして自分の草を見る</a>こともできます。</p>
+<p>すでに Cosense で設定を済ませている方は、<a href="${ACCOUNT_PATH}">管理のページ</a>で自分の草を見られます。</p>
 
 <h2>保存されるもの</h2>
 <p>サーバに送るのは<strong>「何日の何分に活動したか」だけ</strong>です。
 ページの題名も中身もプロジェクト名も送りません。くわしくは
 <a href="${PRIVACY_PATH}">プライバシーポリシー</a>をご覧ください。</p>
-
-<h2 lang="en">About cosense-grass</h2>
-<div lang="en">
-<p><strong>cosense-grass</strong> visualizes your activity on Cosense (formerly Scrapbox) as a one-year contribution graph ("grass").
-A user script counts the minutes you spend writing and reading in each Cosense project, and this service draws the graph as an image
-that you can embed or share.</p>
-<p>Google Sign-In is used only to merge records from your devices into one graph. We request the <code>openid</code> scope only and
-never receive your email address or name. Signing in is not required to read this page or to view a shared graph.
-See the <a href="${PRIVACY_PATH}">privacy policy</a> for details.</p>
-<p>cosense-grass is a personal project and is not affiliated with Cosense or Helpfeel Inc.</p>
-</div>
 
 <h2>リンク</h2>
 <ul>
@@ -101,14 +101,19 @@ See the <a href="${PRIVACY_PATH}">privacy policy</a> for details.</p>
 <li><a href="${PRIVACY_PATH}">プライバシーポリシー</a></li>
 <li><a href="${REPOSITORY_URL}">GitHub</a> — ソースコードと設計</li>
 </ul>`;
-  return page("cosense-grass — Cosense の活動を草にする", body);
+  // **title はアプリ名だけにする** (OAuth の同意画面の App name と同じ文字列。brand verification の自動判定が見る、Issue #141)
+  return page("cosense-grass", body, HOME_HEAD);
 }
 
 export function handlePrivacy(): Promise<Response> {
   return page("cosense-grass のプライバシーポリシー", renderMarkdown(privacyMarkdown));
 }
 
-async function page(title: string, body: string): Promise<Response> {
+/** トップだけの `<head>`。アプリ名と目的を機械が読める形でも出す (Issue #141) */
+const HOME_HEAD = `<meta name="application-name" content="cosense-grass">
+<meta name="description" content="cosense-grass visualizes your activity on Cosense (formerly Scrapbox) as a one-year contribution graph.">`;
+
+async function page(title: string, body: string, head = ""): Promise<Response> {
   const html = `<!doctype html>
 <html lang="ja">
 <head>
@@ -117,7 +122,7 @@ async function page(title: string, body: string): Promise<Response> {
 <meta name="referrer" content="no-referrer">
 ${FAVICON_LINK}
 <title>${title}</title>
-<style>${STYLE}</style>
+${head ? `${head}\n` : ""}<style>${STYLE}</style>
 </head>
 <body>
 ${body}

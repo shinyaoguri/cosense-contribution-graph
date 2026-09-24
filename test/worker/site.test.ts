@@ -1,6 +1,6 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { AUTH_START_PATH, AUTH_TO_ACCOUNT, AUTH_TO_PARAM } from "../../src/shared/auth.ts";
+import { AUTH_START_PATH } from "../../src/shared/auth.ts";
 import { DEMO_PUBLIC_ID } from "../../src/worker/svg.ts";
 
 const ORIGIN = "https://example.com";
@@ -39,16 +39,23 @@ describe("トップ /", () => {
     expect(html).toContain('<h2 lang="en">About cosense-grass</h2>');
     expect(html).toContain("<strong>cosense-grass</strong> visualizes your activity on Cosense");
     expect(html).toContain("Google Sign-In is used only to merge records from your devices");
-    // サインインの導線は目的の説明より後ろ (ログインページに見せない)
-    expect(html.indexOf(`href="${AUTH_START_PATH}`)).toBeGreaterThan(
-      html.indexOf("<h2>使い方</h2>"),
-    );
+    // 最初の本文は英語の説明 (h1 の直後)
+    expect(html).toContain('<h1>cosense-grass</h1>\n<h2 lang="en">About cosense-grass</h2>');
   });
 
-  it("**サインインの導線を出す** (押すとそのまま自分の草に行ける)", async () => {
+  it("**title と meta もアプリ名にする** (同意画面の App name と同じ文字列)", async () => {
     const { html } = await fetchPage("/");
 
-    expect(html).toContain(`href="${AUTH_START_PATH}?${AUTH_TO_PARAM}=${AUTH_TO_ACCOUNT}"`);
+    expect(html).toContain("<title>cosense-grass</title>");
+    expect(html).toContain('<meta name="application-name" content="cosense-grass">');
+    expect(html).toContain('<meta name="description" content="cosense-grass visualizes');
+  });
+
+  it("**サインインへ直接つながるリンクを置かず、管理のページへ案内する** (ログインページに見せない、Issue #141)", async () => {
+    const { html } = await fetchPage("/");
+
+    expect(html).not.toContain(AUTH_START_PATH);
+    expect(html).toContain('<a href="/account">管理のページ</a>で自分の草を見られます');
   });
 
   it("**スクリプトを載せず、CSP で止める**", async () => {
