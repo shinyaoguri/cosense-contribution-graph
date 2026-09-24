@@ -60,9 +60,12 @@ export function handleHome(): Promise<Response> {
 <img src="/v1/g/${DEMO_PUBLIC_ID}.svg" width="775" height="200" alt="草の例 (デモ)">
 <p><small>デモの草です。実際の記録ではありません。</small></p>
 
-<p><a href="${AUTH_START_PATH}?${AUTH_TO_PARAM}=${AUTH_TO_ACCOUNT}">Google でサインインして自分の草を見る</a></p>
-<p><small>すでに Cosense で設定を済ませている方は、ここからサインインすると自分の草を見られます。
-まだの方は、先に下の「使い方」を済ませてください。</small></p>
+<h2>Google サインインを使う理由</h2>
+<p>記録は Cosense を開いた端末 (PC やブラウザ) ごとに数えます。
+<strong>Google でサインインすると、複数の端末の記録を同じ 1 人の草にまとめられます。</strong>
+サインインは端末を追加するときだけで、このページや草を見るのにサインインは要りません。
+受け取るのは Google アカウントの識別子だけで、メールアドレスや氏名は受け取りません
+(<a href="${PRIVACY_PATH}">プライバシーポリシー</a>)。</p>
 
 <h2>使い方</h2>
 <p>Cosense の自分のユーザーページ (<code>/{project}/{username}</code>) の <code>script.js</code> に、
@@ -73,11 +76,24 @@ export function handleHome(): Promise<Response> {
 複数のプロジェクトで使うときは、それぞれのユーザーページに同じ 1 行を書きます。</p>
 <p>ページメニューに「cosense-grass」が増えます。
 草をほかの端末とまとめたり、共有 URL を作ったりするには、そのダイアログの「設定」から Google でサインインします。</p>
+<p>すでに Cosense で設定を済ませている方は、
+<a href="${AUTH_START_PATH}?${AUTH_TO_PARAM}=${AUTH_TO_ACCOUNT}">Google でサインインして自分の草を見る</a>こともできます。</p>
 
 <h2>保存されるもの</h2>
 <p>サーバに送るのは<strong>「何日の何分に活動したか」だけ</strong>です。
 ページの題名も中身もプロジェクト名も送りません。くわしくは
 <a href="${PRIVACY_PATH}">プライバシーポリシー</a>をご覧ください。</p>
+
+<h2 lang="en">About cosense-grass</h2>
+<div lang="en">
+<p><strong>cosense-grass</strong> visualizes your activity on Cosense (formerly Scrapbox) as a one-year contribution graph ("grass").
+A user script counts the minutes you spend writing and reading in each Cosense project, and this service draws the graph as an image
+that you can embed or share.</p>
+<p>Google Sign-In is used only to merge records from your devices into one graph. We request the <code>openid</code> scope only and
+never receive your email address or name. Signing in is not required to read this page or to view a shared graph.
+See the <a href="${PRIVACY_PATH}">privacy policy</a> for details.</p>
+<p>cosense-grass is a personal project and is not affiliated with Cosense or Helpfeel Inc.</p>
+</div>
 
 <h2>リンク</h2>
 <ul>

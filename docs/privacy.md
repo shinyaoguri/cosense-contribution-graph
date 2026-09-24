@@ -1,8 +1,8 @@
-# プライバシーポリシー
+# cosense-grass プライバシーポリシー
 
 ## このサービスについて
 
-Cosense (旧 Scrapbox) での活動量を可視化するツールです。
+cosense-grass は、Cosense (旧 Scrapbox) での活動量を可視化するツールです。
 **Cosense の公式サービスではありません。** 運営元の株式会社 Helpfeel とは関係のない、個人のプロジェクトです。
 ソースコードと設計は [GitHub](https://github.com/shinyaoguri/cosense-contribution-graph) で公開しています。
 
@@ -28,19 +28,21 @@ Cosense (旧 Scrapbox) での活動量を可視化するツールです。
   ページの識別子は一切含まれません
 - **秘密鍵。** 各デバイスのブラウザ内に留まり、送信されません
 
-## Google サインインについて
+## Google ユーザーデータの取り扱い
 
-`openid` スコープのみを要求します。受け取るのはアカウントの識別子 (`sub`) だけで、
-メールアドレスもプロフィールも取得しません。
+Google でのサインインは、**複数の端末 (PC やブラウザ) の記録を、同じ 1 人の利用者の草にまとめるため**に使います。
+サインインは最初の 1 回と、端末を追加するときだけ必要です。以降の記録の送信は各端末の鍵による署名で認証します。
 
-Google から受け取る ID トークンは本人確認に使うだけで、保存しません。サインインの後に画面に表示するコードは
-5 分で使えなくなり、1 回しか使えません。
+- **取得するもの:** `openid` スコープのみを要求し、受け取るのはアカウントの識別子 (`sub`) だけです。
+  メールアドレス、氏名、プロフィール画像は取得しません
+- **使い方:** `sub` からサーバ固有の秘密で HMAC した利用者の識別子を作り、同じ Google アカウントの端末を 1 人の記録にまとめます。
+  それ以外の目的 (広告、プロファイリング、機械学習など) には使いません
+- **共有:** 第三者に渡しません。販売もしません
+- **保護:** 通信はすべて HTTPS です。`sub` そのものと Google の ID トークンは保存せず、本人確認に使ったらすぐに捨てます。
+  保存するのは元に戻せない HMAC の結果だけです。サインインの後に画面に表示するコードは 5 分で使えなくなり、1 回しか使えません
+- **保持と削除:** 利用者の識別子は、下の「データの削除」で削除するまで保持します。削除すると、識別子に結びついた記録と
+  端末の鍵がすべて消えます
 
-サインインは最初の 1 回と、デバイスを追加するときだけ必要です。以降の記録の送信は
-各デバイスの鍵による署名で認証します。
-
-Google から受け取る情報 (`sub`) は、**同じ Google アカウントのデバイスを 1 人の利用者の記録にまとめるためだけ**に使います。
-保存するのは上の HMAC の結果だけで、第三者に渡すことも、広告や別の目的に使うこともありません。
 Google API から受け取った情報の利用は、Limited Use の要件を含む
 [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy) に従います。
 
@@ -134,3 +136,22 @@ Google でサインインすると、登録した端末の一覧・共有 URL・
 
 内容を変更した場合は、GitHub のリポジトリの履歴に残ります。
 重要な変更があるときはリポジトリで告知します。
+
+## Summary in English
+
+cosense-grass visualizes your activity on Cosense (formerly Scrapbox) as a contribution graph ("grass").
+It is a personal project and is not affiliated with Cosense or Helpfeel Inc.
+
+- **Google user data we access:** Google Sign-In is used only to link your devices to one account.
+  We request the `openid` scope only and receive only the account identifier (`sub`). We do not access your email address, name, or profile picture
+- **How we use it:** We derive an internal user ID from `sub` with a keyed hash (HMAC), so that records from your devices are merged into one graph.
+  We do not use it for advertising, profiling, or machine learning
+- **Sharing:** We do not share, transfer, or sell Google user data to any third party
+- **Protection:** All traffic uses HTTPS. We never store `sub` itself or the Google ID token; only the irreversible HMAC result is stored
+- **Retention and deletion:** The internal user ID is kept until you delete your data. You can delete all server-side data at any time
+  from `https://grass.soui.dev/account`
+- **Other data:** We store per-minute activity bitmaps (kept for 90 days) and daily totals, device public keys, and a time zone.
+  We never receive page titles, page contents, or project names
+- Our use of information received from Google APIs adheres to the
+  [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), including the Limited Use requirements
+- **Contact:** [GitHub Issues](https://github.com/shinyaoguri/cosense-contribution-graph/issues)
