@@ -11,6 +11,7 @@
  * kid        SHA-256(公開鍵 65 バイト)[0:16]
  * ph         SHA-256(uid + ":" + プロジェクト名)[0:16]。'*' は全体
  * publicId   SHA-256(uid + ":" + ph)[0:32]。全体用は ph = '*'
+ * dataKey    SHA-256("data:" + uid + ":" + ph)[0:32]。日ごとの集計値の JSON の URL に publicId と並べる
  * ```
  */
 import { decodeBase64url } from "./base64url.ts";
@@ -65,6 +66,16 @@ export function isValidPublicId(value: string): boolean {
   return PUBLIC_ID_PATTERN.test(value);
 }
 
+/** 日ごとの集計値の JSON を開く鍵 `dataKey` の桁数 (128 bit。ADR-0020)。 */
+export const DATA_KEY_LENGTH = 32;
+
+const DATA_KEY_PATTERN = new RegExp(`^[0-9a-f]{${DATA_KEY_LENGTH}}$`);
+
+/** `dataKey` の形か (32 桁の小文字 16 進数)。形が違えば D1 を引かずに 404 にする。 */
+export function isValidDataKey(value: string): boolean {
+  return DATA_KEY_PATTERN.test(value);
+}
+
 export function isValidKid(value: string): boolean {
   return KID_PATTERN.test(value);
 }
@@ -80,6 +91,17 @@ export function phOf(uid: string, projectName: string): Promise<string> {
  */
 export function publicIdOf(uid: string, ph: string): Promise<string> {
   return sha256Hex(`${uid}:${ph}`, PUBLIC_ID_LENGTH);
+}
+
+/**
+ * 日ごとの集計値の JSON を開く鍵 (ADR-0020)。URL は `/v1/g/{publicId}/{dataKey}.json`。
+ *
+ * **`publicId` からは導けない。** 計算に uid が要るので、草の URL を受け取った人は内訳の URL を作れない。
+ * 先頭の `data:` で `publicId` の入力 (`uid:ph`) と分ける。uid は `:` を含まないので、
+ * `publicId` の入力の最初の `:` は 28 文字目、こちらは 5 文字目になり、同じ入力にならない。
+ */
+export function dataKeyOf(uid: string, ph: string): Promise<string> {
+  return sha256Hex(`data:${uid}:${ph}`, DATA_KEY_LENGTH);
 }
 
 /** 公開鍵 (65 バイトの非圧縮 SEC1) から `kid` を作る。**文字列ではなくバイト列をハッシュする。** */

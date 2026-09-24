@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import { encodeBase64url } from "../../src/shared/base64url.ts";
 import { sha256Hex } from "../../src/shared/hash.ts";
 import {
+  DATA_KEY_LENGTH,
+  dataKeyOf,
+  isValidDataKey,
   isValidKid,
   isValidPh,
   isValidPublicId,
@@ -101,6 +104,33 @@ describe("publicId", () => {
     expect(project).not.toBe(await publicIdOf(UID, PH_ALL));
     expect(project).not.toContain(ph);
     expect(project).not.toContain(UID);
+  });
+});
+
+describe("dataKey", () => {
+  it("SHA-256('data:' + uid + ':' + ph) の先頭 32 桁", async () => {
+    const ph = await phOf(UID, "my-project");
+    expect(DATA_KEY_LENGTH).toBe(32);
+    expect(await dataKeyOf(UID, PH_ALL)).toBe(await sha256Hex(`data:${UID}:*`, 32));
+    expect(await dataKeyOf(UID, ph)).toBe(await sha256Hex(`data:${UID}:${ph}`, 32));
+  });
+
+  it("**同じ (uid, ph) の publicId と違う値になる** (草の URL から内訳の URL を作らせない。ADR-0020)", async () => {
+    const ph = await phOf(UID, "my-project");
+    expect(await dataKeyOf(UID, PH_ALL)).not.toBe(await publicIdOf(UID, PH_ALL));
+    expect(await dataKeyOf(UID, ph)).not.toBe(await publicIdOf(UID, ph));
+  });
+
+  it("ph が違えば違う値になる", async () => {
+    const ph = await phOf(UID, "my-project");
+    expect(await dataKeyOf(UID, ph)).not.toBe(await dataKeyOf(UID, PH_ALL));
+  });
+
+  it("32 桁の小文字 16 進数だけを dataKey の形とみなす", async () => {
+    expect(isValidDataKey(await dataKeyOf(UID, PH_ALL))).toBe(true);
+    expect(isValidDataKey("0".repeat(31))).toBe(false);
+    expect(isValidDataKey("0".repeat(33))).toBe(false);
+    expect(isValidDataKey("A".repeat(32))).toBe(false);
   });
 });
 

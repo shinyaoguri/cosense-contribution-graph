@@ -13,6 +13,7 @@ Cosense (旧 Scrapbox) の活動を草として可視化する。成果物は **
 ほかの端末の一覧と失効は Worker の `/account` (ADR-0017)。
 **管理はページへ集約した** (#88、ADR-0018): Cosense 側はそのブラウザでしかできないことだけで、`/` (トップ)・`/account` (管理)・`/privacy` (ポリシー) を配信する。
 **`docs/privacy.md` は `/privacy` の正本**で、Text モジュールとして読み込んで `markdown.ts` が HTML にする。
+日ごとの集計値は、草とは別の推測しにくい URL の JSON `/v1/g/{publicId}/{dataKey}.json` で出す (ADR-0020)。
 本番は `https://grass.soui.dev` (独自ドメイン。`cosense-grass.soui.workers.dev` も有効) で、デモの草 `/v1/g/demo.svg` がある。設計の正本は `docs/`。
 
 ## docs の読み方

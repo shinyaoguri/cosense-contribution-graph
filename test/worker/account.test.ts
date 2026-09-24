@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { ACCOUNT_PATH } from "../../src/shared/auth.ts";
-import { PH_ALL, publicIdOf } from "../../src/shared/ids.ts";
+import { dataKeyOf, PH_ALL, publicIdOf } from "../../src/shared/ids.ts";
 import { DELETE_CONFIRM_WORD, handleAccount } from "../../src/worker/account.ts";
 import { FAVICON_LINK } from "../../src/worker/favicon.ts";
 import { csrfToken, sealSession } from "../../src/worker/session.ts";
@@ -220,6 +220,15 @@ describe("あなたの草", () => {
 
     expect(html).toContain(`${ORIGIN}/v1/g/${publicId}.svg`);
     expect(html).toContain("ページメニュー「cosense-grass」にプロジェクト名つきで並びます");
+  });
+
+  it("**日ごとの数値の JSON の URL を、内訳まで読めると添えて出す** (ADR-0020)", async () => {
+    const { uid, publicId } = await withGraph();
+
+    const html = await (await get(await cookieFor(uid))).text();
+
+    expect(html).toContain(`${ORIGIN}/v1/g/${publicId}/${await dataKeyOf(uid, PH_ALL)}.json`);
+    expect(html).toContain("草には出ない内訳まで読めます");
   });
 
   it("**草そのものを画像で出す** (URL を別のタブで開かなくてよい)", async () => {
