@@ -675,6 +675,42 @@ COOP のフォールバック (コードを貼る経路) も実際に試す。
 
 草への合流そのものは送信 (段階 6) が入ってから見える。段階 4 では合算の草の URL が同じになることで uid の一致を確かめる。
 
+### 同意画面の本番公開 (Issue #141)
+
+**誰でもサインインできるように、同意画面を Testing から In production にする。** `openid` のみなので審査は要らないが、
+同意画面にアプリ名を出すには brand verification が別に要る (research §6)。リポジトリ側の準備
+(トップとポリシーの文言、ロゴの生成) は済んでいて、残りは Google Cloud のコンソールでの持ち主の操作。
+
+入れる値。**サポートメールと連絡先はここに書かない** (持ち主が選ぶ。サポートメールは同意画面に公開される)。
+
+| 画面 | 欄 | 値 |
+|---|---|---|
+| Branding | App name | `cosense-grass` (トップの `<h1>` と同じにする。審査が見る) |
+| | User support email | 持ち主の Google アカウントか、持ち主が管理する Google グループ |
+| | App logo | `npm run logo` で作る `dist/oauth-logo.png` (120×120 の PNG、favicon と同じ絵。**コミットしない**) |
+| | Application home page | `https://grass.soui.dev/` |
+| | Application privacy policy link | `https://grass.soui.dev/privacy` |
+| | Application terms of service link | 空欄 (任意。免責はポリシーに書いてある) |
+| | Authorized domains | `soui.dev` (top private domain で登録する) |
+| | Developer contact information | 持ち主が読むアドレス (削除や規約変更の通知が来る) |
+| Data Access | Scopes | **`openid` だけ。** email / profile を足さない (足すとポリシーの「受け取らない」が崩れる) |
+| Clients | Authorized redirect URIs | `https://grass.soui.dev/auth/callback` (変えない) |
+
+手順。
+
+1. **Search Console で `soui.dev` を所有確認する** (ドメイン プロパティ、DNS の TXT レコード。DNS は Cloudflare)。
+   OAuth クライアントのあるプロジェクトの Owner か Editor の Google アカウントで行う
+2. Branding に上の値を入れて保存する
+3. Verification Center で brand verification を出す。自動なら数分、人手なら 2〜3 営業日。
+   **合格から 7 日以内に Publish branding を押す** (過ぎるとやり直し)
+4. Audience で **Publish app** を押し、Publishing status が In production になったことを見る。
+   テストユーザーの一覧は空にしてよい
+5. **テストユーザーに入れていない Google アカウント**で `https://grass.soui.dev/auth/start` を開き、同意画面に
+   `cosense-grass` とロゴが出て、コードが表示されることを確かめる。結果を日付とブラウザを添えてこの節と #141 に書く
+
+3 は 4 の前でなくてもよい (Publish app は brand verification を待たない)。その間は同意画面にアプリ名の代わりにドメインが出る。
+**名前・ロゴ・URL・Authorized domains を後から変えると再審査になり、それまで反映されない。**
+
 ---
 
 ## 段階 5 — センサーとビットマップ
@@ -864,8 +900,8 @@ PR の順。
 | 段階 3 | D1 データベース | **CI の deploy ジョブが無ければ作る** (ADR-0014 決定 9)。CI 用トークンに **Account > D1 > Edit** が要る。作った後に `database_id` を `wrangler.jsonc` に固定する |
 | 段階 4 | **独自ドメイン** | **用意済み (2026-09-14、`grass.soui.dev`)。** ダッシュボードの Custom Domain で付け、`wrangler.jsonc` に `routes` を書かない (ADR-0014 決定 10)。`workers.dev` では zone の WAF が効かず、レートリミットがかけられない |
 | (同上) | **`WORKER_SECRET` は変えられない** | uid の導出鍵。**変えると全利用者の識別子が変わり、失うと再計算できない。必ずバックアップ** |
-| 段階 4 | Google Cloud の OAuth クライアント | **用意済み (2026-09-14)。** ID は `wrangler.jsonc` の `vars`、secret は `production` の Environment secrets (`GOOGLE_CLIENT_SECRET`)。リダイレクト URI は `https://grass.soui.dev/auth/callback`。**同意画面はテスト中で、ブランディングは未設定** (プライバシーポリシーの配信と一緒に対応する)。テスト中はテストユーザーに入れたアカウントだけがサインインできる。`openid` スコープのみなら審査は不要 |
-| 段階 4 | プライバシーポリシーの公開先 | **用意済み (2026-09-15、`https://grass.soui.dev/privacy`)。** `docs/privacy.md` を正本のまま配信する (ADR-0018)。次は同意画面のブランディング |
+| 段階 4 | Google Cloud の OAuth クライアント | **用意済み (2026-09-14)。** ID は `wrangler.jsonc` の `vars`、secret は `production` の Environment secrets (`GOOGLE_CLIENT_SECRET`)。リダイレクト URI は `https://grass.soui.dev/auth/callback`。**同意画面はテスト中で、ブランディングは未設定。** 本番公開の値と手順は段階 4 の「同意画面の本番公開」(Issue #141)。リポジトリ側の準備は済んでいて、コンソールの操作が残る。`openid` スコープのみなら審査は不要 |
+| 段階 4 | プライバシーポリシーの公開先 | **用意済み (2026-09-15、`https://grass.soui.dev/privacy`)。** `docs/privacy.md` を正本のまま配信する (ADR-0018)。Google API Services User Data Policy に従う旨を足した (2026-09-24、Issue #141) |
 | 段階 5 | **Cosense の配布用公開プロジェクト** | **用意済み (2026-09-14、[`/cosense-grass`](https://scrapbox.io/cosense-grass/))。`v1` を公開した (2026-09-15)。** ページは `dev` (開発版) と `v1`… (リリース版)。**`dev` と `v1` には同じバンドルを貼る** (2026-09-15、Issue #95。ADR-0005 の改訂)。貼るのは手元の `cosense` CLI で、CI では自動化しない (ADR-0013 決定 3 の改訂)。メンバーは持ち主だけ |
 | 公開時 | Bot Fight Mode を OFF | JS 実行を要求するチャレンジは画像ビーコンを静かに壊す |
 
