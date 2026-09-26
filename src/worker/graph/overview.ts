@@ -2,9 +2,10 @@
  * 活動の概観 (4 軸のレーダー) の寸法・色・ラベルの位置を決める (design §8、ADR-0021)。
  * 文字列にするのは `overview-svg.ts`。草の `layout.ts` と同じ分け方。
  *
- * GitHub の Activity overview に合わせる (research §8)。
+ * GitHub の Activity overview に合わせる (research §8)。ただし長さだけは変える (ADR-0021 の 2026-09-26 の改訂)。
  * - 配置は十字で、上 関わる / 右 読む / 下 作る / 左 育てる
- * - 長さは「値 ÷ 4 軸の最大値」の線形。最大の軸が端に届く
+ * - 長さは「値 ÷ 4 軸の最大値」の**平方根**。最大の軸が端に届く。
+ *   GitHub の線形では、最大の軸 (多くは 読む) の数 % しかない軸が中心近くの点に潰れる
  * - % は合計が 100 になる整数。0 の軸は % も頂点の円も出さず、頂点を中心に置く
  * - 全部 0 なら四角形を描かない (十字と軸名は出す)
  */
@@ -156,7 +157,8 @@ export function layoutOverview(input: OverviewInput): OverviewLayout {
   const percents = percentages(values);
 
   const tips = AXES.map((axis, i) => {
-    const length = max === 0 ? 0 : ((values[i] ?? 0) / max) * RADIUS;
+    // 面積がおおむね値に比例する。最大の 5 % の値なら、線形では 0.05、平方根では 0.22 の長さになる
+    const length = max === 0 ? 0 : Math.sqrt((values[i] ?? 0) / max) * RADIUS;
     return { x: round(CENTER_X + axis.dx * length), y: round(CENTER_Y + axis.dy * length) };
   });
 
