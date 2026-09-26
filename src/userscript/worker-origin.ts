@@ -35,3 +35,11 @@ export function graphUrl(
   const url = `${WORKER_ORIGIN}/v1/g/${publicId}.svg`;
   return query.length === 0 ? url : `${url}?${query.join("&")}`;
 }
+
+/**
+ * 活動の概観の URL (design §6、ADR-0021)。**草と同じ publicId** で、草の横 (下) に並べる。
+ * 名前 (`l` / `u`) は描かないので付けない。
+ */
+export function overviewUrl(publicId: string): string {
+  return `${WORKER_ORIGIN}/v1/g/${publicId}/overview.svg`;
+}

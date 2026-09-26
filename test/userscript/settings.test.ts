@@ -16,6 +16,7 @@ const ENROLLED: SendStatus = {
   kind: "enrolled",
   kid: "0123456789abcdef",
   graphUrl: "https://grass.soui.dev/v1/g/0123456789abcdef0123456789abcdef.svg",
+  overviewUrl: "https://grass.soui.dev/v1/g/0123456789abcdef0123456789abcdef/overview.svg",
   totalSent: true,
   projects: [],
   todaySends: 0,

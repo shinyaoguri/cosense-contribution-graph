@@ -14,7 +14,7 @@ import { MAX_TODAY_SENDS, readSent, SENT_KEY } from "../../src/userscript/outbox
 import { backoffMs, createSender } from "../../src/userscript/sender.ts";
 import { type Activity, createStore } from "../../src/userscript/store.ts";
 import { localDay } from "../../src/userscript/time.ts";
-import { graphUrl } from "../../src/userscript/worker-origin.ts";
+import { graphUrl, overviewUrl } from "../../src/userscript/worker-origin.ts";
 
 const UID = encodeBase64url(new Uint8Array(20).fill(9));
 
@@ -391,6 +391,8 @@ describe("createSender — status", () => {
     if (found.kind !== "found") throw new Error();
     expect(after.kid).toBe(found.record.kid);
     expect(after.graphUrl).toMatch(/^https:\/\/grass\.soui\.dev\/v1\/g\/[0-9a-f]{32}\.svg$/);
+    // 概観は草と同じ publicId で、名前を付けない (ADR-0021)
+    expect(after.overviewUrl).toBe(after.graphUrl.replace(/\.svg$/, "/overview.svg"));
     expect(after.pendingPastDays).toBe(0);
     expect(after.todayPending).toBe(false);
     expect(after.todaySends).toBe(1);
@@ -405,6 +407,7 @@ describe("createSender — status", () => {
       {
         name: "p",
         graphUrl: graphUrl(await publicIdOf(UID, await phOf(UID, "p")), { project: "p" }),
+        overviewUrl: overviewUrl(await publicIdOf(UID, await phOf(UID, "p"))),
         sent: true,
       },
     ]);

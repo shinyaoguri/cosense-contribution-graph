@@ -239,6 +239,19 @@ describe("あなたの草", () => {
     expect(html).toContain(`<img src="/v1/g/${publicId}.svg"`);
   });
 
+  it("**草の下に活動の概観を出し、草の URL を知っている人に見えると添える** (ADR-0021)", async () => {
+    const { uid, publicId } = await withGraph();
+
+    const html = await (await get(await cookieFor(uid))).text();
+
+    expect(html).toContain(`<img src="/v1/g/${publicId}/overview.svg" width="300" height="220"`);
+    expect(html).toContain(`${ORIGIN}/v1/g/${publicId}/overview.svg`);
+    expect(html).toContain("草の URL を知っている人は見られます");
+    expect(html.indexOf(`/v1/g/${publicId}.svg`)).toBeLessThan(
+      html.indexOf(`/v1/g/${publicId}/overview.svg`),
+    );
+  });
+
   it("**草を出すので CSP は同じオリジンの画像を許す**", async () => {
     const { uid } = await withGraph();
 

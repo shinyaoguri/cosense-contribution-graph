@@ -44,7 +44,7 @@ import {
 import { MENU_TITLE, SETTINGS_LABEL } from "./settings.ts";
 import type { Store } from "./store.ts";
 import { localDay } from "./time.ts";
-import { graphUrl, WORKER_ORIGIN } from "./worker-origin.ts";
+import { graphUrl, overviewUrl, WORKER_ORIGIN } from "./worker-origin.ts";
 
 const BACKOFF_BASE_MS = 15 * 60_000;
 const BACKOFF_MAX_MS = 24 * 60 * 60_000;
@@ -74,6 +74,8 @@ export type SendStatus =
       readonly kid: string;
       /** 合算の草。**ダイアログにだけ出す** (コンソールにもログにも残さない) */
       readonly graphUrl: string;
+      /** 合算の活動の概観 (ADR-0021)。草と同じく、ダイアログにだけ出す */
+      readonly overviewUrl: string;
       /**
        * 合算の行 (`*`) を 1 件でも送れたか。false なら共有 SVG はまだ無いので 404 になる (Issue #100)。
        * ほかの端末から送っていれば草はあるので、**読むかどうかは見る側が決める**
@@ -86,6 +88,7 @@ export type SendStatus =
       readonly projects: readonly {
         readonly name: string;
         readonly graphUrl: string;
+        readonly overviewUrl: string;
         readonly sent: boolean;
       }[];
       readonly todaySends: number;
@@ -180,10 +183,12 @@ export function createSender(deps: SenderDependencies): Sender {
           .sort((a, b) => a.localeCompare(b))
           .map(async (name) => {
             const ph = await phOf(uid, name);
+            const publicId = await publicIdOf(uid, ph);
             // **プロジェクト別にだけ名前を渡す** (Issue #119)。合算はどのプロジェクトのものでもない
             return {
               name,
-              graphUrl: graphUrl(await publicIdOf(uid, ph), { project: name, user }),
+              graphUrl: graphUrl(publicId, { project: name, user }),
+              overviewUrl: overviewUrl(publicId),
               sent: sentPhs.has(ph),
             };
           }),
@@ -193,6 +198,7 @@ export function createSender(deps: SenderDependencies): Sender {
         kind: "enrolled",
         kid,
         graphUrl: graphUrl(await publicIdOf(uid, PH_ALL), { user }),
+        overviewUrl: overviewUrl(await publicIdOf(uid, PH_ALL)),
         totalSent: sentPhs.has(PH_ALL),
         projects,
         todaySends: sent.days[today]?.n ?? 0,
