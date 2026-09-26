@@ -333,7 +333,7 @@ get id() { return p.Layout.get() !== "page" ? null : p.Page.id; },
 
 - ゲッターは `created` / `updated` / `lines` / `title` / `id` / `metadata` / `cursor` / `selection`
 - `id` はページを読み込んだ API の応答から付く。保存のコミットは `pageId: p.Page.id` で作るので、
-  **まだ保存されていないページ (プレースホルダー) にも ID があり、保存しても変わらない** (実機で未確認)
+  **まだ保存されていないページ (プレースホルダー) にも ID があり、保存しても変わらない** (実機で未確認。傍証は下の 2026-09-26 の実測)
 - `created` / `updated` は読み込み時の応答のままで、その後のコミットでは更新されない
 - `lines` はまだ保存していない手元の編集も含む
 
@@ -346,6 +346,32 @@ get id() { return p.Layout.get() !== "page" ? null : p.Page.id; },
 | 同一オリジンの REST `/api/pages/v2/:project/:title` の `persistent` (`connect-src 'self'` なので通る) | 1 回ごとにリクエストが要る |
 | DOM の `main.page.not-persistent` クラス | 非公開の実装 |
 | `scrapbox.Project.pages` の `exists` | 読むたびに検索候補を全件複製する |
+
+#### 2026-09-26 の実測 (Chrome 系の内蔵ブラウザ、ログイン済み、Issue #150)
+
+**プレースホルダー** (まだ無いタイトルの URL を開いただけで、何も書いていないページ) を読み取りだけで調べた。
+
+- `scrapbox.Page.id` は付いている (24 桁の 16 進)。`scrapbox.Page.lines` は 1 行 (タイトル行)
+- 同じタイトルの REST `/api/pages/v2/:project/:title` は **200 で `persistent: false`**。`user.id` は**見ている自分**、
+  `created` は**問い合わせた時刻**。**`id` は呼ぶたびに作り直され、`scrapbox.Page.id` とも一致しない**
+- DOM の `.page.not-persistent` は付いている
+
+**保存の前後で `scrapbox.Page.id` が変わらないかは、保存が要るので直接は確かめていない。** 傍証として、ページ ID は先頭 8 桁が
+作られた時刻 (unix 秒) の ObjectId の形をしていて、既存の 90 ページ (3 プロジェクト、作成順の新しい方から) で
+`created − ID の時刻` は **0〜191 秒 (中央値 2 秒) で、負はなかった。** 保存の時点で ID を作り直すならこの差はほぼ 0 に
+そろうはずで、プレースホルダーを開いた時刻の ID が保存後も残っていると読める。
+
+**`scrapbox.Page.waitForSave()` がある。** 型定義にも上の表にも無かった。本体では次の形で、未送信か送信中のコミットが無くなるまで 10ms ごとに待つ。
+
+```js
+async waitForSave(){if(p.Layout.get()==="page")for(;p.Sync.hasUnpushedOrPushingCommit;)await(0,pP.default)(10)}
+```
+
+`scrapbox.Page` のゲッター以外のメンバーは `show` / `insertLine` / `updateLine` / `waitForSave` / `infobox`。
+
+**`scrapbox.Page.lines` の各行は、記法を含む行にだけ `nodes` を持つ** (記法の無い行には無い)。
+`nodes` は構文木で、リンクは `{type: "link", unit: {page, content, whole}, children}` の形。同じページで見えた `type` は
+`link` / `urlLink` / `deco`。ほかに `title` (タイトル行)、`section`、`codeBlock` (コードブロックの行) が付く
 
 **その他。**
 
@@ -570,6 +596,15 @@ SVG を URL で直接開くとドキュメントとして描画されるので�
 - `lines[]` の各要素に `userId` / `created` / `updated` がある
 - 未ドキュメントの `/api/pages/v2/:project/:title` もあり、`relatedPages` を含まないので軽い。
   変更リスクは v1 より高いと見るべき
+
+#### `/api/pages/v2/:project/:title` の `user` は作成者 (2026-09-26 実測、Issue #150)
+
+- **`user: {id}` は作成者、`lastUpdateUser: {id}` は最終更新者。** 2 人以上が編集した直近 25 日以内のページ 25 件
+  (非公開の personal プロジェクト 1 つ) で、**`user.id` は 25 件とも最初のコミット (`/api/commits` の `created` が最小のもの) の `userId` と一致した。**
+  うち 13 件は `lastUpdateUser` と別人だった。最初のコミットは 25 件ともタイトルを含む
+- **`created` は最初のコミットの時刻** (25 件とも差が 5 秒以内)
+- ほかに `users` (編集者の一覧)、`persistent`、`links` (リンク先のタイトルの配列)、`linesCount` などが返る
+- まだ保存していないページでも 200 を返す (§2 の 2026-09-26 の実測)。`user` は問い合わせた本人になる
 
 ### `/api/commits/:project/:pageId`
 
@@ -1286,8 +1321,9 @@ Microsoft は `openid profile` のみなら publisher verification は不要と�
   Firefox に読み出し失敗の報告があり、そちらは未確認
 - **配布モジュールが 1 ドキュメントで 1 回しか評価されないか** (§2 の常駐)。import の 1 行が無いプロジェクトへアプリ内で移ったとき、
   センサーが止まらずに動き続けることで確かめる (段階 5、#49)
-- **プレースホルダーの `scrapbox.Page.id` が保存の前後で変わらないか。** REST の `/api/pages/v2/:project/:title` の `user` が
-  作成者で、`created` が初回保存の時刻か。新規作成の数え方 (段階 5) の前提
+- **プレースホルダーの `scrapbox.Page.id` が保存の前後で変わらないか。** 傍証はある (§2 の 2026-09-26 の実測)。
+  **REST の `user` が作成者で `created` が初回保存の時刻なことは確かめた** (§4、2026-09-26)。
+  活動の概観の振り分け (ADR-0021) は作成者と作成日で決めるので、ID が変わっても判定は変わらない
 - **元に戻す / やり直しで `by` が `undefined` になるか。別のタブでの自分の編集が `remote` で届くか** (§2 の `window.scrapbox` API)
 
 設計に影響しないが残っているもの。
@@ -1298,3 +1334,48 @@ Microsoft は `openid profile` のみなら publisher verification は不要と�
 - `page-edit-for-ai` が Cookie + `X-CSRF-TOKEN` でも通るか (CLI は PAT ヘッダのみ送っている)
 - `[[ ]]` 記法とクエリ付き URL の組み合わせの実挙動 (`[ ]` を使うので回避している)
 - brand verification をせずに production で公開した場合、同意画面に実際に何が表示されるか
+
+---
+
+## 8. GitHub の Activity overview (基準日 2026-09-26、Issue #148 / #150)
+
+活動の概観 (ADR-0021) の手本。**docs に書かれているのは 4 軸の意味と表示の設定まで**で、描き方はプロフィールの HTML と描画の JS から読んだ。
+GitHub への書き込みはしていない (読み取りと GraphQL の読み取りクエリだけ)。
+
+### 何を数えるか
+
+- 4 軸は **Commits / Code review / Issues / Pull requests**。プロフィールの `div.js-activity-overview-graph-container` の
+  `data-percentages` のキーがこの 4 つの名前そのもの
+- 数えるのはどれも別の行為で、commit・PR review・Issue の作成・PR の作成
+  ([What counts as a contribution](https://docs.github.com/en/account-and-profile/reference/profile-contributions-reference))。
+  GraphQL の `ContributionsCollection` の `totalCommitContributions` / `totalPullRequestReviewContributions` /
+  `totalIssueContributions` / `totalPullRequestContributions` がそれぞれの件数
+  ([GraphQL リファレンス](https://docs.github.com/en/graphql/reference/users#object-contributionscollection))
+- **図の % と GraphQL の値が合うのは、非公開のコントリビューション (`restrictedContributionsCount`) が 0 のユーザーだけ。** 非公開分も
+  種類別に数えて % を出していると推定する (非公開分の内訳は外から見えないので確かめられない)
+- **期間は表示中の草の期間。** 既定では直近 1 年、年を選べばその年。図の `<title>` が草と同じ期間を名乗り、
+  2024 年を選んだときの % は GraphQL の 2024 年通年の値から計算した比率と合った
+- **プロフィールの「Contribution settings」で「Activity overview」を有効にしたユーザーにだけ出る**
+  ([docs](https://docs.github.com/en/account-and-profile/how-tos/contribution-settings/showing-an-overview-of-your-activity-on-your-profile))。
+  閲覧者には read 権限のあるリポジトリの分しか見えない
+
+### 描き方
+
+`svg.js-activity-overview-graph` と、描画の JS (`profile-*.js` が遅延読み込みする chunk の `initializeOverviewGraphContainer`) から読んだ。
+
+- **配置は十字。** 上 Code review / 右 Issues / 下 Pull requests / 左 Commits。固定の割り当てではなく、キーを文字数で並べて
+  短い 2 つ (Issues, Commits) を左右、長い 2 つを上下に置く計算の結果。軸の線 2 本 (太さ 2、丸い端) も描く
+- **% は合計 100 の整数で、サーバが計算して `data-percentages` に入れる。** 7 例とも合計 100。丸め方は JS に無く、
+  2 例が「各値を四捨五入し、合計が 101 なら最大の値から 1 引く」と合った (最大剰余法とは合わなかった)。例が少ないので推定にとどまる
+- **長さは「値 ÷ 4 軸の最大値」の線形** (`I / Math.max(...)`)。図の一辺は `max(container の幅, 250)`、軸の端はラベル幅の最大 + 10 だけ内側。
+  中心以外の頂点は 4px 内側へ寄せる
+- **四角形 1 つ**: `fill="#40c463" stroke="#40c463" opacity="0.5" stroke-width="7" stroke-linejoin="round"`。opacity は要素全体に掛かる
+- **白丸は 0 でない軸の頂点だけ**: `ellipse rx=3 ry=3 fill="white" stroke-width="2"`、頂点から 2px 外側。白丸と軸の線の色は CSS 変数 (`--contribution-default-bgColor-4`)
+- **0 の軸は % を出さず、頂点は中心、白丸も出さない。** 軸名は出す
+- **全部 0 でも十字と軸名は出る。** 消えるのは四角形 (と白丸) だけ。全部 0 のときサーバが箱ごと出さないのかは、実例が見つからず確かめられなかった
+- 置き場は草のすぐ下の箱で、広い画面では右半分に図、左半分にリポジトリの一覧
+
+見たもの: [torvalds](https://github.com/torvalds)・[antfu](https://github.com/antfu) ほかの公開プロフィール (本体の HTML には図が無く、
+include-fragment が `?action=show&controller=profiles&tab=contributions&user_id=<name>` を読み込む)、
+[GraphQL のスキーマ](https://docs.github.com/public/fpt/schema.docs.graphql)、
+[Activity overview の概念](https://docs.github.com/en/account-and-profile/concepts/contributions-on-your-profile)

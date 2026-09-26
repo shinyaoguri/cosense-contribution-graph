@@ -14,7 +14,7 @@ cosense-grass は、Cosense (旧 Scrapbox) での活動量を可視化するツ�
 | デバイスの公開鍵 | 公開鍵そのもの | 記録の送信元が本人か検証する |
 | デバイス登録用の使い捨ての符号 | 符号そのものではなく、そのハッシュ | サインインしたデバイスの鍵を登録する |
 | プロジェクトの識別子 | 上記の識別子でソルトしたハッシュ | プロジェクトごとに集計する |
-| 日ごとの活動量 | 分単位のビットマップと、1 日あたりの集計値 | 草を描く |
+| 日ごとの活動量 | 分単位のビットマップと、1 日あたりの集計値 (書いた分数と読んだ分数、書いた分のうち新しく作ったページと他の人が作ったページに書いた分数、編集したページ数、新しく作ったページ数、作ったリンクの件数) | 草と活動の概観を描く |
 | タイムゾーン | `Asia/Tokyo` などの文字列 | 日の境界を決める |
 
 ## 保存しないもの
@@ -26,6 +26,8 @@ cosense-grass は、Cosense (旧 Scrapbox) での活動量を可視化するツ�
 - **ページのタイトルや内容。** 何を書いたか、何を読んだかは送られません
 - **どのページを読んだか。** 閲覧の記録には「何分に活動していたか」しか含まれず、
   ページの識別子は一切含まれません
+- **書いたページの作成者、リンク先。** 書いたページが自分で新しく作ったものか、他の人が作ったものかはブラウザの中で判定し、
+  送られるのは分数とリンクの件数だけです
 - **秘密鍵。** 各デバイスのブラウザ内に留まり、送信されません
 
 ## Google ユーザーデータの取り扱い
@@ -83,10 +85,12 @@ JavaScript からは読めず (HttpOnly)、ほかのサイトからの遷移で�
 共有 URL は利用者の識別子から一方向に導出され、第三者が推測や計算で求めることはできません。
 
 草の共有 URL には日ごとの合計量 (と、書いたのと読んだのどちらが多いかの色) だけが表れます。
+**草の URL からは、同じ期間の活動の概観 (新しく作る・育てる・他の人のページに関わる・読むの割合) の画像も開けます。**
+表れるのは期間全体の割合だけで、日ごとの値は表れません。
 
 **日ごとの数値の URL (JSON) は、草の URL とは別にあります。** 管理のページに合算の分を表示します。
-この URL を渡した相手には、**日ごとの書いた分数・読んだ分数・編集したページ数・新しく作ったページ数**が
-見えます。草の URL からこの URL を作ることはできないので、草を見せた相手に数値まで見せるかは別に選べます。
+この URL を渡した相手には、**日ごとの書いた分数・読んだ分数・編集したページ数・新しく作ったページ数、
+新しく作ったページと他の人が作ったページに書いた分数、作ったリンクの件数**が見えます。草の URL からこの URL を作ることはできないので、草を見せた相手に数値まで見せるかは別に選べます。
 この URL も、利用者の識別子から一方向に導出され、第三者が推測や計算で求めることはできません。
 検索エンジンには載せないよう指示しています。
 
@@ -151,7 +155,8 @@ It is a personal project and is not affiliated with Cosense or Helpfeel Inc.
 - **Retention and deletion:** The internal user ID is kept until you delete your data. You can delete all server-side data at any time
   from `https://grass.soui.dev/account`
 - **Other data:** We store per-minute activity bitmaps (kept for 90 days) and daily totals, device public keys, and a time zone.
-  We never receive page titles, page contents, or project names
+  Daily totals include how many minutes you wrote on pages you created that day and on pages created by others, and how many links you created.
+  We never receive page titles, page contents, page authors, link targets, or project names
 - Our use of information received from Google APIs adheres to the
   [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), including the Limited Use requirements
 - **Contact:** [GitHub Issues](https://github.com/shinyaoguri/cosense-contribution-graph/issues)
