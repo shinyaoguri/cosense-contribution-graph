@@ -21,7 +21,7 @@
  * - **uid・ph・kid・URL・プロジェクト名・例外のメッセージはログに出さない**
  */
 import { buildIngestUrl, readIngestWidth } from "../shared/beacon.ts";
-import { PH_ALL, phOf, publicIdOf } from "../shared/ids.ts";
+import { dataKeyOf, PH_ALL, phOf, publicIdOf } from "../shared/ids.ts";
 import { sign } from "../shared/sign.ts";
 import type { ImageResult } from "./image.ts";
 import type { DeviceStore } from "./keys.ts";
@@ -44,7 +44,7 @@ import {
 import { MENU_TITLE, SETTINGS_LABEL } from "./settings.ts";
 import type { Store } from "./store.ts";
 import { localDay } from "./time.ts";
-import { graphUrl, overviewUrl, WORKER_ORIGIN } from "./worker-origin.ts";
+import { dataUrl, graphUrl, overviewUrl, WORKER_ORIGIN } from "./worker-origin.ts";
 
 const BACKOFF_BASE_MS = 15 * 60_000;
 const BACKOFF_MAX_MS = 24 * 60 * 60_000;
@@ -76,6 +76,8 @@ export type SendStatus =
       readonly graphUrl: string;
       /** 合算の活動の概観 (ADR-0021)。草と同じく、ダイアログにだけ出す */
       readonly overviewUrl: string;
+      /** 合算の日ごとの集計値の JSON (ADR-0020)。**渡すと内訳まで読める**ので、ダイアログにだけ出す */
+      readonly dataUrl: string;
       /**
        * 合算の行 (`*`) を 1 件でも送れたか。false なら共有 SVG はまだ無いので 404 になる (Issue #100)。
        * ほかの端末から送っていれば草はあるので、**読むかどうかは見る側が決める**
@@ -89,6 +91,7 @@ export type SendStatus =
         readonly name: string;
         readonly graphUrl: string;
         readonly overviewUrl: string;
+        readonly dataUrl: string;
         readonly sent: boolean;
       }[];
       readonly todaySends: number;
@@ -189,6 +192,7 @@ export function createSender(deps: SenderDependencies): Sender {
               name,
               graphUrl: graphUrl(publicId, { project: name, user }),
               overviewUrl: overviewUrl(publicId),
+              dataUrl: dataUrl(publicId, await dataKeyOf(uid, ph)),
               sent: sentPhs.has(ph),
             };
           }),
@@ -199,6 +203,7 @@ export function createSender(deps: SenderDependencies): Sender {
         kid,
         graphUrl: graphUrl(await publicIdOf(uid, PH_ALL), { user }),
         overviewUrl: overviewUrl(await publicIdOf(uid, PH_ALL)),
+        dataUrl: dataUrl(await publicIdOf(uid, PH_ALL), await dataKeyOf(uid, PH_ALL)),
         totalSent: sentPhs.has(PH_ALL),
         projects,
         todaySends: sent.days[today]?.n ?? 0,

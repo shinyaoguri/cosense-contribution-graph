@@ -4,6 +4,7 @@ import { ENROLL_PATH } from "../shared/enroll.ts";
 import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
 import { sha256Hex } from "../shared/hash.ts";
 import { isValidDataKey, isValidPublicId } from "../shared/ids.ts";
+import { PRIVACY_PATH } from "../shared/links.ts";
 import { PROBE_PATH } from "../shared/probe.ts";
 import { REVOKE_PATH } from "../shared/revoke.ts";
 import { type AccountDeps, handleAccount } from "./account.ts";
@@ -24,7 +25,7 @@ import { d1KeyResolver } from "./keys.ts";
 import { renderOverview } from "./overview-svg.ts";
 import { parseLabel, parseParams, parseUser, parseYear } from "./params.ts";
 import { handleProbe } from "./probe.ts";
-import { HOME_PATH, handleHome, handlePrivacy, PRIVACY_PATH } from "./site.ts";
+import { HOME_PATH, handleHome, handlePrivacy } from "./site.ts";
 import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
 
 /**

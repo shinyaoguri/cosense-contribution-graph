@@ -5,12 +5,16 @@
  * サインインのポップアップの postMessage も、このオリジンから来たものだけを受け取る。
  */
 import { ACCOUNT_PATH } from "../shared/auth.ts";
+import { PRIVACY_PATH } from "../shared/links.ts";
 import { isValidProjectName, isValidUserName } from "../shared/project-name.ts";
 
 export const WORKER_ORIGIN = "https://grass.soui.dev";
 
 /** 管理のページ (ADR-0017・0018)。**リンクを開くだけ**で、中身は UserScript から読めない。 */
 export const ACCOUNT_URL = `${WORKER_ORIGIN}${ACCOUNT_PATH}`;
+
+/** プライバシーポリシー。草のダイアログの下端から開く */
+export const PRIVACY_URL = `${WORKER_ORIGIN}${PRIVACY_PATH}`;
 
 /**
  * 共有 SVG の URL (design §6)。
@@ -42,4 +46,12 @@ export function graphUrl(
  */
 export function overviewUrl(publicId: string): string {
   return `${WORKER_ORIGIN}/v1/g/${publicId}/overview.svg`;
+}
+
+/**
+ * 日ごとの集計値の JSON (design §6、ADR-0020)。**草の URL からは作れない `dataKey` を並べる。**
+ * UserScript は uid を持つので、合算にもプロジェクト別にも作れる (ADR-0020 決定 3)
+ */
+export function dataUrl(publicId: string, dataKey: string): string {
+  return `${WORKER_ORIGIN}/v1/g/${publicId}/${dataKey}.json`;
 }

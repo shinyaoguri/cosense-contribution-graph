@@ -43,10 +43,14 @@ afterEach(() => {
 });
 
 const url = (name: string) => `https://grass.soui.dev/v1/g/${name.padEnd(32, "0")}.svg`;
+/** 囲みの見出し (説明の `<details>` の中の見出しと分ける) */
+const CARD_TITLE = "section > h4";
 /** 草の画像 (概観の画像と分ける) */
 const GRASS = 'img[alt$="の草"]';
 /** 活動の概観の画像 (ADR-0021) */
 const OVERVIEW = 'img[alt$="の活動の概観"]';
+const dataOf = (name: string) =>
+  `https://grass.soui.dev/v1/g/${name.padEnd(32, "0")}/${"f".repeat(32)}.json`;
 const overviewOf = (name: string) =>
   `https://grass.soui.dev/v1/g/${name.padEnd(32, "0")}/overview.svg`;
 
@@ -59,11 +63,18 @@ function graphs(
 ): IntegratedView {
   return {
     kind: "graphs",
-    total: { label: TOTAL_LABEL, url: url("aa"), overviewUrl: overviewOf("aa"), sent: totalSent },
+    total: {
+      label: TOTAL_LABEL,
+      url: url("aa"),
+      overviewUrl: overviewOf("aa"),
+      dataUrl: dataOf("aa"),
+      sent: totalSent,
+    },
     projects: projects.map((p, i) => ({
       ...p,
       url: url(`b${i}`),
       overviewUrl: overviewOf(`b${i}`),
+      dataUrl: dataOf(`b${i}`),
     })),
     sync,
   };
@@ -225,7 +236,7 @@ describe("createGraphDialog", () => {
       [...node.attributes].filter((attr) => attr.name.startsWith("on")),
     );
     expect(handlers).toEqual([]);
-    expect(t.find()?.querySelector("h4")?.textContent).toBe(TOTAL_LABEL);
+    expect(t.find()?.querySelector(CARD_TITLE)?.textContent).toBe(TOTAL_LABEL);
   });
 
   it("**1 つの草に属するものを 1 つの囲みにまとめる** (どのコピーがどの画像のものか読み取れるように)", () => {
@@ -240,17 +251,19 @@ describe("createGraphDialog", () => {
     const blocks = t
       .sections()
       .filter(
-        (node) => node.querySelector("h4") !== null && node.querySelector("section") === null,
+        (node) => node.querySelector(CARD_TITLE) !== null && node.querySelector("section") === null,
       );
 
     expect(blocks).toHaveLength(1 + projects.length);
     for (const block of blocks) {
-      // 見出し・画像・コピーが同じ囲みの中に 1 つずつ
-      expect(block.querySelectorAll("h4")).toHaveLength(1);
+      // 見出し・画像・概観が 1 つずつ、コピーが 3 つ (草・概観・日ごとの数値) と JSON を開くリンクが同じ囲みの中にある
+      expect(block.querySelectorAll(CARD_TITLE)).toHaveLength(1);
       expect(block.querySelectorAll<HTMLImageElement>(GRASS)).toHaveLength(1);
+      expect(block.querySelectorAll<HTMLImageElement>(OVERVIEW)).toHaveLength(1);
       expect(
         [...block.querySelectorAll("button")].filter((b) => b.textContent === "URL をコピー"),
-      ).toHaveLength(1);
+      ).toHaveLength(3);
+      expect([...block.querySelectorAll("a")].map((a) => a.textContent)).toEqual(["開く"]);
       expect(block.style.border).not.toBe("");
     }
   });
@@ -272,7 +285,92 @@ describe("createGraphDialog", () => {
 
     const labels = t.buttons("URL をコピー").map((b) => b.getAttribute("aria-label"));
 
-    expect(labels).toContain("project-a の草の URL をコピー");
+    expect(labels).toEqual([
+      `${TOTAL_LABEL} の草の URL をコピー`,
+      `${TOTAL_LABEL} の活動の概観の URL をコピー`,
+      `${TOTAL_LABEL} の日ごとの数値の URL をコピー`,
+      "project-a の草の URL をコピー",
+      "project-a の活動の概観の URL をコピー",
+      "project-a の日ごとの数値の URL をコピー",
+    ]);
+  });
+
+  it("**3 つのコピーはそれぞれの URL を書き、JSON は別のタブで Referer を送らずに開く** (#164)", async () => {
+    const t = setup();
+    t.open(graphs([]));
+
+    for (const copy of t.buttons("URL をコピー")) {
+      copy.click();
+    }
+    await settle();
+    expect(t.copied).toEqual([url("aa"), overviewOf("aa"), dataOf("aa")]);
+
+    const open = t
+      .find()
+      ?.querySelector<HTMLAnchorElement>('a[aria-label$="の日ごとの数値を開く"]');
+    expect(open?.href).toBe(dataOf("aa"));
+    expect(open?.target).toBe("_blank");
+    expect(open?.rel).toBe("noopener noreferrer");
+    // 渡すと内訳まで読めることを添える
+    expect(t.find()?.textContent).toContain("日ごとの内訳まで読めます");
+  });
+
+  it("**概観と「共有する」の欄を草の下の 1 行に並べ、狭ければ折り返す** (右側を空けない。#164)", () => {
+    const t = setup();
+    t.open(graphs([]));
+
+    const overview = t.find()?.querySelector<HTMLImageElement>(OVERVIEW)?.parentElement;
+    const row = overview?.parentElement;
+    expect(row?.style.display).toBe("flex");
+    expect(row?.style.flexWrap).toBe("wrap");
+    expect(row?.children).toHaveLength(2);
+    expect(row?.children[1]?.textContent).toContain("共有する");
+    // 草の後ろにある
+    const grass = t.find()?.querySelector(GRASS);
+    expect(
+      grass && row && grass.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("**何をどう数えて描いているかを、畳んだ説明で添える** (#164)", () => {
+    const t = setup();
+    t.open(graphs([]));
+
+    const details = t.find()?.querySelector("details");
+    expect(details?.open).toBe(false);
+    expect(details?.querySelector("summary")?.textContent).toBe("草と活動の概観の見方");
+    const text = details?.textContent ?? "";
+    for (const phrase of [
+      "1 分",
+      "3 分以内",
+      "四分位",
+      "作る",
+      "育てる",
+      "関わる",
+      "読む",
+      "ページ名",
+    ]) {
+      expect(text).toContain(phrase);
+    }
+    // 理由の文言だけのときも出す
+    const u = setup();
+    u.open(message("この端末は未登録"));
+    expect(u.find()?.querySelector("details")).not.toBeNull();
+  });
+
+  it("**下端に配布ページ・ソースコード・プライバシーポリシーへのリンクを置く** (別のタブで開く。#164)", () => {
+    const t = setup();
+    t.open(graphs([]));
+
+    const links = [...(t.find()?.querySelectorAll<HTMLAnchorElement>("nav a") ?? [])];
+    expect(links.map((a) => [a.textContent, a.href])).toEqual([
+      ["配布ページ (Cosense)", "https://scrapbox.io/cosense-grass/"],
+      ["ソースコード (GitHub)", "https://github.com/shinyaoguri/cosense-contribution-graph"],
+      ["プライバシーポリシー", "https://grass.soui.dev/privacy"],
+    ]);
+    for (const link of links) {
+      expect([link.target, link.rel]).toEqual(["_blank", "noopener noreferrer"]);
+    }
   });
 
   it("**草の下に活動の概観を置く** (ADR-0021)。大きさを先に確保し、遅延読み込みで Referer を送らない", () => {
@@ -294,7 +392,13 @@ describe("createGraphDialog", () => {
     const order = [...(block?.querySelectorAll(`${GRASS}, ${OVERVIEW}, button`) ?? [])].map(
       (node) => (node.tagName === "BUTTON" ? "button" : (node as HTMLImageElement).alt),
     );
-    expect(order).toEqual([`${TOTAL_LABEL} の草`, `${TOTAL_LABEL} の活動の概観`, "button"]);
+    expect(order).toEqual([
+      `${TOTAL_LABEL} の草`,
+      `${TOTAL_LABEL} の活動の概観`,
+      "button",
+      "button",
+      "button",
+    ]);
   });
 
   it("**概観が読めなければ何も出さない** (理由は草の側で言う)", () => {
@@ -362,10 +466,9 @@ describe("createGraphDialog", () => {
       1 + INITIAL_PROJECT_GRAPHS + 2,
     );
     expect(t.buttons("ほか 2 件を表示")).toHaveLength(0);
-    expect([...(t.sections()[0]?.querySelectorAll("h4") ?? [])].map((h) => h.textContent)).toEqual([
-      TOTAL_LABEL,
-      ...projects.map((p) => p.label),
-    ]);
+    expect(
+      [...(t.sections()[0]?.querySelectorAll(CARD_TITLE) ?? [])].map((h) => h.textContent),
+    ).toEqual([TOTAL_LABEL, ...projects.map((p) => p.label)]);
   });
 
   it("記録したプロジェクトが無ければそう書く", () => {
@@ -379,7 +482,7 @@ describe("createGraphDialog", () => {
     const t = setup();
     t.open(graphs([{ label: "alpha", sent: true }]));
 
-    t.buttons("URL をコピー")[1]?.click();
+    t.find()?.querySelector<HTMLButtonElement>('[aria-label="alpha の草の URL をコピー"]')?.click();
 
     // await の前に呼ばれている
     expect(t.copied).toEqual([url("b0")]);
@@ -549,7 +652,13 @@ describe("createGraphDialog", () => {
     const labelled = `${url("aa")}?l=villagepump`;
     t.open({
       kind: "graphs",
-      total: { label: "すべて", url: labelled, overviewUrl: overviewOf("aa"), sent: true },
+      total: {
+        label: "すべて",
+        url: labelled,
+        overviewUrl: overviewOf("aa"),
+        dataUrl: dataOf("aa"),
+        sent: true,
+      },
       projects: [],
       sync: { lines: [], canSend: true },
     });

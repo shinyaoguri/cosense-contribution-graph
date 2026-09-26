@@ -16,6 +16,7 @@
  *   設定への入口はここが唯一。サインインは設定のダイアログの中のクリックで始まるので、
  *   ポップアップを開く同期区間は分断されない
  */
+import { DISTRIBUTION_URL, REPOSITORY_URL } from "../shared/links.ts";
 import { closeOnBackdropClick } from "./dialog.ts";
 import { MENU_TITLE, SETTINGS_LABEL } from "./settings.ts";
 import {
@@ -25,6 +26,7 @@ import {
   SEND_NOW_LABEL,
   type SyncView,
 } from "./viewer.ts";
+import { PRIVACY_URL } from "./worker-origin.ts";
 
 const STOPPED_EVENTS = ["keydown", "keyup", "keypress", "paste", "copy", "cut"] as const;
 
@@ -38,6 +40,12 @@ const OUTER_GAP = 20;
 
 /** 囲みの枠の色。**ダイアログは常にライトで出す** (research §3) ので固定でよい。 */
 const BORDER_COLOR = "#d0d7de";
+
+/** 補足の文字色 (注意書きと下端のリンク)。草の SVG の文字色と同じ */
+const MUTED_TEXT_COLOR = "#57606a";
+
+/** 概観と「共有する」の欄の間。狭い画面で折り返したときは縦の間隔になる */
+const ROW_GAP = 16;
 
 /** 53 週の既定の SVG の寸法 (design §8)。先に確保して、読み込みでダイアログの大きさが変わらないようにする */
 export const GRAPH_WIDTH = 775;
@@ -173,8 +181,9 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
    */
   const overview = (entry: GraphEntry) => {
     const frame = element("div");
-    frame.style.overflowX = "auto";
-    frame.style.marginTop = `${INNER_GAP}px`;
+    // 画像が読めずに消えても、欄の位置が動かないよう幅を取っておく
+    frame.style.flex = `0 0 ${OVERVIEW_WIDTH}px`;
+    frame.style.minHeight = `${OVERVIEW_HEIGHT}px`;
     const make = (lazy: boolean) =>
       imageElement(
         { width: OVERVIEW_WIDTH, height: OVERVIEW_HEIGHT, alt: `${entry.label} の活動の概観` },
@@ -246,40 +255,108 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     return block;
   };
 
-  const copyLine = (entry: GraphEntry) => {
-    const line = element("p");
+  /**
+   * 「共有する」の欄の 1 行。名前・(あれば) 開くリンク・「URL をコピー」を並べる。
+   * コピーできなければ、選んでコピーできる欄を行の下に出す (押し直しても欄は 1 つ)。
+   * ボタンの文言は短いままにし、**何の URL かは名前と `aria-label` で示す** (Issue #124)
+   */
+  const copyLine = (target: {
+    readonly name: string;
+    readonly url: string;
+    readonly what: string;
+    readonly open?: boolean;
+  }) => {
+    // 名前と操作の 2 つのセルを返す。並べる側 (`share`) の格子で名前の列の幅がそろう
+    const name = element("span", target.name);
+    const line = element("div");
+    line.style.display = "flex";
+    line.style.flexWrap = "wrap";
+    line.style.alignItems = "center";
+    line.style.gap = "4px 8px";
     const status = element("span");
     status.setAttribute("role", "status");
     let field: HTMLInputElement | undefined;
     const copy = button("URL をコピー", () => {
       // await を挟まずに呼ぶ。結果は後から書く
-      deps.writeText(entry.url).then(
+      deps.writeText(target.url).then(
         () => {
-          status.textContent = " コピーしました";
+          status.textContent = "コピーしました";
         },
         () => {
-          // コピーできなければ、選んでコピーできる欄に出す (押し直しても欄は 1 つ)
           if (field === undefined) {
             field = element("input");
             field.type = "text";
             field.readOnly = true;
-            field.value = entry.url;
+            field.value = target.url;
             field.style.width = "100%";
             field.style.boxSizing = "border-box";
-            field.setAttribute("aria-label", `${entry.label} の草の URL`);
-            line.after(field);
+            field.setAttribute("aria-label", `${target.what}の URL`);
+            line.append(field);
           }
-          status.textContent = " コピーできなかったので、下の欄から選んでコピーしてください";
+          status.textContent = "コピーできなかったので、下の欄から選んでコピーしてください";
           field.select();
         },
       );
     });
-    // ボタンの文言は短いままにし、**どの草のものかは囲みと `aria-label` で示す** (Issue #124)
-    copy.setAttribute("aria-label", `${entry.label} の草の URL をコピー`);
-    // 画像との距離を、枠と枠の間より近くする (ゲシュタルトの近接)
-    line.style.margin = `${INNER_GAP}px 0 0`;
-    line.append(copy, status);
-    return line;
+    copy.setAttribute("aria-label", `${target.what}の URL をコピー`);
+    // コピーを先に置き、行ごとの「URL をコピー」の位置をそろえる
+    line.append(copy);
+    if (target.open) {
+      line.append(externalLink("開く", target.url, `${target.what}を開く`));
+    }
+    line.append(status);
+    return [name, line];
+  };
+
+  /** 別のタブで開くリンク。**Referer を送らず、開いた先から opener を触らせない** */
+  const externalLink = (text: string, href: string, label?: string) => {
+    const link = element("a", text);
+    link.href = href;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    if (label !== undefined) {
+      link.setAttribute("aria-label", label);
+    }
+    return link;
+  };
+
+  /** 草・活動の概観・日ごとの数値の URL を並べる欄。概観の右 (狭い画面では下) に置く */
+  const share = (entry: GraphEntry) => {
+    const panel = element("div");
+    // 概観の右の空きを埋め、狭くなったら概観の下へ折り返す
+    panel.style.flex = "1 1 280px";
+    panel.style.minWidth = "0";
+    const heading = element("p", "共有する");
+    heading.style.margin = `0 0 ${INNER_GAP}px`;
+    heading.style.fontWeight = "bold";
+    const rows = element("div");
+    rows.style.display = "grid";
+    rows.style.gridTemplateColumns = "max-content minmax(0, 1fr)";
+    rows.style.alignItems = "center";
+    rows.style.gap = `${INNER_GAP}px 12px`;
+    const note = element(
+      "p",
+      "日ごとの数値の URL を渡すと、書いた分・読んだ分などの日ごとの内訳まで読めます。草や活動の概観の URL からは作れない、別の URL です。",
+    );
+    note.style.margin = `${INNER_GAP * 1.5}px 0 0`;
+    note.style.fontSize = "smaller";
+    note.style.color = MUTED_TEXT_COLOR;
+    rows.append(
+      ...copyLine({ name: "草", url: entry.url, what: `${entry.label} の草` }),
+      ...copyLine({
+        name: "活動の概観",
+        url: entry.overviewUrl,
+        what: `${entry.label} の活動の概観`,
+      }),
+      ...copyLine({
+        name: "日ごとの数値 (JSON)",
+        url: entry.dataUrl,
+        what: `${entry.label} の日ごとの数値`,
+        open: true,
+      }),
+    );
+    panel.append(heading, rows, note);
+    return panel;
   };
 
   /**
@@ -297,7 +374,17 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     block.style.margin = `${OUTER_GAP}px 0`;
     const heading = element("h4", entry.label);
     heading.style.margin = `0 0 ${INNER_GAP}px`;
-    block.append(heading, image(entry), overview(entry), copyLine(entry));
+    // 草を先に作る (送った後の取り直しを、草 → 概観の順にする)
+    const grass = image(entry);
+    // 草の下の 1 行に、概観と「共有する」の欄を並べる (#164)。草の幅の右側が空かないように
+    const row = element("div");
+    row.style.display = "flex";
+    row.style.flexWrap = "wrap";
+    row.style.alignItems = "center";
+    row.style.gap = `${ROW_GAP}px`;
+    row.style.marginTop = `${INNER_GAP}px`;
+    row.append(overview(entry), share(entry));
+    block.append(heading, grass, row);
     return block;
   };
 
@@ -317,11 +404,107 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     }
   };
 
+  /** 見出しと本文の段落を持つ説明の 1 節 */
+  const guideSection = (title: string, ...paragraphs: readonly (string | readonly string[])[]) => {
+    const nodes: HTMLElement[] = [element("h4", title)];
+    for (const paragraph of paragraphs) {
+      if (typeof paragraph === "string") {
+        nodes.push(element("p", paragraph));
+      } else {
+        const list = element("ul");
+        list.append(...paragraph.map((item) => element("li", item)));
+        nodes.push(list);
+      }
+    }
+    return nodes;
+  };
+
+  /**
+   * 何をどう数えて描いているか (#164)。**畳んでおく** — 毎回読むものではないので、草を押し下げない。
+   * 数値は実装に合わせる (sensor.ts の 3 分・20 秒、design §7 の四分位と 3 分のデッドゾーン、ADR-0021 の 4 軸)
+   */
+  const guide = () => {
+    const details = element("details");
+    const summary = element("summary", "草と活動の概観の見方");
+    summary.style.cursor = "pointer";
+    const privacy = element("p");
+    privacy.append(
+      "サーバに送るのは分ごとの記録と数 (編集したページ数など) だけで、ページ名・本文・リンク先は送りません。プロジェクト名もハッシュにして送ります。詳しくは",
+      externalLink("プライバシーポリシー", PRIVACY_URL),
+      "をご覧ください。",
+    );
+    details.append(
+      summary,
+      ...guideSection(
+        "数えているもの",
+        "1 日を 1 分ずつに区切り、分ごとに「書いた」か「読んだ」かだけを記録します。",
+        [
+          "書いた: その分に自分でページを編集した",
+          "読んだ: 画面が見えていてフォーカスがあり、直近 3 分以内にスクロールやキー入力などの操作があった (20 秒ごとに確かめます)",
+        ],
+        "同じ分に両方あれば「書いた」に数えます。数えるのは、自分のページで cosense-grass を読み込んでいるプロジェクトだけです。",
+      ),
+      ...guideSection("草", "1 マスが 1 日、1 列が 1 週間です (直近 53 週)。", [
+        "色の濃さ: その日の合計 (書いた分 + 読んだ分) を、これまでの全記録の分布 (四分位) で 4 段階に分けたもの。3 分未満の日は色を付けません",
+        "色合い: その日が書き寄りか読み寄りか。自分のふだんの比率 (全記録の中央値) を真ん中にして、書き寄りの日ほどピンク、読み寄りの日ほど青になります (既定の配色)",
+      ]),
+      ...guideSection(
+        "活動の概観",
+        "草と同じ期間の分を、次の 4 つに分けた割合です。どの分も 1 つにしか数えません。",
+        [
+          "作る: その日に自分が新しく作ったページに書いた分",
+          "育てる: 自分が前に作ったページに書いた分",
+          "関わる: 他の人が作ったページに書いた分",
+          "読む: 読んだだけの分",
+        ],
+        "書いたページがどれにあたるかは、そのページを最初に編集したときに、作成者と作成日を Cosense に問い合わせて決めます。図はいちばん多い軸が端まで伸び、ほかの軸はその何割かの長さです。% は合計が 100 になるよう丸めています。",
+      ),
+      ...guideSection("送るもの"),
+      privacy,
+    );
+    return details;
+  };
+
+  /** 下端の行。左に「設定」、右に関連するページへのリンク */
+  const footer = (handlers: GraphDialogHandlers) => {
+    const line = element("div");
+    line.style.display = "flex";
+    line.style.flexWrap = "wrap";
+    line.style.alignItems = "center";
+    line.style.justifyContent = "space-between";
+    line.style.gap = `${INNER_GAP}px ${ROW_GAP}px`;
+    line.style.marginTop = `${OUTER_GAP}px`;
+    const links = element("nav");
+    links.setAttribute("aria-label", "cosense-grass について");
+    links.style.fontSize = "smaller";
+    links.style.color = MUTED_TEXT_COLOR;
+    const items = [
+      externalLink("配布ページ (Cosense)", DISTRIBUTION_URL),
+      externalLink("ソースコード (GitHub)", REPOSITORY_URL),
+      externalLink("プライバシーポリシー", PRIVACY_URL),
+    ];
+    items.forEach((item, i) => {
+      if (i > 0) {
+        links.append(" ・ ");
+      }
+      links.append(item);
+    });
+    line.append(
+      // 閉じてから開く。設定のダイアログは自分で状況を読み直す
+      button(SETTINGS_LABEL, () => {
+        close();
+        handlers.openSettings();
+      }),
+      links,
+    );
+    return line;
+  };
+
   const integrated = (view: IntegratedView, handlers: GraphDialogHandlers) => {
     const section = element("section");
     section.append(element("h3", "全端末を統合した記録"));
     if (view.kind === "message") {
-      section.append(...view.lines.map((line) => element("p", line)));
+      section.append(...view.lines.map((line) => element("p", line)), guide());
       return section;
     }
     section.append(
@@ -329,6 +512,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
         "p",
         "同じ Google アカウントで登録した端末の記録をまとめた草です。ほかの人に見せる草は最大 15 分遅れて更新され、今日の列は日本時間で決まります。",
       ),
+      guide(),
       graph(view.total),
       sync(view.sync, handlers),
     );
@@ -355,7 +539,8 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
       frames = [];
       const node = element("dialog");
       // 長い説明文で画面の幅いっぱいに広がらないよう、草の幅に余白を足したところで止める
-      node.style.maxWidth = `min(${GRAPH_WIDTH + 80}px, calc(100% - 34px))`;
+      // 画面側の上限は既定 (`calc(100% - 6px - 2em)`) のまま。これより大きいと、余白と枠のぶん画面からはみ出す (#164)
+      node.style.maxWidth = `min(${GRAPH_WIDTH + 80}px, calc(100% - 6px - 2em))`;
       for (const type of STOPPED_EVENTS) {
         node.addEventListener(type, (event) => event.stopPropagation());
       }
@@ -366,20 +551,16 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
       });
       closeOnBackdropClick(node, close);
 
-      node.append(element("h2", MENU_TITLE), integrated(view, handlers));
-      const buttonLine = element("p");
-      buttonLine.append(
-        // 閉じてから開く。設定のダイアログは自分で状況を読み直す
-        button(SETTINGS_LABEL, () => {
-          close();
-          handlers.openSettings();
-        }),
-      );
-      node.append(buttonLine);
+      node.append(element("h2", MENU_TITLE), integrated(view, handlers), footer(handlers));
 
       doc.body.append(node);
       dialog = node;
       node.showModal();
+      // **開いたらダイアログそのものへフォーカスを移す。** 既定では最初の操作できる要素 (説明の見出し) に当たり、枠が出る。
+      // Esc と Tab はそのまま効く
+      node.tabIndex = -1;
+      node.style.outline = "none";
+      node.focus();
     },
 
     close,

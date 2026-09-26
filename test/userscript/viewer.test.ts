@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PH_ALL, phOf, publicIdOf } from "../../src/shared/ids.ts";
+import { dataKeyOf, PH_ALL, phOf, publicIdOf } from "../../src/shared/ids.ts";
 import { MAX_TODAY_SENDS } from "../../src/userscript/outbox.ts";
 import type { SendStatus } from "../../src/userscript/sender.ts";
 import { SETTINGS_LABEL, SIGN_IN_LABEL } from "../../src/userscript/settings.ts";
@@ -10,7 +10,7 @@ import {
   SEND_NOW_LABEL,
   TOTAL_LABEL,
 } from "../../src/userscript/viewer.ts";
-import { graphUrl, overviewUrl } from "../../src/userscript/worker-origin.ts";
+import { dataUrl, graphUrl, overviewUrl } from "../../src/userscript/worker-origin.ts";
 
 const UID = "AAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
@@ -26,12 +26,17 @@ async function enrolled(
     kid: "0123456789abcdef",
     graphUrl: graphUrl(await publicIdOf(UID, PH_ALL)),
     overviewUrl: overviewUrl(await publicIdOf(UID, PH_ALL)),
+    dataUrl: dataUrl(await publicIdOf(UID, PH_ALL), await dataKeyOf(UID, PH_ALL)),
     totalSent,
     projects: await Promise.all(
       projects.map(async ({ name, sent }) => ({
         name,
         graphUrl: graphUrl(await publicIdOf(UID, await phOf(UID, name))),
         overviewUrl: overviewUrl(await publicIdOf(UID, await phOf(UID, name))),
+        dataUrl: dataUrl(
+          await publicIdOf(UID, await phOf(UID, name)),
+          await dataKeyOf(UID, await phOf(UID, name)),
+        ),
         sent,
       })),
     ),
@@ -155,6 +160,7 @@ describe("describeIntegrated", () => {
       label: TOTAL_LABEL,
       url: status.kind === "enrolled" && status.graphUrl,
       overviewUrl: status.kind === "enrolled" && status.overviewUrl,
+      dataUrl: status.kind === "enrolled" && status.dataUrl,
       sent: true,
     });
     expect(view.projects.map((p) => [p.label, p.sent])).toEqual([
