@@ -28,4 +28,18 @@ if [ -n "$errors" ]; then
   exit 1
 fi
 
+# ADR は 1 件 1 ファイルなので、足したファイルを一覧に載せ忘れると索引から辿れなくなる (Issue #149)
+unlisted=$(
+  for adr in docs/decisions/[0-9][0-9][0-9][0-9]-*.md; do
+    name=$(basename "$adr")
+    grep -qF "]($name)" docs/decisions/README.md || echo "  $adr"
+  done
+)
+
+if [ -n "$unlisted" ]; then
+  echo "docs/decisions/README.md の一覧に載っていない ADR があります:"
+  echo "$unlisted"
+  exit 1
+fi
+
 echo "Markdown の相対リンクはすべて解決できました"
