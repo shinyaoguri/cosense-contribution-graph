@@ -6,6 +6,8 @@
  *   `document.hasFocus()` が無いと、開きっぱなしのタブを全部数えてブラウザの起動時間になる。
  *   **「設定」で off にされていれば数えない** (`countRead`。段階 8、Issue #79)
  * - **書き。** `lines:changed` の `by === "edit"` だけで今の分に w を立てる (ADR-0006)。他人の編集は `remote`
+ * - **書いたページの振り分け** (ADR-0021、design §9)。ページごとに 1 回、同一オリジンの REST で作成者と作成日を引き、
+ *   他の人のページなら関わる (`o`)、自分がその日に作ったページなら作る (`c`) に立てる。どちらでもなければ育てる (何も立てない)
  *
  * **数えるのは、自分のページに import の 1 行があるプロジェクトだけ** (ADR-0007 決定 5)。配布モジュールは
  * 1 ドキュメントで 1 回しか評価されず、アプリ内でどのプロジェクトへ移っても動き続ける (research §2 の常駐)。
@@ -13,6 +15,14 @@
  */
 import type { Activity, Store } from "./store.ts";
 import { localDay, localMinute } from "./time.ts";
+
+/** 自分の id を引くパス (`scrapbox.User` に id は無い。research §2)。 */
+export const ME_PATH = "/api/users/me";
+
+/** ページの作成者 (`user.id`) と作成時刻 (`created`、秒) を引くパス (research §4)。 */
+export function pagePath(project: string, title: string): string {
+  return `/api/pages/v2/${encodeURIComponent(project)}/${encodeURIComponent(title)}`;
+}
 
 /** 読みを判定する間隔。 */
 export const TICK_MS = 20_000;
@@ -42,7 +52,7 @@ type LinesChanged = { readonly by?: string };
 export type SensorCosense = {
   readonly Project: { readonly name: string };
   /** Layout が page 以外だと `null` */
-  readonly Page: { readonly id: string | null };
+  readonly Page: { readonly id: string | null; readonly title?: string | null };
   readonly Layout: string;
   /** 未ログインでは name が無い */
   readonly User?: { readonly name?: string };
@@ -81,14 +91,25 @@ export type Sensor = {
   status(): CountingStatus;
 };
 
+/** 振り分けに要る、ページの作成者と作成日。 */
+type PageOrigin = { readonly mine: boolean; readonly createdDay: string };
+
+/** 書いた 1 分。判定が返るまで控えておく。 */
+type Minute = { readonly project: string; readonly day: string; readonly minute: number };
+
 export function startSensor(cosense: SensorCosense, deps: SensorDependencies): Sensor {
   // **評価したプロジェクトは導入済み。** その script.js から読み込まれた
   const installed = new Map<string, "yes" | "no" | "checking">([[cosense.Project.name, "yes"]]);
   // 読み込む前の操作は見えない。最初の操作から数える
   let lastInteraction = Number.NEGATIVE_INFINITY;
   let lastDay: string | undefined;
-  // 直前に記録できた活動。`lines:changed` はキー入力のたびに出るので、同じ分・同じページなら localStorage を読み直さない
-  let lastRecorded: string | undefined;
+  // 直前に記録できた活動 (種類ごと)。`lines:changed` はキー入力のたびに出るので、同じ分・同じページなら localStorage を読み直さない
+  const lastRecorded = new Map<Activity["kind"], string>();
+  // ページ ID → 作成者と作成日。**ドキュメントの寿命の間だけ覚える** (1 ページにつき 1 回しか引かない)
+  const origins = new Map<string, PageOrigin | "checking">();
+  // 判定が返るまで控えている分 (ページ ID → 分)
+  const pending = new Map<string, Minute[]>();
+  let myId: Promise<string> | undefined;
 
   const guard = (run: () => void) => {
     // Cosense のイベントの中で例外を投げると、同じイベントの他のリスナーまで止まる
@@ -123,20 +144,104 @@ export function startSensor(cosense: SensorCosense, deps: SensorDependencies): S
     );
   }
 
-  /** 今のプロジェクトを数えているときだけ記録する。 */
-  function record(build: (project: string) => Activity): void {
+  /** 今のプロジェクトを数えているときだけ記録する。数えたかを返す。 */
+  function record(build: (project: string) => Activity): boolean {
     const project = cosense.Project.name;
     if (statusOf(project) !== "counting") {
-      return;
+      return false;
     }
-    const activity = build(project);
+    commit(build(project));
+    return true;
+  }
+
+  function commit(activity: Activity): void {
     const key = JSON.stringify(activity);
-    if (key === lastRecorded) {
+    if (key === lastRecorded.get(activity.kind)) {
       return;
     }
     const outcome = deps.store.record(activity);
     // 書けなかったとき (容量超過・知らない版) は、次の活動で試し直す
-    lastRecorded = outcome === "written" || outcome === "unchanged" ? key : undefined;
+    if (outcome === "written" || outcome === "unchanged") {
+      lastRecorded.set(activity.kind, key);
+    } else {
+      lastRecorded.delete(activity.kind);
+    }
+  }
+
+  /** 書いた分を、ページの作成者と作成日で振り分ける (ADR-0021 決定 3)。 */
+  function classify(pageId: string, title: string, written: Minute): void {
+    const origin = origins.get(pageId);
+    if (origin === undefined || origin === "checking") {
+      const minutes = pending.get(pageId) ?? [];
+      if (!minutes.some((m) => m.day === written.day && m.minute === written.minute)) {
+        minutes.push(written);
+      }
+      pending.set(pageId, minutes);
+      if (origin === undefined) {
+        lookUp(pageId, written.project, title);
+      }
+      return;
+    }
+    assign(pageId, origin, written);
+  }
+
+  function assign(pageId: string, origin: PageOrigin, written: Minute): void {
+    const { project, day, minute } = written;
+    if (!origin.mine) {
+      commit({ kind: "axis", project, day, minute, axis: "o" });
+    } else if (origin.createdDay === day) {
+      commit({ kind: "axis", project, day, minute, axis: "c" });
+      commit({ kind: "created", project, day, pageId });
+    }
+    // 自分が前に作ったページは育てる。何も立てない (w − wc − wo で数える)
+  }
+
+  function lookUp(pageId: string, project: string, title: string): void {
+    origins.set(pageId, "checking");
+    Promise.all([me(), deps.fetchText(pagePath(project, title))])
+      .then(([id, text]) => {
+        const origin = text === undefined ? undefined : originOf(text, id);
+        if (origin === undefined) {
+          throw new Error("ページの作成者を読めなかった");
+        }
+        return origin;
+      })
+      .then(
+        (origin) =>
+          guard(() => {
+            origins.set(pageId, origin);
+            const minutes = pending.get(pageId) ?? [];
+            pending.delete(pageId);
+            for (const written of minutes) {
+              assign(pageId, origin, written);
+            }
+          }),
+        // **判定できなければ振り分けない** (その分は育てるに入る)。次の編集で引き直す
+        () => {
+          origins.delete(pageId);
+          pending.delete(pageId);
+        },
+      );
+  }
+
+  /** 自分の id。ドキュメントの寿命に 1 回だけ引き、失敗したら次に引き直す。 */
+  function me(): Promise<string> {
+    if (myId === undefined) {
+      const request = deps.fetchText(ME_PATH).then((text) => {
+        const id = text === undefined ? undefined : idOf(text);
+        if (id === undefined) {
+          throw new Error("自分の id を読めなかった");
+        }
+        return id;
+      });
+      request.catch(() => {
+        if (myId === request) {
+          myId = undefined;
+        }
+      });
+      myId = request;
+    }
+    return myId;
   }
 
   const tick = () =>
@@ -174,13 +279,14 @@ export function startSensor(cosense: SensorCosense, deps: SensorDependencies): S
         return;
       }
       const now = deps.now();
-      record((project) => ({
-        kind: "write",
-        project,
-        day: localDay(now),
-        minute: localMinute(now),
-        pageId: cosense.Page.id ?? undefined,
-      }));
+      const day = localDay(now);
+      const minute = localMinute(now);
+      const pageId = cosense.Page.id ?? undefined;
+      const counted = record((project) => ({ kind: "write", project, day, minute, pageId }));
+      const title = cosense.Page.title;
+      if (counted && pageId !== undefined && title) {
+        classify(pageId, title, { project: cosense.Project.name, day, minute });
+      }
     });
 
   for (const type of INTERACTION_EVENTS) {
@@ -201,6 +307,40 @@ export function startSensor(cosense: SensorCosense, deps: SensorDependencies): S
     },
     status: () => statusOf(cosense.Project.name),
   };
+}
+
+/** `/api/users/me` の応答から id を読む。未ログイン (`isGuest`) なら `undefined`。 */
+function idOf(text: string): string | undefined {
+  const json = parseJson(text);
+  return isObject(json) && typeof json.id === "string" && json.id !== "" ? json.id : undefined;
+}
+
+/**
+ * `/api/pages/v2/:project/:title` の応答から作成者と作成日を読む (research §4)。
+ * **`persistent` は見ない。** まだ保存していないページも `user` は自分、`created` は今になる。
+ */
+function originOf(text: string, myId: string): PageOrigin | undefined {
+  const json = parseJson(text);
+  if (!isObject(json) || !isObject(json.user) || typeof json.user.id !== "string") {
+    return undefined;
+  }
+  const created = json.created;
+  if (typeof created !== "number" || !Number.isFinite(created)) {
+    return undefined;
+  }
+  return { mine: json.user.id === myId, createdDay: localDay(new Date(created * 1000)) };
+}
+
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** 動いているセンサーを置く場所のキー。バンドルの版が違っても同じ値になる。 */

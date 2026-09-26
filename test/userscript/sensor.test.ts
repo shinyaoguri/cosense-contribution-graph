@@ -3,6 +3,8 @@ import {
   DISTRIBUTION_PATH,
   IDLE_MS,
   INTERACTION_EVENTS,
+  ME_PATH,
+  pagePath,
   SENSOR_REGISTRY_KEY,
   type Sensor,
   type SensorCosense,
@@ -40,7 +42,7 @@ function setup(options: { project?: string; user?: string } = {}) {
 
   const cosense: SensorCosense & {
     Project: { name: string };
-    Page: { id: string | null };
+    Page: { id: string | null; title?: string | null };
     Layout: string;
   } = {
     Project: { name: options.project ?? "project-a" },
@@ -120,6 +122,19 @@ function setup(options: { project?: string; user?: string } = {}) {
     emitLines(by?: string) {
       for (const listener of lineListeners) {
         listener({ by });
+      }
+    },
+    /** そのパスへの取得に応答する (`undefined` は成功でない応答、`"reject"` は通信の失敗) */
+    respond(path: string, text: string | undefined | "reject") {
+      const index = fetched.lastIndexOf(path);
+      const fetch = pendingFetches[index];
+      if (index < 0 || !fetch) {
+        throw new Error(`${path} は取得されていない`);
+      }
+      if (text === "reject") {
+        fetch.reject();
+      } else {
+        fetch.resolve(text);
       }
     },
   };
@@ -334,6 +349,175 @@ describe("書き", () => {
 
     expect(() => t.emitLines("edit")).not.toThrow();
     expect(t.warnings).toHaveLength(1);
+  });
+});
+
+describe("書いたページの振り分け (ADR-0021)", () => {
+  const ME = "me-0001";
+  const TITLE = "今日のメモ";
+  const PAGE = pagePath("project-a", TITLE);
+  /** REST の応答。`created` は秒 */
+  const pageJson = (userId: string, createdMs: number) =>
+    JSON.stringify({
+      id: "rest-id",
+      user: { id: userId },
+      created: createdMs / 1000,
+      persistent: true,
+    });
+
+  function started() {
+    const t = setup();
+    t.cosense.Page.title = TITLE;
+    startSensor(t.cosense, t.deps);
+    return t;
+  }
+
+  const axes = (recorded: readonly Activity[]) =>
+    recorded.flatMap((a) => (a.kind === "axis" ? [[a.day, a.minute, a.axis]] : []));
+
+  it("**自分が今日作ったページは作る。** w はすぐに立て、判定が返ってから c と created を立てる", async () => {
+    const t = started();
+    t.emitLines("edit");
+    expect(t.fetched).toEqual([ME_PATH, PAGE]);
+    expect(t.recorded.map((a) => a.kind)).toEqual(["write"]);
+
+    t.respond(ME_PATH, JSON.stringify({ id: ME, name: "alice" }));
+    t.respond(PAGE, pageJson(ME, at(8, 30)));
+    await flush();
+
+    expect(axes(t.recorded)).toEqual([["2026-09-14", 540, "c"]]);
+    expect(t.recorded).toContainEqual({
+      kind: "created",
+      project: "project-a",
+      day: "2026-09-14",
+      pageId: PAGE_ID,
+    });
+  });
+
+  it("**まだ保存していないページ** (作成者が自分、作成時刻が今) も作る", async () => {
+    const t = started();
+    t.emitLines("edit");
+    t.respond(ME_PATH, JSON.stringify({ id: ME }));
+    t.respond(
+      PAGE,
+      JSON.stringify({ user: { id: ME }, created: t.clock.ms / 1000, persistent: false }),
+    );
+    await flush();
+
+    expect(axes(t.recorded)).toEqual([["2026-09-14", 540, "c"]]);
+  });
+
+  it("**他の人が作ったページは関わる**", async () => {
+    const t = started();
+    t.emitLines("edit");
+    t.respond(ME_PATH, JSON.stringify({ id: ME }));
+    t.respond(PAGE, pageJson("someone-else", at(8, 30)));
+    await flush();
+
+    expect(axes(t.recorded)).toEqual([["2026-09-14", 540, "o"]]);
+    expect(t.recorded.some((a) => a.kind === "created")).toBe(false);
+  });
+
+  it("**自分が前の日に作ったページは育てる** (何も立てない)", async () => {
+    const t = started();
+    t.emitLines("edit");
+    t.respond(ME_PATH, JSON.stringify({ id: ME }));
+    t.respond(PAGE, pageJson(ME, at(23, 50, 0, 13)));
+    await flush();
+
+    expect(t.recorded.map((a) => a.kind)).toEqual(["write"]);
+  });
+
+  it("**1 ページにつき 1 回しか引かず、判定の後の編集はすぐ振り分ける**", async () => {
+    const t = started();
+    t.emitLines("edit");
+    t.clock.ms = at(9, 1);
+    t.emitLines("edit");
+    expect(t.fetched).toEqual([ME_PATH, PAGE]);
+
+    t.respond(ME_PATH, JSON.stringify({ id: ME }));
+    t.respond(PAGE, pageJson("someone-else", at(8, 30)));
+    await flush();
+    expect(axes(t.recorded)).toEqual([
+      ["2026-09-14", 540, "o"],
+      ["2026-09-14", 541, "o"],
+    ]);
+
+    t.clock.ms = at(9, 2);
+    t.emitLines("edit");
+    expect(t.fetched).toHaveLength(2);
+    expect(axes(t.recorded).at(-1)).toEqual(["2026-09-14", 542, "o"]);
+  });
+
+  it("**自分の id は 1 回だけ引く** (別のページでは作成者だけを引く)", async () => {
+    const t = started();
+    t.emitLines("edit");
+    t.respond(ME_PATH, JSON.stringify({ id: ME }));
+    t.respond(PAGE, pageJson(ME, at(8, 30)));
+    await flush();
+
+    t.cosense.Page.id = "fedcba9876543210fedcba98";
+    t.cosense.Page.title = "別のページ";
+    t.emitLines("edit");
+
+    expect(t.fetched).toEqual([ME_PATH, PAGE, pagePath("project-a", "別のページ")]);
+  });
+
+  it("**判定の途中で日付が変わっても、控えた分は書いた日に振り分ける**", async () => {
+    const t = started();
+    t.clock.ms = at(23, 59, 30);
+    t.emitLines("edit");
+    t.clock.ms = at(0, 0, 10, 15);
+    t.emitLines("edit");
+
+    t.respond(ME_PATH, JSON.stringify({ id: ME }));
+    // 14 日の 23:58 に作ったページ: 14 日の分は作る、15 日の分は育てる
+    t.respond(PAGE, pageJson(ME, at(23, 58)));
+    await flush();
+
+    expect(axes(t.recorded)).toEqual([["2026-09-14", 1439, "c"]]);
+  });
+
+  it.each([
+    ["通信の失敗", "reject"],
+    ["成功でない応答", undefined],
+    ["JSON でない応答", "<html>"],
+    ["作成者の無い応答", JSON.stringify({ created: 1 })],
+  ] as const)("**%sなら振り分けず、次の編集で引き直す**", async (_name, response) => {
+    const t = started();
+    t.emitLines("edit");
+    t.respond(ME_PATH, JSON.stringify({ id: ME }));
+    t.respond(PAGE, response);
+    await flush();
+    expect(t.recorded.map((a) => a.kind)).toEqual(["write"]);
+
+    t.clock.ms = at(9, 1);
+    t.emitLines("edit");
+    expect(t.fetched.filter((path) => path === PAGE)).toHaveLength(2);
+  });
+
+  it("**自分の id が読めなければ振り分けず、次は id から引き直す** (未ログインなど)", async () => {
+    const t = started();
+    t.emitLines("edit");
+    t.respond(ME_PATH, JSON.stringify({ isGuest: true }));
+    t.respond(PAGE, pageJson(ME, at(8, 30)));
+    await flush();
+    expect(t.recorded.map((a) => a.kind)).toEqual(["write"]);
+
+    t.clock.ms = at(9, 1);
+    t.emitLines("edit");
+    expect(t.fetched.filter((path) => path === ME_PATH)).toHaveLength(2);
+  });
+
+  it("タイトルが無い (page 以外のレイアウト) か、数えていないプロジェクトでは引かない", () => {
+    const t = started();
+    t.cosense.Page.title = null;
+    t.emitLines("edit");
+    expect(t.fetched).toEqual([]);
+  });
+
+  it("プロジェクト名とタイトルはパスとしてエンコードする", () => {
+    expect(pagePath("my project", "a/b?c#d")).toBe("/api/pages/v2/my%20project/a%2Fb%3Fc%23d");
   });
 });
 
