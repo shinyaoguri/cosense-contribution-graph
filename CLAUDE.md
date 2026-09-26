@@ -12,7 +12,9 @@ Cosense (旧 Scrapbox) の活動を草として可視化する。成果物は **
 段階 8 の「草の設定」(#79) は、サインイン・read 計上の on/off・この端末の失効・全データの削除まで入れた。
 ほかの端末の一覧と失効は Worker の `/account` (ADR-0017)。
 **管理はページへ集約した** (#88、ADR-0018): Cosense 側はそのブラウザでしかできないことだけで、`/` (トップ)・`/account` (管理)・`/privacy` (ポリシー) を配信する。
-**`docs/privacy.md` は `/privacy` の正本**で、Text モジュールとして読み込んで `markdown.ts` が HTML にする。
+**`/` と `/privacy` は英語、日本語は `/ja` と `/ja/privacy`** (ADR-0022。`/` と `/privacy` は Google の同意画面に登録した URL)。
+**`docs/privacy.en.md` が `/privacy`、`docs/privacy.md` が `/ja/privacy` の正本**で、Text モジュールとして読み込んで `markdown.ts` が HTML にする。
+**2 つは全訳どうしで、片方だけ直すと節の数の突き合わせでテストが落ちる。**
 日ごとの集計値は、草とは別の推測しにくい URL の JSON `/v1/g/{publicId}/{dataKey}.json` で出す (ADR-0020)。
 段階 9 (#148) は、活動の内訳を 4 軸 (作る / 育てる / 関わる / 読む) のレーダーで草とは別の SVG に出す (ADR-0021)。**#151〜#154 で実装し、ダイアログ・`/account`・トップに並べた。** ビーコンは v2 で、配布ページ `v1` を貼り替えるまでは v=1 も受ける (#159)。
 本番は `https://grass.soui.dev` (独自ドメイン。`cosense-grass.soui.workers.dev` も有効) で、デモの草 `/v1/g/demo.svg` がある。設計の正本は `docs/`。
@@ -25,7 +27,7 @@ Cosense (旧 Scrapbox) の活動を草として可視化する。成果物は **
 | `docs/design.md` | 設計。指標・スキーマ・API・配色・脅威モデル |
 | `docs/research.md` | 実測事実。**基準日と出典が付いている。推測で上書きしない** |
 | `docs/roadmap.md` | 実装順と段階ごとの完了条件。どこまで進んだかもここにある |
-| `docs/privacy.md` | プライバシーポリシーの草案 |
+| `docs/privacy.md` | プライバシーポリシー (日本語)。英語版の `privacy.en.md` と全訳どうし |
 
 設計判断を変えるときは ADR を足すか、既存 ADR に改訂を書く。**ADR は `docs/decisions/NNNN-<slug>.md` に
 1 件 1 ファイルで足し、`docs/decisions/README.md` の一覧に 1 行足す** (漏れは `check-links.sh` が落とす)。

@@ -366,7 +366,7 @@ describe("createGraphDialog", () => {
     expect(links.map((a) => [a.textContent, a.href])).toEqual([
       ["配布ページ (Cosense)", "https://scrapbox.io/cosense-grass/"],
       ["ソースコード (GitHub)", "https://github.com/shinyaoguri/cosense-contribution-graph"],
-      ["プライバシーポリシー", "https://grass.soui.dev/privacy"],
+      ["プライバシーポリシー", "https://grass.soui.dev/ja/privacy"], // ダイアログが日本語なので日本語版 (ADR-0022)
     ]);
     for (const link of links) {
       expect([link.target, link.rel]).toEqual(["_blank", "noopener noreferrer"]);

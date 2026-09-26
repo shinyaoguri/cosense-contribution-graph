@@ -31,3 +31,4 @@
 | [ADR-0019](0019-worker-only-rendering.md) | 草を描くのは Worker だけにし、UserScript は数えて送るだけにする | 2026-09-15 |
 | [ADR-0020](0020-daily-json.md) | 日ごとの集計値を、草とは別の推測しにくい URL の JSON で出す | 2026-09-24 |
 | [ADR-0021](0021-activity-overview.md) | 活動の内訳を 4 軸 (作る / 育てる / 関わる / 読む) で数え、草とは別の SVG で見せる | 2026-09-26 |
+| [ADR-0022](0022-english-default-pages.md) | 公開ページは英語を既定にし、日本語を `/ja` の下に分ける | 2026-09-26 |

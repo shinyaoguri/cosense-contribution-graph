@@ -119,9 +119,9 @@ src/userscript/
 (worker)
   account.ts                /account の一覧・失効・共有 URL・全削除 (ADR-0017・0018)
   session.ts                サインイン済みを 30 分覚える cookie (ADR-0017)
-  site.ts                   / と /privacy (ADR-0018)
+  site.ts                   / と /privacy (英語)、/ja と /ja/privacy (日本語) (ADR-0018・0022)
   favicon.ts                /favicon.svg (Cosense のボタンと同じ絵。Issue #130)
-  markdown.ts               privacy.md を HTML にする部分集合の変換
+  markdown.ts               privacy.md・privacy.en.md を HTML にする部分集合の変換
 scripts/build-userscript.mjs esbuild でバンドルする (配布ページへの反映は手動。ADR-0013 決定 3)
 ```
 
@@ -699,17 +699,18 @@ POST で行う。破壊的な操作に Google サインインを必須にでき�
   「このブラウザの記録を消す」で消す (`src/userscript/cleaner.ts`)。localStorage はブラウザにしかないので、
   ページからは消せない
 
-### `GET /` と `GET /privacy` — 人が読むページ
+### `GET /` と `GET /privacy` (英語)、`GET /ja` と `GET /ja/privacy` (日本語) — 人が読むページ
 
 **トップとプライバシーポリシー** (2026-09-15、`src/worker/site.ts`、ADR-0018)。
+**英語を既定にし、日本語を `/ja` の下に分ける** (2026-09-26、ADR-0022)。`/` と `/privacy` は Google の OAuth
+同意画面に登録した URL なので英語にする。上端のリンク (`English` / `日本語`) で対のページへ行き来する。
 
-- `/` — 何をするツールか、導入の 1 行、デモの草 (`/v1/g/demo.svg`)、**サインインの導線**
-  (`/auth/start?to=account`。押すとサインインを経て `/account` で自分の草が見える)、管理とポリシーへのリンク。
-  **導線はリンクだけで、セッションに依存する内容をトップに載せない** (載せると `public` なキャッシュを
-  やめる必要が出る)
-- `/privacy` — **`docs/privacy.md` を正本のまま配信する。** wrangler の Text モジュール規則
+- `/`・`/ja` — 何をするツールか、デモの草 (`/v1/g/demo.svg`) と活動の概観、Google サインインを使う理由、導入の 1 行、
+  管理とポリシーへのリンク。**サインイン (`/auth/start`) へ直接はつながず、`/account` へ案内する** (Issue #141)。
+  **セッションに依存する内容をトップに載せない** (載せると `public` なキャッシュをやめる必要が出る)
+- `/privacy`・`/ja/privacy` — **`docs/privacy.en.md` と `docs/privacy.md` を正本のまま配信する。** wrangler の Text モジュール規則
   (`wrangler.jsonc` の `rules`) で読み込み、`markdown.ts` の部分集合の変換で HTML にする。
-  **文面を 2 か所に置かない。** Google の OAuth 同意画面はこの URL を要求する
+  **2 つは全訳どうしで、節・表の行・箇条書きの数をテストで突き合わせる**
 - どちらも**スクリプトを 1 行も載せず**、スタイルは固定の文字列 (CSP はハッシュ)。
   中身はデプロイでしか変わらないので `public, max-age=3600`
 
