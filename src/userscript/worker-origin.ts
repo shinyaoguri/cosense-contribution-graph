@@ -5,7 +5,7 @@
  * サインインのポップアップの postMessage も、このオリジンから来たものだけを受け取る。
  */
 import { ACCOUNT_PATH } from "../shared/auth.ts";
-import { PRIVACY_PATH } from "../shared/links.ts";
+import { PRIVACY_JA_PATH } from "../shared/links.ts";
 import { isValidProjectName, isValidUserName } from "../shared/project-name.ts";
 
 export const WORKER_ORIGIN = "https://grass.soui.dev";
@@ -13,8 +13,8 @@ export const WORKER_ORIGIN = "https://grass.soui.dev";
 /** 管理のページ (ADR-0017・0018)。**リンクを開くだけ**で、中身は UserScript から読めない。 */
 export const ACCOUNT_URL = `${WORKER_ORIGIN}${ACCOUNT_PATH}`;
 
-/** プライバシーポリシー。草のダイアログの下端から開く */
-export const PRIVACY_URL = `${WORKER_ORIGIN}${PRIVACY_PATH}`;
+/** プライバシーポリシー。草のダイアログの下端から開く。**ダイアログが日本語なので日本語版** (ADR-0022) */
+export const PRIVACY_URL = `${WORKER_ORIGIN}${PRIVACY_JA_PATH}`;
 
 /**
  * 共有 SVG の URL (design §6)。

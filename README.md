@@ -38,7 +38,7 @@ read の記録にページ識別子を一切載せていないので、「誰が
 
 **日ごとの集計値は削除しない。** 数年後に振り返れるようにするため。
 分単位のビットマップだけ 90 日で消すが、これは作業データなので草は変わらない。
-詳細は [プライバシーポリシーの草案](docs/privacy.md)。
+詳細は [プライバシーポリシー](docs/privacy.md) ([English](docs/privacy.en.md))。
 
 ## ドキュメント
 
@@ -50,7 +50,7 @@ read の記録にページ識別子を一切載せていないので、「誰が
 | [docs/design.md](docs/design.md) | 設計。アーキテクチャ、指標、配色、スキーマ、API、脅威モデル |
 | [docs/research.md](docs/research.md) | Cosense と Cloudflare と Google の実測結果。出典と基準日付き |
 | [docs/roadmap.md](docs/roadmap.md) | 実装計画。開発環境の整備から段階ごとの完了条件まで |
-| [docs/privacy.md](docs/privacy.md) | プライバシーポリシーの草案。何を保存して何を保存しないか |
+| [docs/privacy.md](docs/privacy.md) | プライバシーポリシー。何を保存して何を保存しないか。英語版は [privacy.en.md](docs/privacy.en.md) |
 
 `decisions/` を先に読むのは、送信経路・指標の持ち方・身元の紐づけ方が素朴な設計と違うため。
 Cosense の Content-Security-Policy が外部への `fetch` と `sendBeacon` を塞いでいるので、

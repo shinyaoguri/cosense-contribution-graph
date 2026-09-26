@@ -4,7 +4,7 @@ import { ENROLL_PATH } from "../shared/enroll.ts";
 import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
 import { sha256Hex } from "../shared/hash.ts";
 import { isValidDataKey, isValidPublicId } from "../shared/ids.ts";
-import { PRIVACY_PATH } from "../shared/links.ts";
+import { PRIVACY_JA_PATH, PRIVACY_PATH } from "../shared/links.ts";
 import { PROBE_PATH } from "../shared/probe.ts";
 import { REVOKE_PATH } from "../shared/revoke.ts";
 import { type AccountDeps, handleAccount } from "./account.ts";
@@ -25,7 +25,7 @@ import { d1KeyResolver } from "./keys.ts";
 import { renderOverview } from "./overview-svg.ts";
 import { parseLabel, parseParams, parseUser, parseYear } from "./params.ts";
 import { handleProbe } from "./probe.ts";
-import { HOME_PATH, handleHome, handlePrivacy } from "./site.ts";
+import { HOME_JA_PATH, HOME_PATH, handleHome, handlePrivacy } from "./site.ts";
 import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
 
 /**
@@ -113,11 +113,11 @@ export default {
     if (url.pathname === PROBE_PATH) {
       return handleProbe(request, url);
     }
-    if (url.pathname === HOME_PATH) {
-      return handleHome();
+    if (url.pathname === HOME_PATH || url.pathname === HOME_JA_PATH) {
+      return handleHome(url.pathname === HOME_PATH ? "en" : "ja");
     }
-    if (url.pathname === PRIVACY_PATH) {
-      return handlePrivacy();
+    if (url.pathname === PRIVACY_PATH || url.pathname === PRIVACY_JA_PATH) {
+      return handlePrivacy(url.pathname === PRIVACY_PATH ? "en" : "ja");
     }
     if (url.pathname === FAVICON_PATH) {
       return svgResponse(request, FAVICON_SVG, FAVICON_CACHE_CONTROL);

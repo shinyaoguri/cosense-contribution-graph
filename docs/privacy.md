@@ -140,23 +140,3 @@ Google でサインインすると、登録した端末の一覧・共有 URL・
 
 内容を変更した場合は、GitHub のリポジトリの履歴に残ります。
 重要な変更があるときはリポジトリで告知します。
-
-## Summary in English
-
-cosense-grass visualizes your activity on Cosense (formerly Scrapbox) as a contribution graph ("grass").
-It is a personal project and is not affiliated with Cosense or Helpfeel Inc.
-
-- **Google user data we access:** Google Sign-In is used only to link your devices to one account.
-  We request the `openid` scope only and receive only the account identifier (`sub`). We do not access your email address, name, or profile picture
-- **How we use it:** We derive an internal user ID from `sub` with a keyed hash (HMAC), so that records from your devices are merged into one graph.
-  We do not use it for advertising, profiling, or machine learning
-- **Sharing:** We do not share, transfer, or sell Google user data to any third party
-- **Protection:** All traffic uses HTTPS. We never store `sub` itself or the Google ID token; only the irreversible HMAC result is stored
-- **Retention and deletion:** The internal user ID is kept until you delete your data. You can delete all server-side data at any time
-  from `https://grass.soui.dev/account`
-- **Other data:** We store per-minute activity bitmaps (kept for 90 days) and daily totals, device public keys, and a time zone.
-  Daily totals include how many minutes you wrote on pages you created that day and on pages created by others, and how many links you created.
-  We never receive page titles, page contents, page authors, link targets, or project names
-- Our use of information received from Google APIs adheres to the
-  [Google API Services User Data Policy](https://developers.google.com/terms/api-services-user-data-policy), including the Limited Use requirements
-- **Contact:** [GitHub Issues](https://github.com/shinyaoguri/cosense-contribution-graph/issues)
