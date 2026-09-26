@@ -2,10 +2,15 @@
  * 受け口のテストで使う、署名つきビーコンの組み立て。鍵はテストの中で生成する (秘密鍵をリポジトリに置かない)。
  */
 import { encodeBase64url } from "../../src/shared/base64url.ts";
-import { buildIngestUrl, type Entry } from "../../src/shared/beacon.ts";
+import { buildIngestUrl, type Entry, INGEST_PARAM, INGEST_PATH } from "../../src/shared/beacon.ts";
 import { bitmapOf } from "../../src/shared/bits.ts";
 import { kidOf, PH_ALL, UID_BYTES } from "../../src/shared/ids.ts";
-import { exportPublicKey, generateSigningKeyPair, sign } from "../../src/shared/sign.ts";
+import {
+  exportPublicKey,
+  generateSigningKeyPair,
+  sign,
+  signingInput,
+} from "../../src/shared/sign.ts";
 import type { ResolveKey } from "../../src/worker/keys.ts";
 
 const ORIGIN = "https://example.com";
@@ -27,6 +32,9 @@ export function entry(overrides: Partial<Entry> = {}): Entry {
     rbits: bitmapOf([]),
     pages: 0,
     created: 0,
+    wc: 0,
+    wo: 0,
+    links: 0,
     ...overrides,
   };
 }
@@ -39,6 +47,8 @@ export type Signer = {
   sign(input: string): Promise<Uint8Array<ArrayBuffer>>;
   /** 署名つきの URL。`time` の既定は NOW */
   url(uid: string, entries: readonly Entry[], time?: number): Promise<URL>;
+  /** v1 (移行のために受けている版) の署名つきの URL。`p` の生の値をそのまま載せる */
+  legacyUrl(uid: string, rawEntries: string, time?: number): Promise<URL>;
 };
 
 export async function createSigner(): Promise<Signer> {
@@ -56,6 +66,22 @@ export async function createSigner(): Promise<Signer> {
           sign(pair.privateKey, input),
         ),
       ),
+    legacyUrl: async (uid, rawEntries, time = NOW / 1000) => {
+      const pairs: [string, string][] = [
+        [INGEST_PARAM.version, "1"],
+        [INGEST_PARAM.uid, uid],
+        [INGEST_PARAM.kid, kid],
+        [INGEST_PARAM.time, String(time)],
+        [INGEST_PARAM.entries, rawEntries],
+      ];
+      const signature = await sign(pair.privateKey, signingInput(INGEST_PATH, pairs));
+      const url = new URL(INGEST_PATH, ORIGIN);
+      for (const [key, value] of pairs) {
+        url.searchParams.set(key, value);
+      }
+      url.searchParams.set(INGEST_PARAM.signature, encodeBase64url(signature));
+      return url;
+    },
   };
 }
 

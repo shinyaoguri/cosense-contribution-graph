@@ -7,7 +7,7 @@
  * - **送れた中身は、エントリごとのダイジェストで覚える** (`cosense-grass:sent`)。変わったプロジェクトと `*` だけを送り直す
  * - **`manual` (「今すぐ送る」) も同じ経路を通る** (Issue #102)。違うのは backoff を免れることと、失敗を `failure.n` に積まないことだけ
  */
-import { type Entry, formatEntries, MAX_ENTRIES } from "../shared/beacon.ts";
+import { type Entry, formatEntry, MAX_COUNT, MAX_ENTRIES } from "../shared/beacon.ts";
 import { popcount } from "../shared/bits.ts";
 import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
 import { sha256Hex } from "../shared/hash.ts";
@@ -30,9 +30,6 @@ export const MAX_URL_LENGTH = 8_000;
  * **手動の「今すぐ送る」もこの枠を使う** (ADR-0010 の書き込み予算そのものなので、押した回数だけ増やさない)
  */
 export const MAX_TODAY_SENDS = 4;
-
-/** `pages` と `created` の上限 (shared/beacon.ts)。これを超える数は送れないので丸める */
-const MAX_COUNT = 99_999;
 
 const DIGEST_LENGTH = 16;
 
@@ -133,11 +130,16 @@ export async function collectEntries(
       if (row.bits === undefined) {
         continue;
       }
+      // これを超える数は送れないので丸める
       const pages = Math.min(row.counts.pages, MAX_COUNT);
       const created = Math.min(row.counts.created, MAX_COUNT);
-      if (popcount(row.bits.w) + popcount(row.bits.r) + pages + created === 0) {
+      const w = popcount(row.bits.w);
+      if (w + popcount(row.bits.r) + pages + created === 0) {
         continue;
       }
+      // 作る・関わるは w の部分集合のはずだが、壊れた w を 0 として読んだ後などに超えると Worker が 400 を返し続ける
+      const wc = Math.min(row.counts.wc, w);
+      const wo = Math.min(row.counts.wo, w - wc);
       entries.push({
         ph: project === undefined ? PH_ALL : await phOf(uid, project),
         day,
@@ -145,6 +147,10 @@ export async function collectEntries(
         rbits: row.bits.r,
         pages,
         created,
+        wc,
+        wo,
+        // リンクはまだ数えていない (Issue #155)
+        links: 0,
       });
     }
   }
@@ -156,7 +162,7 @@ export async function collectEntries(
  * **kid は混ぜない** (D1 の行は uid ごとなので、同じ uid で鍵を作り直しても送り直す意味が無い)。
  */
 export function entryDigest(uid: string, entry: Entry): Promise<string> {
-  return sha256Hex(`${uid}\n${formatEntries([entry])}`, DIGEST_LENGTH);
+  return sha256Hex(`${uid}\n${formatEntry(entry)}`, DIGEST_LENGTH);
 }
 
 /** 送信済みの記録を読む。壊れていたら空、知らない版なら `"newer"` (送らない)。 */

@@ -8,10 +8,32 @@ import {
   orBits,
   popcount,
 } from "../../src/shared/bits.ts";
-import { mergeEntry } from "../../src/worker/merge.ts";
+import { type DailyValues, mergeEntry } from "../../src/worker/merge.ts";
 
-function entry(w: number[], r: number[], pages = 0, created = 0): Entry {
-  return { ph: "*", day: "2026-09-14", wbits: bitmapOf(w), rbits: bitmapOf(r), pages, created };
+function entry(
+  w: number[],
+  r: number[],
+  pages = 0,
+  created = 0,
+  counts: Partial<Pick<Entry, "wc" | "wo" | "links">> = {},
+): Entry {
+  return {
+    ph: "*",
+    day: "2026-09-14",
+    wbits: bitmapOf(w),
+    rbits: bitmapOf(r),
+    pages,
+    created,
+    wc: 0,
+    wo: 0,
+    links: 0,
+    ...counts,
+  };
+}
+
+/** 作る・関わる・リンクは 0 の集計値。 */
+function dailyOf(values: Pick<DailyValues, "w" | "r" | "pages" | "created">): DailyValues {
+  return { wc: 0, wo: 0, links: 0, ...values };
 }
 
 describe("mergeEntry", () => {
@@ -20,12 +42,12 @@ describe("mergeEntry", () => {
 
     expect(merged.bitsChanged).toBe(true);
     expect(merged.dailyChanged).toBe(true);
-    expect(merged.daily).toEqual({ w: 2, r: 2, pages: 5, created: 1 });
+    expect(merged.daily).toEqual(dailyOf({ w: 2, r: 2, pages: 5, created: 1 }));
   });
 
   it("保存済みと OR し、増えなければ変化なし", () => {
     const stored = { wbits: bitmapOf([1, 2]), rbits: bitmapOf([3]) };
-    const daily = { w: 2, r: 1, pages: 1, created: 0 };
+    const daily = dailyOf({ w: 2, r: 1, pages: 1, created: 0 });
 
     const same = mergeEntry(entry([1], [3], 1), stored, daily);
     expect(same.bitsChanged).toBe(false);
@@ -34,28 +56,52 @@ describe("mergeEntry", () => {
     const more = mergeEntry(entry([7], []), stored, daily);
     expect(more.bitsChanged).toBe(true);
     expect(bitsEqual(more.bits.wbits, bitmapOf([1, 2, 7]))).toBe(true);
-    expect(more.daily).toEqual({ w: 3, r: 1, pages: 1, created: 0 });
+    expect(more.daily).toEqual(dailyOf({ w: 3, r: 1, pages: 1, created: 0 }));
   });
 
   it("**読みだった分が書きになると r が減る** (独立に max を取ると w + r が 1 分多くなる)", () => {
     const stored = { wbits: bitmapOf([]), rbits: bitmapOf([10]) };
-    const merged = mergeEntry(entry([10], []), stored, { w: 0, r: 1, pages: 0, created: 0 });
+    const merged = mergeEntry(
+      entry([10], []),
+      stored,
+      dailyOf({ w: 0, r: 1, pages: 0, created: 0 }),
+    );
 
     expect(merged.daily).toMatchObject({ w: 1, r: 0 });
     expect(merged.dailyChanged).toBe(true);
   });
 
   it("**ビットマップが無い日は、w も合計も減らさない**", () => {
-    const merged = mergeEntry(entry([1], [2]), undefined, { w: 10, r: 5, pages: 3, created: 1 });
+    const merged = mergeEntry(
+      entry([1], [2]),
+      undefined,
+      dailyOf({ w: 10, r: 5, pages: 3, created: 1 }),
+    );
 
     expect(merged.bitsChanged).toBe(true);
-    expect(merged.daily).toEqual({ w: 10, r: 5, pages: 3, created: 1 });
+    expect(merged.daily).toEqual(dailyOf({ w: 10, r: 5, pages: 3, created: 1 }));
     expect(merged.dailyChanged).toBe(false);
+  });
+
+  it("wc / wo / links も max で、増えただけでも変化あり", () => {
+    const stored = { wbits: bitmapOf([1, 2, 3]), rbits: bitmapOf([]) };
+    const before: DailyValues = { w: 3, r: 0, pages: 0, created: 0, wc: 2, wo: 0, links: 5 };
+
+    const merged = mergeEntry(
+      entry([1, 2, 3], [], 0, 0, { wc: 1, wo: 1, links: 3 }),
+      stored,
+      before,
+    );
+    expect(merged.daily).toMatchObject({ wc: 2, wo: 1, links: 5 });
+    expect(merged.dailyChanged).toBe(true);
+
+    const same = mergeEntry(entry([1, 2, 3], [], 0, 0, { wc: 2, links: 5 }), stored, before);
+    expect(same.dailyChanged).toBe(false);
   });
 
   it("pages / created は max", () => {
     const stored = { wbits: bitmapOf([1]), rbits: bitmapOf([]) };
-    const daily = { w: 1, r: 0, pages: 4, created: 2 };
+    const daily = dailyOf({ w: 1, r: 0, pages: 4, created: 2 });
 
     expect(mergeEntry(entry([1], [], 3, 3), stored, daily).daily).toMatchObject({
       pages: 4,
@@ -79,19 +125,19 @@ describe("mergeEntry", () => {
     for (let trial = 0; trial < 200; trial++) {
       const sends = Array.from({ length: 5 }, () => entry(randomMinutes(), randomMinutes()));
       let stored: { wbits: Bitmap; rbits: Bitmap } | undefined;
-      let daily: { w: number; r: number; pages: number; created: number } | undefined;
+      let values: DailyValues | undefined;
       let unionW = bitmapOf([]);
       let unionR = bitmapOf([]);
 
       for (const send of sends) {
-        const merged = mergeEntry(send, stored, daily);
+        const merged = mergeEntry(send, stored, values);
         stored = merged.bits;
-        daily = merged.daily;
+        values = merged.daily;
         unionW = orBits(unionW, send.wbits);
         unionR = orBits(unionR, send.rbits);
 
         const w = popcount(unionW);
-        expect(daily).toMatchObject({ w, r: popcount(andNotBits(unionR, unionW)) });
+        expect(values).toMatchObject({ w, r: popcount(andNotBits(unionR, unionW)) });
       }
     }
   });

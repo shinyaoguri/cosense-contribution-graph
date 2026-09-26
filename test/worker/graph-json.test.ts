@@ -5,7 +5,16 @@ import { randomUid } from "./beacon-helpers.ts";
 
 const PH = "0123456789abcdef";
 
-type Row = readonly [day: string, w: number, r: number, pages: number, created: number];
+type Row = readonly [
+  day: string,
+  w: number,
+  r: number,
+  pages: number,
+  created: number,
+  wc?: number,
+  wo?: number,
+  links?: number,
+];
 
 /** graphs と daily に行を入れ、その (uid, ph) の JSON の URL を返す。 */
 async function store(uid: string, ph: string, rows: readonly Row[]): Promise<string> {
@@ -14,10 +23,10 @@ async function store(uid: string, ph: string, rows: readonly Row[]): Promise<str
     env.DB.prepare(
       "INSERT INTO graphs (public_id, uid, ph) VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
     ).bind(publicId, uid, ph),
-    ...rows.map((row) =>
+    ...rows.map(([day, w, r, pages, created, wc = 0, wo = 0, links = 0]) =>
       env.DB.prepare(
-        "INSERT INTO daily (uid, ph, day, w, r, pages, created) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      ).bind(uid, ph, ...row),
+        "INSERT INTO daily (uid, ph, day, w, r, pages, created, wc, wo, links) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ).bind(uid, ph, day, w, r, pages, created, wc, wo, links),
     ),
   ]);
   return urlOf(publicId, await dataKeyOf(uid, ph));
@@ -28,10 +37,10 @@ function urlOf(publicId: string, dataKey: string): string {
 }
 
 describe("GET /v1/g/{publicId}/{dataKey}.json", () => {
-  it("**全期間の行を日付の昇順に、4 つの値つきで返す** (挿入の順によらない)", async () => {
+  it("**全期間の行を日付の昇順に、7 つの値つきで返す** (挿入の順によらない)", async () => {
     const uid = randomUid();
     const url = await store(uid, PH_ALL, [
-      ["2026-09-14", 5, 30, 2, 1],
+      ["2026-09-14", 5, 30, 2, 1, 2, 1, 3],
       ["2024-01-10", 50, 50, 7, 0],
       ["2026-09-01", 2, 8, 1, 0],
     ]);
@@ -42,9 +51,9 @@ describe("GET /v1/g/{publicId}/{dataKey}.json", () => {
     expect(await res.json()).toEqual({
       total: true,
       days: [
-        { day: "2024-01-10", w: 50, r: 50, pages: 7, created: 0 },
-        { day: "2026-09-01", w: 2, r: 8, pages: 1, created: 0 },
-        { day: "2026-09-14", w: 5, r: 30, pages: 2, created: 1 },
+        { day: "2024-01-10", w: 50, r: 50, pages: 7, created: 0, wc: 0, wo: 0, links: 0 },
+        { day: "2026-09-01", w: 2, r: 8, pages: 1, created: 0, wc: 0, wo: 0, links: 0 },
+        { day: "2026-09-14", w: 5, r: 30, pages: 2, created: 1, wc: 2, wo: 1, links: 3 },
       ],
     });
   });
@@ -60,7 +69,7 @@ describe("GET /v1/g/{publicId}/{dataKey}.json", () => {
 
     expect(await res.json()).toEqual({
       total: false,
-      days: [{ day: "2026-09-01", w: 1, r: 2, pages: 3, created: 0 }],
+      days: [{ day: "2026-09-01", w: 1, r: 2, pages: 3, created: 0, wc: 0, wo: 0, links: 0 }],
     });
   });
 

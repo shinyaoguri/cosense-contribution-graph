@@ -14,6 +14,12 @@ type DailyRow = {
   readonly r: number;
   readonly pages: number;
   readonly created: number;
+  /** 作る (分)。ADR-0021 */
+  readonly wc: number;
+  /** 関わる (分) */
+  readonly wo: number;
+  /** 作ったリンクの件数 */
+  readonly links: number;
 };
 
 export type GraphData = {
@@ -38,13 +44,24 @@ export async function loadGraphData(
 
   // 主キー (uid, ph, day) の前方一致なので、並べ替えは索引の順で済む
   const { results } = await db
-    .prepare("SELECT day, w, r, pages, created FROM daily WHERE uid = ? AND ph = ? ORDER BY day")
+    .prepare(
+      "SELECT day, w, r, pages, created, wc, wo, links FROM daily WHERE uid = ? AND ph = ? ORDER BY day",
+    )
     .bind(graph.uid, graph.ph)
     .all<DailyRow>();
   return {
     total: graph.ph === PH_ALL,
     // 列の順と名前を固定する (D1 の行オブジェクトをそのまま出さない)
-    days: results.map(({ day, w, r, pages, created }) => ({ day, w, r, pages, created })),
+    days: results.map(({ day, w, r, pages, created, wc, wo, links }) => ({
+      day,
+      w,
+      r,
+      pages,
+      created,
+      wc,
+      wo,
+      links,
+    })),
   };
 }
 

@@ -9,6 +9,6 @@ describe("UserScript の骨組み", () => {
   });
 
   it("版を名乗る", () => {
-    expect(USERSCRIPT_VERSION).toBe("1.3.0");
+    expect(USERSCRIPT_VERSION).toBe("1.4.0");
   });
 });

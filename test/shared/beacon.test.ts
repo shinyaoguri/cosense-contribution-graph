@@ -5,6 +5,7 @@ import {
   buildIngestUrl,
   type Entry,
   formatEntries,
+  formatEntry,
   INGEST_PARAM,
   INGEST_PATH,
   INGEST_WIDTH_BASE,
@@ -12,6 +13,7 @@ import {
   MAX_ENTRIES,
   parseEntries,
   parseIngestQuery,
+  parseLegacyEntries,
   readIngestWidth,
 } from "../../src/shared/beacon.ts";
 import { bitmapOf, bitsEqual } from "../../src/shared/bits.ts";
@@ -21,6 +23,7 @@ import {
   generateSigningKeyPair,
   importVerifyKey,
   sign,
+  signingInput,
   verify,
 } from "../../src/shared/sign.ts";
 
@@ -40,6 +43,9 @@ function entry(overrides: Partial<Entry> = {}): Entry {
     rbits: bitmapOf([2, 3, 4, 5]),
     pages: 3,
     created: 1,
+    wc: 1,
+    wo: 1,
+    links: 4,
     ...overrides,
   };
 }
@@ -59,7 +65,10 @@ async function searchOf(beacon: BeaconFields = fields()): Promise<URLSearchParam
 
 describe("エントリ p の往復", () => {
   it("組み立てて読むと同じ中身に戻る", () => {
-    const original = [entry(), entry({ ph: PH, day: "2026-09-13", pages: 0, created: 0 })];
+    const original = [
+      entry(),
+      entry({ ph: PH, day: "2026-09-13", pages: 0, created: 0, wc: 0, wo: 0, links: 0 }),
+    ];
     const parsed = parseEntries(formatEntries(original));
 
     expect(parsed).toHaveLength(2);
@@ -67,48 +76,56 @@ describe("エントリ p の往復", () => {
       const p = parsed?.[i];
       expect(p?.ph).toBe(e.ph);
       expect(p?.day).toBe(e.day);
-      expect(p?.pages).toBe(e.pages);
-      expect(p?.created).toBe(e.created);
+      expect([p?.pages, p?.created, p?.wc, p?.wo, p?.links]).toEqual([
+        e.pages,
+        e.created,
+        e.wc,
+        e.wo,
+        e.links,
+      ]);
       expect(p && bitsEqual(p.wbits, e.wbits)).toBe(true);
       expect(p && bitsEqual(p.rbits, e.rbits)).toBe(true);
     }
   });
 
-  it("1 エントリは ph|day|wbits|rbits|pages|created で、ビットマップは 240 文字", () => {
-    const [ph, day, w, r, pages, created] = formatEntries([entry()]).split("|");
-    expect([ph, day, pages, created]).toEqual(["*", "2026-09-14", "3", "1"]);
+  it("1 エントリは ph.day.wbits.rbits.pages.created.wc.wo.links で、ビットマップは 240 文字", () => {
+    const [ph, day, w, r, ...counts] = formatEntry(entry()).split(".");
+    expect([ph, day]).toEqual(["*", "2026-09-14"]);
+    expect(counts).toEqual(["3", "1", "1", "1", "4"]);
     expect(w).toHaveLength(240);
     expect(r).toHaveLength(240);
   });
 
-  it(`${MAX_ENTRIES} 件までは読み、${MAX_ENTRIES + 1} 件は拒否する`, () => {
+  it(`${MAX_ENTRIES} 件までは読み、${MAX_ENTRIES + 1} 件と 0 件は拒否する`, () => {
     const days = (n: number) =>
       Array.from({ length: n }, (_, i) =>
         entry({ day: `2026-09-${String(i + 1).padStart(2, "0")}` }),
       );
     expect(parseEntries(formatEntries(days(MAX_ENTRIES)))).toHaveLength(MAX_ENTRIES);
 
-    const raw = `${formatEntries(days(MAX_ENTRIES))};${formatEntries([entry({ day: "2026-09-30" })])}`;
-    expect(parseEntries(raw)).toBeUndefined();
+    const raws = [...formatEntries(days(MAX_ENTRIES)), formatEntry(entry({ day: "2026-09-30" }))];
+    expect(parseEntries(raws)).toBeUndefined();
+    expect(parseEntries([])).toBeUndefined();
   });
 
   describe("形が取り決めの外なら読まない", () => {
-    const valid = formatEntries([entry()]);
-    const fieldsOf = () => valid.split("|");
-    const withField = (index: number, value: string) =>
+    const valid = formatEntry(entry());
+    const fieldsOf = () => valid.split(".");
+    const withField = (index: number, value: string) => [
       fieldsOf()
         .map((f, i) => (i === index ? value : f))
-        .join("|");
+        .join("."),
+    ];
 
-    it("空・`;;`・末尾の `;`", () => {
-      expect(parseEntries("")).toBeUndefined();
-      expect(parseEntries(`${valid};;${formatEntries([entry({ ph: PH })])}`)).toBeUndefined();
-      expect(parseEntries(`${valid};`)).toBeUndefined();
+    it("空", () => {
+      expect(parseEntries([""])).toBeUndefined();
+      expect(parseEntries([valid, ""])).toBeUndefined();
     });
 
-    it("フィールドの過不足", () => {
-      expect(parseEntries(`${valid}|0`)).toBeUndefined();
-      expect(parseEntries(fieldsOf().slice(0, 5).join("|"))).toBeUndefined();
+    it("フィールドの過不足と、v1 の区切り", () => {
+      expect(parseEntries([`${valid}.0`])).toBeUndefined();
+      expect(parseEntries([fieldsOf().slice(0, 8).join(".")])).toBeUndefined();
+      expect(parseEntries([fieldsOf().join("|")])).toBeUndefined();
     });
 
     it("不正な ph (大文字・12 桁・空)", () => {
@@ -129,15 +146,36 @@ describe("エントリ p の往復", () => {
       expect(parseEntries(withField(2, `${"A".repeat(239)}+`))).toBeUndefined();
     });
 
-    it("先頭の 0・負数・上限超えの pages と created", () => {
+    it("先頭の 0・負数・上限超えの pages・created・links", () => {
       expect(parseEntries(withField(4, "03"))).toBeUndefined();
       expect(parseEntries(withField(4, "-1"))).toBeUndefined();
       expect(parseEntries(withField(5, "100000"))).toBeUndefined();
       expect(parseEntries(withField(5, "99999"))).toHaveLength(1);
+      expect(parseEntries(withField(8, "100000"))).toBeUndefined();
+      expect(parseEntries(withField(8, "99999"))).toHaveLength(1);
+    });
+
+    it("wc と wo は 0〜1440 の分で、先頭の 0 を許さない", () => {
+      expect(parseEntries(withField(6, "01"))).toBeUndefined();
+      expect(parseEntries(withField(7, "1441"))).toBeUndefined();
+    });
+
+    it("**wc + wo が書いた分を超える**", () => {
+      // entry() の w は 3 分
+      const over = (wc: number, wo: number) =>
+        parseEntries([
+          fieldsOf()
+            .map((f, i) => (i === 6 ? String(wc) : i === 7 ? String(wo) : f))
+            .join("."),
+        ]);
+      expect(over(2, 1)).toHaveLength(1);
+      expect(over(3, 0)).toHaveLength(1);
+      expect(over(2, 2)).toBeUndefined();
+      expect(over(4, 0)).toBeUndefined();
     });
 
     it("同じ (ph, day) の重複", () => {
-      expect(parseEntries(`${valid};${valid}`)).toBeUndefined();
+      expect(parseEntries([valid, valid])).toBeUndefined();
     });
   });
 
@@ -147,15 +185,87 @@ describe("エントリ p の往復", () => {
     expect(() => formatEntries([entry({ day: "2026-02-30" })])).toThrow(RangeError);
     expect(() => formatEntries([entry({ wbits: new Uint8Array(179) })])).toThrow(RangeError);
     expect(() => formatEntries([entry({ pages: -1 })])).toThrow(RangeError);
+    expect(() => formatEntries([entry({ wc: 1441 })])).toThrow(RangeError);
+    expect(() => formatEntries([entry({ wc: 2, wo: 2 })])).toThrow(RangeError);
+    expect(() => formatEntries([entry({ links: 100_000 })])).toThrow(RangeError);
     expect(() => formatEntries([entry(), entry()])).toThrow(RangeError);
   });
 });
 
+describe("v1 のエントリ (移行のために読むだけ)", () => {
+  const legacy = (e: Entry) =>
+    [
+      e.ph,
+      e.day,
+      encodeBase64url(e.wbits),
+      encodeBase64url(e.rbits),
+      String(e.pages),
+      String(e.created),
+    ].join("|");
+
+  it("`|` と `;` で読み、wc / wo / links は 0", () => {
+    const parsed = parseLegacyEntries(`${legacy(entry())};${legacy(entry({ ph: PH }))}`);
+    expect(parsed).toHaveLength(2);
+    expect(parsed?.[0]).toMatchObject({ ph: "*", pages: 3, created: 1, wc: 0, wo: 0, links: 0 });
+  });
+
+  it("空・`;;`・末尾の `;`・重複・v2 の区切りは読まない", () => {
+    const valid = legacy(entry());
+    expect(parseLegacyEntries("")).toBeUndefined();
+    expect(parseLegacyEntries(`${valid};;${legacy(entry({ ph: PH }))}`)).toBeUndefined();
+    expect(parseLegacyEntries(`${valid};`)).toBeUndefined();
+    expect(parseLegacyEntries(`${valid};${valid}`)).toBeUndefined();
+    expect(parseLegacyEntries(formatEntry(entry()))).toBeUndefined();
+  });
+
+  it("**v1 の URL も受け、署名対象は p が 1 行**", async () => {
+    const pair = await generateSigningKeyPair();
+    const raw = legacy(entry());
+    const pairs: [string, string][] = [
+      ["v", "1"],
+      ["u", UID],
+      ["d", KID],
+      ["t", String(TIME)],
+      ["p", raw],
+    ];
+    const signature = await sign(pair.privateKey, signingInput(INGEST_PATH, pairs));
+    const search = new URLSearchParams([...pairs, ["sig", encodeBase64url(signature)]]);
+
+    const result = parseIngestQuery(search);
+    if (!result.ok) throw new Error(result.reason);
+    expect(result.beacon.entries[0]).toMatchObject({ wc: 0, wo: 0, links: 0 });
+    const key = await importVerifyKey(await exportPublicKey(pair.publicKey));
+    expect(await verify(key, result.beacon.signature, result.beacon.signingInput)).toBe(true);
+  });
+
+  it("v1 で p を 2 つ並べたものは読まない", async () => {
+    const raw = legacy(entry());
+    const search = new URLSearchParams([
+      ["v", "1"],
+      ["u", UID],
+      ["d", KID],
+      ["t", String(TIME)],
+      ["p", raw],
+      ["p", legacy(entry({ ph: PH }))],
+      ["sig", encodeBase64url(new Uint8Array(64))],
+    ]);
+    const result = parseIngestQuery(search);
+    expect(result.ok ? "ok" : result.reason).toBe("entries");
+  });
+});
+
 describe("受け口の URL", () => {
-  it(`経路は ${INGEST_PATH} で、キーは v・u・d・t・p・sig`, async () => {
-    const url = new URL(await buildUnsigned());
+  it(`経路は ${INGEST_PATH} で、キーは v・u・d・t・p (エントリの数だけ)・sig`, async () => {
+    const url = new URL(await buildUnsigned(fields([entry(), entry({ ph: PH })])));
     expect(url.pathname).toBe("/v1/p.gif");
-    expect([...url.searchParams.keys()].sort()).toEqual(["d", "p", "sig", "t", "u", "v"]);
+    expect([...url.searchParams.keys()].sort()).toEqual(["d", "p", "p", "sig", "t", "u", "v"]);
+    expect(url.searchParams.get("v")).toBe("2");
+  });
+
+  it("**区切りは URL エンコードされない** (`.` のまま載る)", async () => {
+    const url = await buildUnsigned();
+    expect(url).toContain("&p=*.2026-09-14.");
+    expect(url).not.toContain("%");
   });
 
   it("**組み立てた URL を読むと、署名した文字列と同じ署名対象が得られる**", async () => {
@@ -174,7 +284,8 @@ describe("受け口の URL", () => {
     if (!result.ok) return;
     expect(result.beacon.signingInput).toBe(signed);
     expect(signed.split("\n")[0]).toBe("/v1/p.gif");
-    expect(signed).toContain(`\nu=${UID}\nd=${KID}\nt=${TIME}\np=*|2026-09-14|`);
+    expect(signed).toContain(`\nv=2\nu=${UID}\nd=${KID}\nt=${TIME}\np=*.2026-09-14.`);
+    expect(signed).toContain(`\np=${PH}.2026-09-14.`);
     expect(result.beacon.uid).toBe(UID);
     expect(result.beacon.kid).toBe(KID);
     expect(result.beacon.time).toBe(TIME);
@@ -183,12 +294,30 @@ describe("受け口の URL", () => {
 
   it("**生成した鍵で署名した URL は、読んだ署名対象で verify が通る** (両端の往復)", async () => {
     const pair = await generateSigningKeyPair();
-    const url = await buildIngestUrl(ORIGIN, fields(), (input) => sign(pair.privateKey, input));
+    const url = await buildIngestUrl(ORIGIN, fields([entry(), entry({ ph: PH })]), (input) =>
+      sign(pair.privateKey, input),
+    );
     const result = parseIngestQuery(new URL(url).searchParams);
     if (!result.ok) throw new Error(result.reason);
 
     const key = await importVerifyKey(await exportPublicKey(pair.publicKey));
     expect(await verify(key, result.beacon.signature, result.beacon.signingInput)).toBe(true);
+  });
+
+  it("**エントリの順を入れ替えると署名対象が変わる** (出現順に署名している)", async () => {
+    const search = await searchOf(fields([entry(), entry({ ph: PH })]));
+    const original = parseIngestQuery(search);
+    const [first = "", second = ""] = search.getAll("p");
+    search.delete("p");
+    const sig = search.get("sig") ?? "";
+    search.delete("sig");
+    search.append("p", second);
+    search.append("p", first);
+    search.append("sig", sig);
+    const swapped = parseIngestQuery(search);
+
+    if (!original.ok || !swapped.ok) throw new Error("読めなかった");
+    expect(swapped.beacon.signingInput).not.toBe(original.beacon.signingInput);
   });
 
   it("64 バイトでない署名を返す signer は RangeError", async () => {
@@ -209,14 +338,21 @@ describe("受け口の URL", () => {
       expect(await reasonOf(() => {})).toBe("ok");
     });
 
-    it("キーの欠け・未知のキー・**重複キー**", async () => {
+    it("キーの欠け・未知のキー・**p 以外の重複キー**", async () => {
       expect(await reasonOf((s) => s.delete(INGEST_PARAM.time))).toBe("keys");
+      expect(await reasonOf((s) => s.delete(INGEST_PARAM.entries))).toBe("keys");
       expect(await reasonOf((s) => s.append("x", "1"))).toBe("keys");
       expect(await reasonOf((s) => s.append(INGEST_PARAM.uid, UID))).toBe("keys");
+      expect(await reasonOf((s) => s.append(INGEST_PARAM.version, "2"))).toBe("keys");
     });
 
-    it("版の違い", async () => {
-      expect(await reasonOf((s) => s.set(INGEST_PARAM.version, "2"))).toBe("version");
+    it("知らない版", async () => {
+      expect(await reasonOf((s) => s.set(INGEST_PARAM.version, "3"))).toBe("version");
+      expect(await reasonOf((s) => s.set(INGEST_PARAM.version, "02"))).toBe("version");
+    });
+
+    it("v2 の中身を v1 と名乗ると読まない", async () => {
+      expect(await reasonOf((s) => s.set(INGEST_PARAM.version, "1"))).toBe("entries");
     });
 
     it("uid の長さ違いと非正規な表記", async () => {
@@ -235,8 +371,11 @@ describe("受け口の URL", () => {
       expect(await reasonOf((s) => s.set(INGEST_PARAM.time, `-${TIME}`))).toBe("time");
     });
 
-    it("エントリの形", async () => {
+    it("エントリの形と重複", async () => {
       expect(await reasonOf((s) => s.set(INGEST_PARAM.entries, ""))).toBe("entries");
+      expect(
+        await reasonOf((s) => s.append(INGEST_PARAM.entries, s.get(INGEST_PARAM.entries) ?? "")),
+      ).toBe("entries");
     });
 
     it("**署名が 64 バイトでない (DER の長さを含む)・非正規な表記**", async () => {
