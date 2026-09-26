@@ -338,7 +338,7 @@ describe("createGraphDialog", () => {
 
     const details = t.find()?.querySelector("details");
     expect(details?.open).toBe(false);
-    expect(details?.querySelector("summary")?.textContent).toBe("草と活動の概観の見方");
+    expect(details?.querySelector("summary")?.textContent).toContain("草と活動の概観の見方");
     const text = details?.textContent ?? "";
     for (const phrase of [
       "1 分",
@@ -356,6 +356,43 @@ describe("createGraphDialog", () => {
     const u = setup();
     u.open(message("この端末は未登録"));
     expect(u.find()?.querySelector("details")).not.toBeNull();
+  });
+
+  it("**説明の見出しは、開けることが分かる帯にする** (#170)", () => {
+    const t = setup();
+    t.open(graphs([]));
+    const details = t.find()?.querySelector("details");
+    const summary = details?.querySelector("summary");
+    // 既定の三角を消し、枠と背景でボタンらしく見せる
+    expect(summary?.style.listStyle).toBe("none");
+    expect(summary?.style.border).not.toBe("");
+    expect(summary?.style.background).not.toBe("");
+    // 「?」・開閉の文言・山形は飾りで、読み上げない (開閉の状態は details が伝える)
+    const decorations = [...(summary?.querySelectorAll("[aria-hidden='true']") ?? [])];
+    expect(decorations.map((node) => node.textContent)).toEqual(["?", "開く", "›"]);
+    const chevron = decorations[2] as HTMLElement;
+    expect(chevron.style.transform).toBe("");
+
+    if (details === null || details === undefined) {
+      throw new Error("details が無い");
+    }
+    details.open = true;
+    details.dispatchEvent(new Event("toggle"));
+    expect(decorations[1]?.textContent).toBe("閉じる");
+    expect(chevron.style.transform).toBe("rotate(90deg)");
+
+    details.open = false;
+    details.dispatchEvent(new Event("toggle"));
+    expect(decorations[1]?.textContent).toBe("開く");
+    expect(chevron.style.transform).toBe("");
+  });
+
+  it("説明の図の読み方は、長さが平方根で % は分の割合であることを書く (#169)", () => {
+    const t = setup();
+    t.open(graphs([]));
+    const text = t.find()?.querySelector("details")?.textContent ?? "";
+    expect(text).toContain("平方根");
+    expect(text).toContain("% は分の割合");
   });
 
   it("**下端に配布ページ・ソースコード・プライバシーポリシーへのリンクを置く** (別のタブで開く。#164)", () => {

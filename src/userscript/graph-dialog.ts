@@ -44,6 +44,12 @@ const BORDER_COLOR = "#d0d7de";
 /** 補足の文字色 (注意書きと下端のリンク)。草の SVG の文字色と同じ */
 const MUTED_TEXT_COLOR = "#57606a";
 
+/** 説明の帯の背景。開けることが分かるよう、本文より一段濃くしてボタンらしく見せる (#170) */
+const GUIDE_BACKGROUND = "#f6f8fa";
+
+/** 説明の `<details>` に付ける印。Safari の既定の三角を消す `<style>` を、この中だけに効かせる */
+const GUIDE_ATTRIBUTE = "data-cosense-grass-guide";
+
 /** 概観と「共有する」の欄の間。狭い画面で折り返したときは縦の間隔になる */
 const ROW_GAP = 16;
 
@@ -420,21 +426,84 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
   };
 
   /**
+   * 説明の見出しの帯 (#170)。素の `summary` では既定の小さな三角しか手がかりが無く、開けることに気付きにくかった。
+   * 枠と背景でボタンらしくし、左に「?」、右端に「開く / 閉じる」と向きの変わる山形を置く。
+   * `[open]` のセレクタはインラインの style で書けないので、`toggle` で文言と向きを変える
+   */
+  const guideSummary = (details: HTMLDetailsElement) => {
+    const summary = element("summary");
+    Object.assign(summary.style, {
+      display: "flex",
+      alignItems: "center",
+      gap: "8px",
+      padding: "6px 10px",
+      border: `1px solid ${BORDER_COLOR}`,
+      borderRadius: "6px",
+      background: GUIDE_BACKGROUND,
+      cursor: "pointer",
+      listStyle: "none",
+    });
+    // 飾りは読み上げない。開閉の状態は `details` が支援技術へ伝える
+    const decoration = (text: string) => {
+      const node = element("span", text);
+      node.setAttribute("aria-hidden", "true");
+      return node;
+    };
+    const icon = decoration("?");
+    Object.assign(icon.style, {
+      display: "inline-flex",
+      alignItems: "center",
+      justifyContent: "center",
+      flex: "none",
+      width: "16px",
+      height: "16px",
+      borderRadius: "50%",
+      border: `1.5px solid ${MUTED_TEXT_COLOR}`,
+      color: MUTED_TEXT_COLOR,
+      fontSize: "11px",
+      fontWeight: "bold",
+      lineHeight: "1",
+    });
+    const title = element("span", "草と活動の概観の見方");
+    title.style.fontWeight = "bold";
+    const hint = decoration("");
+    Object.assign(hint.style, { marginLeft: "auto", color: MUTED_TEXT_COLOR, fontSize: "0.9em" });
+    const chevron = decoration("›");
+    Object.assign(chevron.style, {
+      display: "inline-block",
+      color: MUTED_TEXT_COLOR,
+      fontSize: "1.2em",
+      lineHeight: "1",
+      transition: "transform 0.15s",
+    });
+    summary.append(icon, title, hint, chevron);
+
+    const sync = () => {
+      hint.textContent = details.open ? "閉じる" : "開く";
+      chevron.style.transform = details.open ? "rotate(90deg)" : "";
+    };
+    details.addEventListener("toggle", sync);
+    sync();
+    return summary;
+  };
+
+  /**
    * 何をどう数えて描いているか (#164)。**畳んでおく** — 毎回読むものではないので、草を押し下げない。
    * 数値は実装に合わせる (sensor.ts の 3 分・20 秒、design §7 の四分位と 3 分のデッドゾーン、ADR-0021 の 4 軸)
    */
   const guide = () => {
     const details = element("details");
-    const summary = element("summary", "草と活動の概観の見方");
-    summary.style.cursor = "pointer";
+    details.setAttribute(GUIDE_ATTRIBUTE, "");
+    const summary = guideSummary(details);
     const privacy = element("p");
     privacy.append(
       "サーバに送るのは分ごとの記録と数 (編集したページ数など) だけで、ページ名・本文・リンク先は送りません。プロジェクト名もハッシュにして送ります。詳しくは",
       externalLink("プライバシーポリシー", PRIVACY_URL),
       "をご覧ください。",
     );
-    details.append(
-      summary,
+    const body = element("div");
+    body.style.padding = "4px 10px 0";
+    body.append(
       ...guideSection(
         "数えているもの",
         "1 日を 1 分ずつに区切り、分ごとに「書いた」か「読んだ」かだけを記録します。",
@@ -457,11 +526,17 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
           "関わる: 他の人が作ったページに書いた分",
           "読む: 読んだだけの分",
         ],
-        "書いたページがどれにあたるかは、そのページを最初に編集したときに、作成者と作成日を Cosense に問い合わせて決めます。図はいちばん多い軸が端まで伸び、ほかの軸はその何割かの長さです。% は合計が 100 になるよう丸めています。",
+        "書いたページがどれにあたるかは、そのページを最初に編集したときに、作成者と作成日を Cosense に問い合わせて決めます。図はいちばん多い軸が端まで伸び、ほかの軸は割合の平方根の長さで描きます (少ない軸も見えるように)。% は分の割合そのもので、合計が 100 になるよう丸めています。",
       ),
       ...guideSection("送るもの"),
       privacy,
     );
+    // Safari は `display: flex` にしても既定の三角を出すので、疑似要素で消す (インラインの style では書けない)
+    const style = element(
+      "style",
+      `[${GUIDE_ATTRIBUTE}] > summary::-webkit-details-marker { display: none; }`,
+    );
+    details.append(style, summary, body);
     return details;
   };
 
