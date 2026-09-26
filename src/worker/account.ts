@@ -175,12 +175,18 @@ async function shareSection(session: Session, deps: AccountDeps): Promise<string
   }
   const path = `/v1/g/${publicId}.svg`;
   const url = `${deps.publicOrigin}${path}`;
+  // 活動の概観は草と同じ publicId (ADR-0021)
+  const overviewPath = `/v1/g/${publicId}/overview.svg`;
   // 草の URL からは導けない鍵を並べる (ADR-0020)
   const dataUrl = `${deps.publicOrigin}/v1/g/${publicId}/${await dataKeyOf(session.uid, PH_ALL)}.json`;
   return `<p>全プロジェクトを合算した草です。<strong>URL を知っている人は誰でも見られます。</strong></p>
 <img src="${escapeHtml(path)}" width="775" height="200" alt="全プロジェクトを合算した草">
 <p><code>${escapeHtml(url)}</code></p>
-<p>日ごとの数値 (書いた分・読んだ分・編集したページ数・作ったページ数) の JSON です。
+<p>活動の概観です。書いた時間を、新しく作ったページ (作る)・自分が前に作ったページ (育てる)・他の人のページ (関わる) に分け、
+読んだ時間 (読む) と並べた割合です。<strong>草と同じ URL の末尾を変えたもので、草の URL を知っている人は見られます。</strong></p>
+<img src="${escapeHtml(overviewPath)}" width="300" height="220" alt="全プロジェクトを合算した活動の概観">
+<p><code>${escapeHtml(`${deps.publicOrigin}${overviewPath}`)}</code></p>
+<p>日ごとの数値 (書いた分・読んだ分・編集したページ数・作ったページ数・作る分・関わる分) の JSON です。
 <strong>この URL を知っている人は、草には出ない内訳まで読めます。</strong>草の URL からは作れない別の URL です。</p>
 <p><code>${escapeHtml(dataUrl)}</code></p>
 <p><small>プロジェクト別の草の URL は、Cosense のページメニュー「cosense-grass」にプロジェクト名つきで並びます

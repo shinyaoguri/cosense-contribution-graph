@@ -3,6 +3,8 @@ import {
   createGraphDialog,
   GRAPH_HEIGHT,
   GRAPH_WIDTH,
+  OVERVIEW_HEIGHT,
+  OVERVIEW_WIDTH,
   type SendNowResult,
 } from "../../src/userscript/graph-dialog.ts";
 import { MENU_TITLE, SETTINGS_LABEL } from "../../src/userscript/settings.ts";
@@ -41,6 +43,12 @@ afterEach(() => {
 });
 
 const url = (name: string) => `https://grass.soui.dev/v1/g/${name.padEnd(32, "0")}.svg`;
+/** 草の画像 (概観の画像と分ける) */
+const GRASS = 'img[alt$="の草"]';
+/** 活動の概観の画像 (ADR-0021) */
+const OVERVIEW = 'img[alt$="の活動の概観"]';
+const overviewOf = (name: string) =>
+  `https://grass.soui.dev/v1/g/${name.padEnd(32, "0")}/overview.svg`;
 
 const SYNC: SyncView = { lines: ["このブラウザの記録は送信済みです。"], canSend: false };
 
@@ -51,8 +59,12 @@ function graphs(
 ): IntegratedView {
   return {
     kind: "graphs",
-    total: { label: TOTAL_LABEL, url: url("aa"), sent: totalSent },
-    projects: projects.map((p, i) => ({ ...p, url: url(`b${i}`) })),
+    total: { label: TOTAL_LABEL, url: url("aa"), overviewUrl: overviewOf("aa"), sent: totalSent },
+    projects: projects.map((p, i) => ({
+      ...p,
+      url: url(`b${i}`),
+      overviewUrl: overviewOf(`b${i}`),
+    })),
     sync,
   };
 }
@@ -192,7 +204,7 @@ describe("createGraphDialog", () => {
     expect([...(node?.querySelectorAll("p") ?? [])].map((p) => p.textContent)).toContain(
       "この端末は未登録",
     );
-    expect(node?.querySelectorAll("img")).toHaveLength(0);
+    expect(node?.querySelectorAll<HTMLImageElement>(GRASS)).toHaveLength(0);
   });
 
   it("**送れた草は img で出す。** 大きさ・alt・遅延読み込み・Referer を送らない指定が付き、属性のハンドラは無い", () => {
@@ -200,7 +212,7 @@ describe("createGraphDialog", () => {
 
     t.open(graphs([{ label: "alpha", sent: true }]));
 
-    const images = [...(t.find()?.querySelectorAll("img") ?? [])];
+    const images = [...(t.find()?.querySelectorAll<HTMLImageElement>(GRASS) ?? [])];
     expect(images.map((img) => img.getAttribute("src"))).toEqual([url("aa"), url("b0")]);
     for (const img of images) {
       expect(img.width).toBe(GRAPH_WIDTH);
@@ -235,7 +247,7 @@ describe("createGraphDialog", () => {
     for (const block of blocks) {
       // 見出し・画像・コピーが同じ囲みの中に 1 つずつ
       expect(block.querySelectorAll("h4")).toHaveLength(1);
-      expect(block.querySelectorAll("img")).toHaveLength(1);
+      expect(block.querySelectorAll<HTMLImageElement>(GRASS)).toHaveLength(1);
       expect(
         [...block.querySelectorAll("button")].filter((b) => b.textContent === "URL をコピー"),
       ).toHaveLength(1);
@@ -263,13 +275,46 @@ describe("createGraphDialog", () => {
     expect(labels).toContain("project-a の草の URL をコピー");
   });
 
+  it("**草の下に活動の概観を置く** (ADR-0021)。大きさを先に確保し、遅延読み込みで Referer を送らない", () => {
+    const t = setup();
+    t.open(graphs([{ label: "alpha", sent: true }]));
+
+    const images = [...(t.find()?.querySelectorAll<HTMLImageElement>(OVERVIEW) ?? [])];
+    expect(images.map((img) => img.getAttribute("src"))).toEqual([
+      overviewOf("aa"),
+      overviewOf("b0"),
+    ]);
+    for (const img of images) {
+      expect([img.width, img.height]).toEqual([OVERVIEW_WIDTH, OVERVIEW_HEIGHT]);
+      expect(img.getAttribute("loading")).toBe("lazy");
+      expect(img.getAttribute("referrerpolicy")).toBe("no-referrer");
+    }
+    // 同じ囲みの中で、草の後・コピーの前
+    const block = t.sections().find((node) => node.style.border !== "");
+    const order = [...(block?.querySelectorAll(`${GRASS}, ${OVERVIEW}, button`) ?? [])].map(
+      (node) => (node.tagName === "BUTTON" ? "button" : (node as HTMLImageElement).alt),
+    );
+    expect(order).toEqual([`${TOTAL_LABEL} の草`, `${TOTAL_LABEL} の活動の概観`, "button"]);
+  });
+
+  it("**概観が読めなければ何も出さない** (理由は草の側で言う)", () => {
+    const t = setup();
+    t.open(graphs([]));
+
+    t.find()?.querySelector<HTMLImageElement>(OVERVIEW)?.dispatchEvent(new Event("error"));
+
+    expect(t.find()?.querySelectorAll<HTMLImageElement>(OVERVIEW)).toHaveLength(0);
+    expect(t.find()?.querySelectorAll<HTMLImageElement>(GRASS)).toHaveLength(1);
+    expect(t.find()?.textContent).not.toContain("表示できませんでした");
+  });
+
   it("**読めなかった画像は文言に置き換える**", () => {
     const t = setup();
     t.open(graphs([]));
 
-    t.find()?.querySelector("img")?.dispatchEvent(new Event("error"));
+    t.find()?.querySelector<HTMLImageElement>(GRASS)?.dispatchEvent(new Event("error"));
 
-    expect(t.find()?.querySelectorAll("img")).toHaveLength(0);
+    expect(t.find()?.querySelectorAll<HTMLImageElement>(GRASS)).toHaveLength(0);
     expect(t.find()?.textContent).toContain("草を表示できませんでした");
   });
 
@@ -278,7 +323,9 @@ describe("createGraphDialog", () => {
     t.open(graphs([{ label: "beta", sent: false }], false));
 
     expect(
-      [...(t.find()?.querySelectorAll("img") ?? [])].map((i) => i.getAttribute("src")),
+      [...(t.find()?.querySelectorAll<HTMLImageElement>(GRASS) ?? [])].map((i) =>
+        i.getAttribute("src"),
+      ),
     ).toEqual([url("aa"), url("b0")]);
     expect(t.buttons("表示してみる")).toEqual([]);
   });
@@ -288,7 +335,7 @@ describe("createGraphDialog", () => {
     t.open(graphs([{ label: "beta", sent: false }]));
     const [total, beta] = t.sections().filter((s) => s.firstElementChild?.tagName === "H4");
 
-    for (const img of t.find()?.querySelectorAll("img") ?? []) {
+    for (const img of t.find()?.querySelectorAll<HTMLImageElement>(GRASS) ?? []) {
       img.dispatchEvent(new Event("error"));
     }
 
@@ -305,11 +352,15 @@ describe("createGraphDialog", () => {
     }));
     t.open(graphs(projects));
 
-    expect(t.find()?.querySelectorAll("img")).toHaveLength(1 + INITIAL_PROJECT_GRAPHS);
+    expect(t.find()?.querySelectorAll<HTMLImageElement>(GRASS)).toHaveLength(
+      1 + INITIAL_PROJECT_GRAPHS,
+    );
 
     t.buttons("ほか 2 件を表示")[0]?.click();
 
-    expect(t.find()?.querySelectorAll("img")).toHaveLength(1 + INITIAL_PROJECT_GRAPHS + 2);
+    expect(t.find()?.querySelectorAll<HTMLImageElement>(GRASS)).toHaveLength(
+      1 + INITIAL_PROJECT_GRAPHS + 2,
+    );
     expect(t.buttons("ほか 2 件を表示")).toHaveLength(0);
     expect([...(t.sections()[0]?.querySelectorAll("h4") ?? [])].map((h) => h.textContent)).toEqual([
       TOTAL_LABEL,
@@ -399,7 +450,7 @@ describe("createGraphDialog", () => {
     for (const copy of t.buttons("URL をコピー")) {
       copy.click();
     }
-    for (const img of t.find()?.querySelectorAll("img") ?? []) {
+    for (const img of t.find()?.querySelectorAll<HTMLImageElement>(GRASS) ?? []) {
       img.dispatchEvent(new Event("error"));
     }
     await settle();
@@ -471,18 +522,24 @@ describe("createGraphDialog", () => {
     t.buttons(SEND_NOW_LABEL)[0]?.click();
     await settle();
 
-    // 表示中の 2 枚ぶんを、キャッシュを外すクエリ付きで取り直す
+    // 表示中の草 2 枚と概観 2 枚を、キャッシュを外すクエリ付きで取り直す
     expect(created.map((img) => img.getAttribute("src"))).toEqual([
       expect.stringMatching(/\/aa0+\.svg\?r=\d+$/),
+      expect.stringMatching(/\/aa0+\/overview\.svg\?r=\d+$/),
       expect.stringMatching(/\/b00+\.svg\?r=\d+$/),
+      expect.stringMatching(/\/b00+\/overview\.svg\?r=\d+$/),
     ]);
     // 読めるまでは古い絵のまま
     expect(
-      [...(t.find()?.querySelectorAll("img") ?? [])].map((i) => i.getAttribute("src")),
+      [...(t.find()?.querySelectorAll<HTMLImageElement>(GRASS) ?? [])].map((i) =>
+        i.getAttribute("src"),
+      ),
     ).toEqual([url("aa"), url("b0")]);
 
     created[0]?.dispatchEvent(new Event("load"));
-    expect(t.find()?.querySelector("img")?.getAttribute("src")).toMatch(/\?r=\d+$/);
+    expect(t.find()?.querySelector<HTMLImageElement>(GRASS)?.getAttribute("src")).toMatch(
+      /\?r=\d+$/,
+    );
   });
 
   it("**すでにクエリのある URL は `&` で継ぐ** (プロジェクト名の `?l=` を壊さない。Issue #119)", async () => {
@@ -492,7 +549,7 @@ describe("createGraphDialog", () => {
     const labelled = `${url("aa")}?l=villagepump`;
     t.open({
       kind: "graphs",
-      total: { label: "すべて", url: labelled, sent: true },
+      total: { label: "すべて", url: labelled, overviewUrl: overviewOf("aa"), sent: true },
       projects: [],
       sync: { lines: [], canSend: true },
     });
@@ -509,6 +566,7 @@ describe("createGraphDialog", () => {
 
     expect(created.map((img) => img.getAttribute("src"))).toEqual([
       expect.stringMatching(/\?l=villagepump&r=\d+$/),
+      expect.stringMatching(/\/overview\.svg\?r=\d+$/),
     ]);
   });
 

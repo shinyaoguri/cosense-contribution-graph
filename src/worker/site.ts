@@ -70,7 +70,10 @@ See the <a href="${PRIVACY_PATH}">privacy policy</a> for details.</p>
 <p><small>Cosense の公式サービスではありません。運営元の株式会社 Helpfeel とは関係のない、個人のプロジェクトです。</small></p>
 
 <img src="/v1/g/${DEMO_PUBLIC_ID}.svg" width="775" height="200" alt="草の例 (デモ)">
-<p><small>デモの草です。実際の記録ではありません。</small></p>
+<p>書いた時間は、新しく作ったページ (作る)・自分が前に作ったページ (育てる)・他の人のページ (関わる) に分けて数え、
+読んだ時間 (読む) と並べた割合を「活動の概観」として出します。</p>
+<img src="/v1/g/${DEMO_PUBLIC_ID}/overview.svg" width="300" height="220" alt="活動の概観の例 (デモ)">
+<p><small>デモの草と活動の概観です。実際の記録ではありません。</small></p>
 
 <h2>Google サインインを使う理由</h2>
 <p>記録は Cosense を開いた端末 (PC やブラウザ) ごとに数えます。

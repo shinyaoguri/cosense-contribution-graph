@@ -43,6 +43,10 @@ const BORDER_COLOR = "#d0d7de";
 export const GRAPH_WIDTH = 775;
 export const GRAPH_HEIGHT = 146;
 
+/** 活動の概観の SVG の寸法 (design §8、ADR-0021)。草と同じく先に確保する */
+export const OVERVIEW_WIDTH = 300;
+export const OVERVIEW_HEIGHT = 220;
+
 export type GraphDialogDependencies = {
   /** `navigator.clipboard.writeText`。**クリックの処理から await を挟まずに呼ぶ** (Safari はユーザー操作の直後でないと拒む) */
   readonly writeText: (text: string) => Promise<void>;
@@ -73,7 +77,8 @@ export type GraphDialog = {
 export function createGraphDialog(doc: Document, deps: GraphDialogDependencies): GraphDialog {
   let dialog: HTMLDialogElement | undefined;
   /** 表示中の統合の草。送った後にここだけ取り直す */
-  let frames: { entry: GraphEntry; frame: HTMLElement }[] = [];
+  // 送った後に取り直す画像。草と概観の両方
+  let frames: { url: string; frame: HTMLElement; make: (lazy: boolean) => HTMLImageElement }[] = [];
 
   const element = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string) => {
     const node = doc.createElement(tag);
@@ -102,11 +107,14 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     current.remove();
   };
 
-  const imageElement = (entry: GraphEntry, lazy: boolean) => {
+  const imageElement = (
+    size: { readonly width: number; readonly height: number; readonly alt: string },
+    lazy: boolean,
+  ) => {
     const img = element("img");
-    img.width = GRAPH_WIDTH;
-    img.height = GRAPH_HEIGHT;
-    img.alt = `${entry.label} の草`;
+    img.width = size.width;
+    img.height = size.height;
+    img.alt = size.alt;
     if (lazy) {
       // 属性で付ける (jsdom は loading の IDL 属性を持たない)
       img.setAttribute("loading", "lazy");
@@ -124,11 +132,11 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
    * **URL にすでにクエリが付いていることがある** — プロジェクト別の草には名前が `?l=` で載る
    * (Issue #119)。`?` を 2 つ並べると URL が壊れるので、2 つ目からは `&` で継ぐ。
    */
-  const srcOf = (entry: GraphEntry, bust?: number) => {
+  const srcOf = (url: string, bust?: number) => {
     if (bust === undefined) {
-      return entry.url;
+      return url;
     }
-    return `${entry.url}${entry.url.includes("?") ? "&" : "?"}r=${bust}`;
+    return `${url}${url.includes("?") ? "&" : "?"}r=${bust}`;
   };
 
   /**
@@ -140,7 +148,9 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     const frame = element("div");
     // 狭い画面では横にスクロールする (style 属性は Cosense の CSP で許されている。research §1)
     frame.style.overflowX = "auto";
-    const img = imageElement(entry, true);
+    const make = (lazy: boolean) =>
+      imageElement({ width: GRAPH_WIDTH, height: GRAPH_HEIGHT, alt: `${entry.label} の草` }, lazy);
+    const img = make(true);
     img.addEventListener("error", () => {
       frame.replaceChildren(
         element(
@@ -151,9 +161,32 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
         ),
       );
     });
-    img.src = srcOf(entry);
+    img.src = srcOf(entry.url);
     frame.append(img);
-    frames.push({ entry, frame });
+    frames.push({ url: entry.url, frame, make });
+    return frame;
+  };
+
+  /**
+   * 活動の概観 (ADR-0021)。草の下に置く。**読めなければ何も出さない** — 読めない理由は草の側で言っている
+   * (概観は草と同じ publicId なので、草が読めれば概観も読める)
+   */
+  const overview = (entry: GraphEntry) => {
+    const frame = element("div");
+    frame.style.overflowX = "auto";
+    frame.style.marginTop = `${INNER_GAP}px`;
+    const make = (lazy: boolean) =>
+      imageElement(
+        { width: OVERVIEW_WIDTH, height: OVERVIEW_HEIGHT, alt: `${entry.label} の活動の概観` },
+        lazy,
+      );
+    const img = make(true);
+    img.addEventListener("error", () => {
+      frame.replaceChildren();
+    });
+    img.src = srcOf(entry.overviewUrl);
+    frame.append(img);
+    frames.push({ url: entry.overviewUrl, frame, make });
     return frame;
   };
 
@@ -163,12 +196,12 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
    */
   const refreshGraphs = () => {
     const bust = Date.now();
-    for (const { entry, frame } of frames) {
-      const next = imageElement(entry, false);
+    for (const { url, frame, make } of frames) {
+      const next = make(false);
       next.addEventListener("load", () => {
         frame.replaceChildren(next);
       });
-      next.src = srcOf(entry, bust);
+      next.src = srcOf(url, bust);
     }
   };
 
@@ -264,7 +297,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     block.style.margin = `${OUTER_GAP}px 0`;
     const heading = element("h4", entry.label);
     heading.style.margin = `0 0 ${INNER_GAP}px`;
-    block.append(heading, image(entry), copyLine(entry));
+    block.append(heading, image(entry), overview(entry), copyLine(entry));
     return block;
   };
 

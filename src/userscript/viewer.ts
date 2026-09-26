@@ -28,6 +28,8 @@ export const INITIAL_PROJECT_GRAPHS = 5;
 export type GraphEntry = {
   readonly label: string;
   readonly url: string;
+  /** 活動の概観 (ADR-0021)。草の下に並べる。**コピーはしない** (草の URL から末尾を変えれば作れる) */
+  readonly overviewUrl: string;
   /**
    * このブラウザから 1 件でも送れたか。false なら草はまだ無いかもしれない (ほかの端末から送っていればある)。
    * ~~押されるまで画像を読まない~~ **2026-09-24 から最初から読み**、読めなかったときの文言の言い分けにだけ使う
@@ -151,16 +153,23 @@ export function describeIntegrated(
         kind: "graphs",
         sync: describeSync(status, now),
         // **合算も送れたかを見る** (Issue #100)。登録しただけで 1 件も送っていないと 404 になる
-        total: { label: TOTAL_LABEL, url: status.graphUrl, sent: status.totalSent },
+        total: {
+          label: TOTAL_LABEL,
+          url: status.graphUrl,
+          overviewUrl: status.overviewUrl,
+          sent: status.totalSent,
+        },
         projects: [
           ...current.map((project) => ({
             label: currentLabel(project.name),
             url: project.graphUrl,
+            overviewUrl: project.overviewUrl,
             sent: project.sent,
           })),
           ...others.map((project) => ({
             label: project.name,
             url: project.graphUrl,
+            overviewUrl: project.overviewUrl,
             sent: project.sent,
           })),
         ],

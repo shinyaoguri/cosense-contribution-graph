@@ -17,6 +17,10 @@ describe("トップ /", () => {
     expect(res.status).toBe(200);
     expect(html).toContain('import "/api/code/cosense-grass/v1/script.js"');
     expect(html).toContain(`/v1/g/${DEMO_PUBLIC_ID}.svg`);
+    // 活動の概観のデモも草の下に並べる (ADR-0021)
+    expect(html).toContain(
+      `<img src="/v1/g/${DEMO_PUBLIC_ID}/overview.svg" width="300" height="220"`,
+    );
     expect(html).toContain("/account");
     expect(html).toContain("/privacy");
   });
