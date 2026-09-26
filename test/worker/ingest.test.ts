@@ -43,11 +43,19 @@ function send(url: URL, options: Options = {}): Promise<Response> {
   });
 }
 
-type DailyRow = { w: number; r: number; pages: number; created: number };
+type DailyRow = {
+  w: number;
+  r: number;
+  pages: number;
+  created: number;
+  wc: number;
+  wo: number;
+  links: number;
+};
 
 async function dailyOf(uid: string, ph: string, day = TODAY): Promise<DailyRow | null> {
   return env.DB.prepare(
-    "SELECT w, r, pages, created FROM daily WHERE uid = ? AND ph = ? AND day = ?",
+    "SELECT w, r, pages, created, wc, wo, links FROM daily WHERE uid = ? AND ph = ? AND day = ?",
   )
     .bind(uid, ph, day)
     .first<DailyRow>();
@@ -84,7 +92,9 @@ describe("GET /v1/p.gif — 記録する", () => {
     const wbits = bitmapOf([600, 601, 602]);
     const rbits = bitmapOf([602, 603, 604, 605]);
     const res = await send(
-      await signer.url(uid, [entry({ ph: PH_ALL, wbits, rbits, pages: 2, created: 1 })]),
+      await signer.url(uid, [
+        entry({ ph: PH_ALL, wbits, rbits, pages: 2, created: 1, wc: 1, wo: 2, links: 4 }),
+      ]),
     );
 
     expect(res.status).toBe(200);
@@ -93,7 +103,15 @@ describe("GET /v1/p.gif — 記録する", () => {
     expect(await gifWidth(res)).toBe(17);
 
     // r は r & ~w (602 は書きに数える)
-    expect(await dailyOf(uid, PH_ALL)).toEqual({ w: 3, r: 3, pages: 2, created: 1 });
+    expect(await dailyOf(uid, PH_ALL)).toEqual({
+      w: 3,
+      r: 3,
+      pages: 2,
+      created: 1,
+      wc: 1,
+      wo: 2,
+      links: 4,
+    });
     const bits = await daybitsOf(uid, PH_ALL);
     expect(bits && bitsEqual(bits.wbits, wbits)).toBe(true);
     expect(bits && bitsEqual(bits.rbits, rbits)).toBe(true);
@@ -161,7 +179,7 @@ describe("GET /v1/p.gif — 記録する", () => {
     const uid = randomUid();
     // Cron でビットマップだけ消えた状態 (受け付ける窓の中では普通は起きない)
     await env.DB.prepare(
-      "INSERT INTO daily (uid, ph, day, w, r, pages, created) VALUES (?, ?, ?, 100, 50, 7, 2)",
+      "INSERT INTO daily (uid, ph, day, w, r, pages, created, wc, wo, links) VALUES (?, ?, ?, 100, 50, 7, 2, 30, 20, 9)",
     )
       .bind(uid, PH_ALL, TODAY)
       .run();
@@ -172,7 +190,15 @@ describe("GET /v1/p.gif — 記録する", () => {
 
     // ビットマップは新しく書くので「書いた」
     expect(await gifWidth(res)).toBe(17);
-    expect(await dailyOf(uid, PH_ALL)).toEqual({ w: 100, r: 50, pages: 7, created: 2 });
+    expect(await dailyOf(uid, PH_ALL)).toEqual({
+      w: 100,
+      r: 50,
+      pages: 7,
+      created: 2,
+      wc: 30,
+      wo: 20,
+      links: 9,
+    });
   });
 
   it("pages / created の増加だけでも書き、減っても下げない", async () => {
@@ -187,6 +213,41 @@ describe("GET /v1/p.gif — 記録する", () => {
       16,
     );
     expect((await dailyOf(uid, PH_ALL))?.pages).toBe(3);
+  });
+
+  it("wc / wo / links の増加だけでも書き、減っても下げない", async () => {
+    const uid = randomUid();
+    const bits = { wbits: bitmapOf([5, 6]) };
+    await send(await signer.url(uid, [entry({ ...bits, wc: 1 })]));
+
+    expect(
+      await gifWidth(await send(await signer.url(uid, [entry({ ...bits, wc: 1, wo: 1 })]))),
+    ).toBe(17);
+    expect(await gifWidth(await send(await signer.url(uid, [entry({ ...bits, links: 2 })])))).toBe(
+      17,
+    );
+    expect(await gifWidth(await send(await signer.url(uid, [entry({ ...bits })])))).toBe(16);
+    expect(await dailyOf(uid, PH_ALL)).toMatchObject({ wc: 1, wo: 1, links: 2 });
+  });
+
+  it("**v1 のビーコンも受け、作る・関わる・リンクは 0 として書く** (移行のため)", async () => {
+    const uid = randomUid();
+    const e = entry({ wbits: bitmapOf([7]), rbits: bitmapOf([8]), pages: 1 });
+    const raw = [e.ph, e.day, encodeBase64url(e.wbits), encodeBase64url(e.rbits), "1", "0"].join(
+      "|",
+    );
+    const res = await send(await signer.legacyUrl(uid, raw));
+
+    expect(res.status).toBe(200);
+    expect(await dailyOf(uid, PH_ALL)).toEqual({
+      w: 1,
+      r: 1,
+      pages: 1,
+      created: 0,
+      wc: 0,
+      wo: 0,
+      links: 0,
+    });
   });
 
   it("エントリの一部だけが変わったら、その分だけ書く", async () => {
@@ -374,22 +435,33 @@ describe("GET /v1/p.gif — 拒否する", () => {
     );
   });
 
-  it("不正な ph・重複キー・重複した (ph, day)・15 件・`;;` は 400", async () => {
+  it("不正な ph・重複キー・重複した (ph, day)・15 件・空の p・wc + wo の超過は 400", async () => {
     const uid = randomUid();
-    const url = await signer.url(uid, [entry()]);
-    const withEntries = (p: string) => {
+    const url = await signer.url(uid, [entry({ wbits: bitmapOf([1]) })]);
+    const withEntries = (...ps: string[]) => {
       const copy = new URL(url);
-      copy.searchParams.set(INGEST_PARAM.entries, p);
+      copy.searchParams.delete(INGEST_PARAM.entries);
+      const sig = copy.searchParams.get(INGEST_PARAM.signature) ?? "";
+      copy.searchParams.delete(INGEST_PARAM.signature);
+      for (const p of ps) {
+        copy.searchParams.append(INGEST_PARAM.entries, p);
+      }
+      copy.searchParams.set(INGEST_PARAM.signature, sig);
       return copy;
     };
     const p = url.searchParams.get(INGEST_PARAM.entries) ?? "";
+    const withCounts = (wc: string, wo: string) =>
+      p
+        .split(".")
+        .map((f, i) => (i === 6 ? wc : i === 7 ? wo : f))
+        .join(".");
 
-    expect((await send(withEntries(p.replace("*|", "ABCDEF0123456789|")))).status).toBe(400);
-    expect((await send(withEntries(`${p};${p}`))).status).toBe(400);
-    expect((await send(withEntries(`${p};;${p}`))).status).toBe(400);
-    expect((await send(withEntries(Array.from({ length: 15 }, () => p).join(";")))).status).toBe(
-      400,
-    );
+    expect((await send(withEntries(p.replace("*.", "ABCDEF0123456789.")))).status).toBe(400);
+    expect((await send(withEntries(p, p))).status).toBe(400);
+    expect((await send(withEntries(p, ""))).status).toBe(400);
+    expect((await send(withEntries(...Array.from({ length: 15 }, () => p)))).status).toBe(400);
+    // w は 1 分
+    expect((await send(withEntries(withCounts("1", "1")))).status).toBe(400);
 
     const duplicated = new URL(url);
     duplicated.searchParams.append(INGEST_PARAM.uid, uid);

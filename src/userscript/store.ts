@@ -3,7 +3,7 @@
  *
  * | キー | 中身 | 持つ日数 |
  * |---|---|---|
- * | `cosense-grass:bits` | 日 → プロジェクト名 → 書き・読みのビットマップ、編集したページ・新規作成したページの ID | 今日と前の 29 日 |
+ * | `cosense-grass:bits` | 日 → プロジェクト名 → 書き・読み・作る・関わるのビットマップ、編集したページ・新規作成したページの ID | 今日と前の 29 日 |
  *
  * **持つのは送れる範囲だけ** (ADR-0019)。草を描くのは Worker なので、送った後の記録をここに残す理由が無い。
  * 1.0.0 までは 371 日ぶんの集計値 (`cosense-grass:daily`) も持っていた。`sweep` がそれを消す。
@@ -15,6 +15,7 @@
  *   同じ分に 2 つのプロジェクトで活動しても 1 分に数える (design §5 と同じ理由)
  * - **書くたびに読み直す。** localStorage はオリジン単位で、別のプロジェクトのタブとも共有される。
  *   読む → OR → 書くを同期の 1 区間で済ませ、別のタブが間に書いた bit を消さない
+ * - **作る (`c`) と関わる (`o`) は `w` の部分集合で、互いに重ならない** (ADR-0021)。同じ分なら作るが勝つ
  */
 import { decodeBase64url, encodeBase64url } from "../shared/base64url.ts";
 import {
@@ -39,7 +40,13 @@ export const BITS_KEY = "cosense-grass:bits";
 export const LEGACY_DAILY_KEY = "cosense-grass:daily";
 
 /** 記録の形の版。**知らない版の記録があれば書かない** (新しい版のバンドルが別のタブで書いた形を壊さない)。 */
-export const STORE_VERSION = 1;
+export const STORE_VERSION = 2;
+
+/**
+ * v2 に読み替える前の版 (1.3.0 まで)。`c` / `o` が無いだけなので、空として読んで次の書き込みで v2 にする。
+ * 配布ページの import を `v1` から `dev` へ切り替えても、未送信の記録を失わない (ADR-0021)
+ */
+const PREVIOUS_STORE_VERSION = 1;
 
 /**
  * ビットマップを持つ日数。今日と、その前の 29 日。
@@ -55,6 +62,10 @@ type Counts = {
   readonly r: number;
   readonly pages: number;
   readonly created: number;
+  /** 作る (その日に自分が作ったページに書いた分)。ADR-0021 */
+  readonly wc: number;
+  /** 関わる (他の人が作ったページに書いた分) */
+  readonly wo: number;
 };
 
 /** センサーが記録する 1 回分。分はローカル時刻の 0:00 からの分。 */
@@ -78,6 +89,14 @@ export type Activity =
       readonly project: string;
       readonly day: string;
       readonly pageId: string;
+    }
+  | {
+      /** 書いた分を作る (`c`) か関わる (`o`) に振り分ける。育てるは何も記録しない (ADR-0021) */
+      readonly kind: "axis";
+      readonly project: string;
+      readonly day: string;
+      readonly minute: number;
+      readonly axis: "c" | "o";
     };
 
 type WriteOutcome =
@@ -112,7 +131,7 @@ export type Store = {
   readDay(day: string): DayView;
 };
 
-const ZERO: Counts = { w: 0, r: 0, pages: 0, created: 0 };
+const ZERO: Counts = { w: 0, r: 0, pages: 0, created: 0, wc: 0, wo: 0 };
 
 const EMPTY_DAY: DayView = { total: { counts: ZERO }, projects: new Map() };
 
@@ -124,6 +143,8 @@ const MAX_PAGE_ID_LENGTH = 64;
 type Row = {
   w: Bitmap;
   r: Bitmap;
+  c: Bitmap;
+  o: Bitmap;
   pages: Set<string>;
   created: Set<string>;
 };
@@ -158,7 +179,7 @@ export function createStore(storage: StoreStorage, warn: (message: string) => vo
       warnOnce(`corrupt:${key}`, `${key} の形が違うので、空から書き直す`);
       return { kind: "ok", days: new Map() };
     }
-    if (parsed.v !== STORE_VERSION) {
+    if (parsed.v !== STORE_VERSION && parsed.v !== PREVIOUS_STORE_VERSION) {
       warnOnce(
         `version:${key}`,
         `${key} は版 ${parsed.v} の記録なので、この版 (${STORE_VERSION}) は書かない`,
@@ -295,6 +316,8 @@ function emptyRow(): Row {
   return {
     w: new Uint8Array(BITMAP_BYTES),
     r: new Uint8Array(BITMAP_BYTES),
+    c: new Uint8Array(BITMAP_BYTES),
+    o: new Uint8Array(BITMAP_BYTES),
     pages: new Set(),
     created: new Set(),
   };
@@ -312,10 +335,19 @@ function applyActivity(row: Row, activity: Activity): boolean {
     }
     case "created":
       return addId(row.created, activity.pageId);
+    case "axis": {
+      // w の部分集合に保つ。振り分けは w を立てた後に届くので普通は変わらない。
+      // 同じ分に作ると関わるの両方が立ちうるが、数えるときに作るを優先する (`countsOf`)
+      const wChanged = setMinute(row, "w", activity.minute);
+      const axisChanged = setMinute(row, activity.axis, activity.minute);
+      return wChanged || axisChanged;
+    }
   }
 }
 
-function setMinute(row: Row, kind: "w" | "r", minute: number): boolean {
+type MinuteKind = "w" | "r" | "c" | "o";
+
+function setMinute(row: Row, kind: MinuteKind, minute: number): boolean {
   const next = orBits(row[kind], bitmapOf([minute]));
   if (bitsEqual(next, row[kind])) {
     return false;
@@ -332,26 +364,37 @@ function addId(ids: Set<string>, id: string): boolean {
   return true;
 }
 
-function countsOf(w: Bitmap, r: Bitmap, pages: number, created: number): Counts {
-  // 同じ分に両方あれば書きに数える (design §4)
-  return { w: popcount(w), r: popcount(andNotBits(r, w)), pages, created };
+function countsOf(row: Pick<Row, "w" | "r" | "c" | "o">, pages: number, created: number): Counts {
+  // 同じ分に両方あれば書きに数える (design §4)。作ると関わるが同じ分なら作る (ADR-0021)
+  return {
+    w: popcount(row.w),
+    r: popcount(andNotBits(row.r, row.w)),
+    pages,
+    created,
+    wc: popcount(row.c),
+    wo: popcount(andNotBits(row.o, row.c)),
+  };
 }
 
 /** 1 日の行から、プロジェクト別と合算の見え方を作る。 */
 function viewRows(rows: ReadonlyMap<string, Row>): DayView {
   let w: Bitmap = new Uint8Array(BITMAP_BYTES);
   let r: Bitmap = new Uint8Array(BITMAP_BYTES);
+  let c: Bitmap = new Uint8Array(BITMAP_BYTES);
+  let o: Bitmap = new Uint8Array(BITMAP_BYTES);
   const pages = new Set<string>();
   const created = new Set<string>();
   const projects = new Map<string, RowView>();
   for (const [project, row] of rows) {
     projects.set(project, {
-      counts: countsOf(row.w, row.r, row.pages.size, row.created.size),
+      counts: countsOf(row, row.pages.size, row.created.size),
       bits: { w: row.w, r: row.r },
     });
     // **合算は OR と和集合。** 行の和にすると、2 つのプロジェクトで同じ分に活動したときに 2 分に数える
     w = orBits(w, row.w);
     r = orBits(r, row.r);
+    c = orBits(c, row.c);
+    o = orBits(o, row.o);
     for (const id of row.pages) {
       pages.add(id);
     }
@@ -360,7 +403,7 @@ function viewRows(rows: ReadonlyMap<string, Row>): DayView {
     }
   }
   return {
-    total: { counts: countsOf(w, r, pages.size, created.size), bits: { w, r } },
+    total: { counts: countsOf({ w, r, c, o }, pages.size, created.size), bits: { w, r } },
     projects,
   };
 }
@@ -373,6 +416,9 @@ function readBitsRow(value: unknown): Row | undefined {
     // 壊れたビットマップは 0 として読み、次の書き込みで直す
     w: readBitmap(value.w),
     r: readBitmap(value.r),
+    // v1 の記録には無いので空として読む
+    c: readBitmap(value.c),
+    o: readBitmap(value.o),
     pages: readIds(value.pages),
     created: readIds(value.created),
   };
@@ -382,6 +428,8 @@ function writeBitsRow(row: Row): unknown {
   return {
     w: encodeBase64url(row.w),
     r: encodeBase64url(row.r),
+    c: encodeBase64url(row.c),
+    o: encodeBase64url(row.o),
     pages: [...row.pages],
     created: [...row.created],
   };

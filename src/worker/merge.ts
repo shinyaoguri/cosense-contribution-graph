@@ -14,6 +14,9 @@ export type DailyValues = {
   readonly r: number;
   readonly pages: number;
   readonly created: number;
+  readonly wc: number;
+  readonly wo: number;
+  readonly links: number;
 };
 
 export type Merged = {
@@ -35,7 +38,7 @@ export type Merged = {
  *   このとき max はマージした値そのもの
  * - ビットマップが無い日 (Cron で消えた後など) に古いビーコンが来ても、w も合計も減らない。
  *   受け付ける窓 (30 日) が保持日数 (90 日) より短いので、受け付けた日には普通は起きない
- * - pages / created は数なので max
+ * - pages / created / wc / wo / links は数なので max。wc + wo は w を超えうる (端末をまたぐため。design §4)
  */
 export function mergeEntry(
   entry: Entry,
@@ -58,13 +61,19 @@ export function mergeEntry(
     r: mergedTotal - mergedW,
     pages: Math.max(daily?.pages ?? 0, entry.pages),
     created: Math.max(daily?.created ?? 0, entry.created),
+    wc: Math.max(daily?.wc ?? 0, entry.wc),
+    wo: Math.max(daily?.wo ?? 0, entry.wo),
+    links: Math.max(daily?.links ?? 0, entry.links),
   };
   const dailyChanged =
     daily === undefined ||
     merged.w !== daily.w ||
     merged.r !== daily.r ||
     merged.pages !== daily.pages ||
-    merged.created !== daily.created;
+    merged.created !== daily.created ||
+    merged.wc !== daily.wc ||
+    merged.wo !== daily.wo ||
+    merged.links !== daily.links;
 
   return { bits: { wbits, rbits }, bitsChanged, daily: merged, dailyChanged };
 }

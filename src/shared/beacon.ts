@@ -2,24 +2,31 @@
  * 記録の受け口 `GET /v1/p.gif` の取り決め (design §6)。UserScript が組み立て、Worker が読む。
  *
  * ```
- * /v1/p.gif?v=1&u=<uid>&d=<kid>&t=<unix秒>&p=<ph>|<day>|<wbits>|<rbits>|<pages>|<created>;...&sig=<base64url>
+ * /v1/p.gif?v=2&u=<uid>&d=<kid>&t=<unix秒>&p=<ph>.<day>.<wbits>.<rbits>.<pages>.<created>.<wc>.<wo>.<links>&p=...&sig=<base64url>
  * ```
  *
- * **形は厳密に読む。** キーは過不足も重複も許さず、値はすべて先頭と末尾を固定した形で照合する。
- * どのフィールドの文字集合にも `|` `;` 改行が無いので、区切りで分けた後の照合で曖昧さが残らない。
+ * **v2 (ADR-0021)** はエントリに作る・関わるの分 (`wc` / `wo`) とリンクの件数を足し、区切りを URL エンコードされない
+ * `.` と `p` の繰り返しにした。**v1 (`|` と `;`、`p` は 1 つ) も読む。** 配布ページ `v1` を貼り替えるまでの移行のためで、
+ * v1 のエントリは `wc` / `wo` / `links` を 0 として読む。組み立てるのは v2 だけ。
+ *
+ * **形は厳密に読む。** キーは過不足も (`p` 以外の) 重複も許さず、値はすべて先頭と末尾を固定した形で照合する。
+ * どのフィールドの文字集合にも区切り (`.` `|` `;`) と改行が無いので、区切りで分けた後の照合で曖昧さが残らない。
  * 時刻の窓や日付の窓のように「今」に依るものはここで見ない (Worker が見る)。
  *
  * 両 lib で型検査され、両環境でテストされる。
  */
 import { decodeBase64url, encodeBase64url } from "./base64url.ts";
-import { BITMAP_BYTES, type Bitmap, isBitmap } from "./bits.ts";
+import { BITMAP_BYTES, type Bitmap, isBitmap, MINUTES_PER_DAY, popcount } from "./bits.ts";
 import { fromEpochDay, toEpochDay } from "./epoch-day.ts";
 import { isValidKid, isValidPh, isValidUid } from "./ids.ts";
 import { SIGNATURE_BYTES, signingInput } from "./sign.ts";
 
 export const INGEST_PATH = "/v1/p.gif";
 
-const INGEST_VERSION = "1";
+const INGEST_VERSION = "2";
+
+/** 移行のために読むだけの版。配布ページ `v1` を貼り替えたら止める。 */
+const LEGACY_VERSION = "1";
 
 /** クエリの名前。 */
 export const INGEST_PARAM = {
@@ -33,13 +40,13 @@ export const INGEST_PARAM = {
 
 /**
  * 1 リクエストのエントリ (ph, day) の上限 (design §6)。
- * URL は 1 エントリ約 520 文字 (エンコード後は `|` と `;` が 3 文字になり最悪で約 530 文字) なので、
- * 14 件で約 7.7KB。Cloudflare の上限 16KB に収まる (UserScript の outbox のテストが 8,000 文字以下を固定している)。
+ * URL は 1 エントリ最大 529 文字 + 区切り 8 + `&p=` 3 なので、14 件で約 7.6KB。
+ * Cloudflare の上限 16KB に収まる (UserScript の outbox のテストが 8,000 文字以下を固定している)。
  */
 export const MAX_ENTRIES = 14;
 
-/** `pages` と `created` の上限。1 日にこれを超えるページを数えることは無い。 */
-const MAX_COUNT = 99_999;
+/** `pages`・`created`・`links` の上限。1 日にこれを超える数を数えることは無い。 */
+export const MAX_COUNT = 99_999;
 
 /** 1 つのプロジェクト (または合算 `*`) の 1 日分。 */
 export type Entry = {
@@ -49,6 +56,12 @@ export type Entry = {
   readonly rbits: Bitmap;
   readonly pages: number;
   readonly created: number;
+  /** 作る (その日に自分が作ったページに書いた分)。ADR-0021 */
+  readonly wc: number;
+  /** 関わる (他の人が作ったページに書いた分) */
+  readonly wo: number;
+  /** 作ったリンクの件数 */
+  readonly links: number;
 };
 
 /** 署名される中身。 */
@@ -76,12 +89,16 @@ export type ParseResult =
 const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const BITMAP_PATTERN = new RegExp(`^[A-Za-z0-9_-]{${(BITMAP_BYTES * 4) / 3}}$`);
 const COUNT_PATTERN = /^(0|[1-9]\d{0,4})$/;
+// 分の数。上限 1440 は数値で見る
+const MINUTES_PATTERN = /^(0|[1-9]\d{0,3})$/;
 // unix 秒。先頭の 0 を許すと同じ時刻に別の表記ができる
 const TIME_PATTERN = /^[1-9]\d{0,10}$/;
 
-const ENTRY_SEPARATOR = ";";
-const FIELD_SEPARATOR = "|";
-const FIELD_COUNT = 6;
+const FIELD_SEPARATOR = ".";
+const FIELD_COUNT = 9;
+const LEGACY_ENTRY_SEPARATOR = ";";
+const LEGACY_FIELD_SEPARATOR = "|";
+const LEGACY_FIELD_COUNT = 6;
 
 /** `YYYY-MM-DD` として実在する日か。2026-02-30 のように形だけ合う日を弾く。 */
 function isValidDay(day: string): boolean {
@@ -92,91 +109,183 @@ function isValidCount(n: number): boolean {
   return Number.isInteger(n) && n >= 0 && n <= MAX_COUNT;
 }
 
-/** `p` の値を組み立てる。形が取り決めの外なら RangeError (送る側の誤りなので黙って送らない)。 */
-export function formatEntries(entries: readonly Entry[]): string {
+function isValidMinutes(n: number): boolean {
+  return Number.isInteger(n) && n >= 0 && n <= MINUTES_PER_DAY;
+}
+
+/**
+ * 作る・関わるの分が書いた分に収まるか。1 つの端末の `c` と `o` は `w` の部分集合で互いに重ならないので、
+ * 正しいクライアントからは超えない (design §6)。
+ */
+function withinWrites(entry: Pick<Entry, "wbits" | "wc" | "wo">): boolean {
+  return entry.wc + entry.wo <= popcount(entry.wbits);
+}
+
+/** 1 エントリの `p` の値 (v2) を組み立てる。形が取り決めの外なら RangeError (送る側の誤りなので黙って送らない)。 */
+export function formatEntry(entry: Entry): string {
+  if (
+    !isValidPh(entry.ph) ||
+    !isValidDay(entry.day) ||
+    !isBitmap(entry.wbits) ||
+    !isBitmap(entry.rbits) ||
+    !isValidCount(entry.pages) ||
+    !isValidCount(entry.created) ||
+    !isValidMinutes(entry.wc) ||
+    !isValidMinutes(entry.wo) ||
+    !isValidCount(entry.links) ||
+    !withinWrites(entry)
+  ) {
+    throw new RangeError(`エントリの形が取り決めの外: ${entry.ph} ${entry.day}`);
+  }
+  return [
+    entry.ph,
+    entry.day,
+    encodeBase64url(entry.wbits),
+    encodeBase64url(entry.rbits),
+    String(entry.pages),
+    String(entry.created),
+    String(entry.wc),
+    String(entry.wo),
+    String(entry.links),
+  ].join(FIELD_SEPARATOR);
+}
+
+/** `p` の値を組み立てる (1 エントリ 1 つ)。件数と (ph, day) の重複も見る。 */
+export function formatEntries(entries: readonly Entry[]): string[] {
   if (entries.length === 0 || entries.length > MAX_ENTRIES) {
     throw new RangeError(`エントリは 1〜${MAX_ENTRIES} 件: ${entries.length}`);
   }
   const seen = new Set<string>();
-  return entries
-    .map((entry) => {
-      const key = `${entry.ph} ${entry.day}`;
-      if (
-        !isValidPh(entry.ph) ||
-        !isValidDay(entry.day) ||
-        !isBitmap(entry.wbits) ||
-        !isBitmap(entry.rbits) ||
-        !isValidCount(entry.pages) ||
-        !isValidCount(entry.created) ||
-        seen.has(key)
-      ) {
-        throw new RangeError(`エントリの形が取り決めの外: ${entry.ph} ${entry.day}`);
-      }
-      seen.add(key);
-      return [
-        entry.ph,
-        entry.day,
-        encodeBase64url(entry.wbits),
-        encodeBase64url(entry.rbits),
-        String(entry.pages),
-        String(entry.created),
-      ].join(FIELD_SEPARATOR);
-    })
-    .join(ENTRY_SEPARATOR);
+  return entries.map((entry) => {
+    const key = `${entry.ph} ${entry.day}`;
+    if (seen.has(key)) {
+      throw new RangeError(`エントリが重複している: ${entry.ph} ${entry.day}`);
+    }
+    seen.add(key);
+    return formatEntry(entry);
+  });
 }
 
-/** `p` の値を読む。形が取り決めの外なら `undefined`。 */
-export function parseEntries(raw: string): Entry[] | undefined {
-  const parts = raw.split(ENTRY_SEPARATOR);
-  if (parts.length > MAX_ENTRIES) {
+type Counts = Pick<Entry, "pages" | "created" | "wc" | "wo" | "links">;
+
+/** ph・day・ビットマップ 2 つを読み、残りのフィールドは `counts` に任せる。 */
+function parseFields(
+  fields: readonly string[],
+  counts: (rest: readonly string[]) => Counts | undefined,
+): Entry | undefined {
+  const [ph = "", day = "", w = "", r = "", ...rest] = fields;
+  if (!isValidPh(ph) || !isValidDay(day) || !BITMAP_PATTERN.test(w) || !BITMAP_PATTERN.test(r)) {
     return undefined;
   }
+  const wbits = decodeBase64url(w);
+  const rbits = decodeBase64url(r);
+  const parsed = counts(rest);
+  if (!wbits || !rbits || !isBitmap(wbits) || !isBitmap(rbits) || !parsed) {
+    return undefined;
+  }
+  const entry = { ph, day, wbits, rbits, ...parsed };
+  return withinWrites(entry) ? entry : undefined;
+}
 
+/** 件数と (ph, day) の重複を見る。 */
+function collect(
+  parts: readonly string[],
+  parse: (part: string) => Entry | undefined,
+): Entry[] | undefined {
+  if (parts.length === 0 || parts.length > MAX_ENTRIES) {
+    return undefined;
+  }
   const entries: Entry[] = [];
   const seen = new Set<string>();
   for (const part of parts) {
-    // 空のエントリ (`;;` や末尾の `;`、空の p) はフィールド数で落ちる
-    const fields = part.split(FIELD_SEPARATOR);
-    if (fields.length !== FIELD_COUNT) {
-      return undefined;
-    }
-    const [ph = "", day = "", w = "", r = "", pages = "", created = ""] = fields;
-    if (
-      !isValidPh(ph) ||
-      !isValidDay(day) ||
-      !BITMAP_PATTERN.test(w) ||
-      !BITMAP_PATTERN.test(r) ||
-      !COUNT_PATTERN.test(pages) ||
-      !COUNT_PATTERN.test(created)
-    ) {
-      return undefined;
-    }
-    const wbits = decodeBase64url(w);
-    const rbits = decodeBase64url(r);
-    const key = `${ph} ${day}`;
-    if (!wbits || !rbits || !isBitmap(wbits) || !isBitmap(rbits) || seen.has(key)) {
+    const entry = parse(part);
+    const key = entry && `${entry.ph} ${entry.day}`;
+    if (!entry || !key || seen.has(key)) {
       return undefined;
     }
     seen.add(key);
-    entries.push({ ph, day, wbits, rbits, pages: Number(pages), created: Number(created) });
+    entries.push(entry);
   }
   return entries;
 }
 
+/** v2 の `p` の値 (出現順) を読む。形が取り決めの外なら `undefined`。 */
+export function parseEntries(raws: readonly string[]): Entry[] | undefined {
+  return collect(raws, (raw) => {
+    // 空の p や区切りの過不足はフィールド数で落ちる
+    const fields = raw.split(FIELD_SEPARATOR);
+    if (fields.length !== FIELD_COUNT) {
+      return undefined;
+    }
+    return parseFields(fields, ([pages = "", created = "", wc = "", wo = "", links = ""]) => {
+      if (
+        !COUNT_PATTERN.test(pages) ||
+        !COUNT_PATTERN.test(created) ||
+        !MINUTES_PATTERN.test(wc) ||
+        !MINUTES_PATTERN.test(wo) ||
+        !COUNT_PATTERN.test(links) ||
+        !isValidMinutes(Number(wc)) ||
+        !isValidMinutes(Number(wo))
+      ) {
+        return undefined;
+      }
+      return {
+        pages: Number(pages),
+        created: Number(created),
+        wc: Number(wc),
+        wo: Number(wo),
+        links: Number(links),
+      };
+    });
+  });
+}
+
+/** v1 の `p` の値を読む (移行のため)。`wc` / `wo` / `links` は 0。 */
+export function parseLegacyEntries(raw: string): Entry[] | undefined {
+  // 空のエントリ (`;;` や末尾の `;`、空の p) はフィールド数で落ちる
+  return collect(raw.split(LEGACY_ENTRY_SEPARATOR), (part) => {
+    const fields = part.split(LEGACY_FIELD_SEPARATOR);
+    if (fields.length !== LEGACY_FIELD_COUNT) {
+      return undefined;
+    }
+    return parseFields(fields, ([pages = "", created = ""]) =>
+      COUNT_PATTERN.test(pages) && COUNT_PATTERN.test(created)
+        ? { pages: Number(pages), created: Number(created), wc: 0, wo: 0, links: 0 }
+        : undefined,
+    );
+  });
+}
+
+/** 署名対象のフィールド。`p` はエントリの数だけ、出現順に並べる (v1 は 1 つ)。 */
 function signedFields(
+  version: string,
   fields: Pick<BeaconFields, "uid" | "kid" | "time">,
-  entries: string,
+  entries: readonly string[],
 ): [string, string][] {
   return [
-    [INGEST_PARAM.version, INGEST_VERSION],
+    [INGEST_PARAM.version, version],
     [INGEST_PARAM.uid, fields.uid],
     [INGEST_PARAM.kid, fields.kid],
     [INGEST_PARAM.time, String(fields.time)],
-    [INGEST_PARAM.entries, entries],
+    ...entries.map((raw): [string, string] => [INGEST_PARAM.entries, raw]),
   ];
 }
 
-const EXPECTED_KEYS: readonly string[] = Object.values(INGEST_PARAM);
+/** `p` 以外のキー。どれもちょうど 1 回。 */
+const SINGLE_KEYS: readonly string[] = Object.values(INGEST_PARAM).filter(
+  (key) => key !== INGEST_PARAM.entries,
+);
+
+/** キーの過不足と重複を見る。`p` だけは 1 回以上を認める (件数は版ごとに見る)。 */
+function hasExpectedKeys(search: URLSearchParams): boolean {
+  const keys = [...search.keys()];
+  const count = (key: string) => keys.filter((k) => k === key).length;
+  return (
+    SINGLE_KEYS.every((key) => count(key) === 1) &&
+    count(INGEST_PARAM.entries) >= 1 &&
+    keys.every((key) => key === INGEST_PARAM.entries || SINGLE_KEYS.includes(key))
+  );
+}
 
 /**
  * 受け口のクエリを読む。署名の**検証はしない** (鍵を引くのは Worker)。
@@ -185,13 +294,13 @@ const EXPECTED_KEYS: readonly string[] = Object.values(INGEST_PARAM);
  * 「署名が違う」(403) と取り違えるのを防ぐ (ADR-0009)。
  */
 export function parseIngestQuery(search: URLSearchParams): ParseResult {
-  const keys = [...search.keys()];
-  if (keys.length !== EXPECTED_KEYS.length || EXPECTED_KEYS.some((key) => !keys.includes(key))) {
+  if (!hasExpectedKeys(search)) {
     return { ok: false, reason: "keys" };
   }
 
   const get = (key: string) => search.get(key) ?? "";
-  if (get(INGEST_PARAM.version) !== INGEST_VERSION) {
+  const version = get(INGEST_PARAM.version);
+  if (version !== INGEST_VERSION && version !== LEGACY_VERSION) {
     return { ok: false, reason: "version" };
   }
   const uid = get(INGEST_PARAM.uid);
@@ -206,8 +315,13 @@ export function parseIngestQuery(search: URLSearchParams): ParseResult {
   if (!TIME_PATTERN.test(rawTime)) {
     return { ok: false, reason: "time" };
   }
-  const rawEntries = get(INGEST_PARAM.entries);
-  const entries = parseEntries(rawEntries);
+  const rawEntries = search.getAll(INGEST_PARAM.entries);
+  const entries =
+    version === INGEST_VERSION
+      ? parseEntries(rawEntries)
+      : rawEntries.length === 1
+        ? parseLegacyEntries(rawEntries[0] ?? "")
+        : undefined;
   if (!entries) {
     return { ok: false, reason: "entries" };
   }
@@ -225,7 +339,10 @@ export function parseIngestQuery(search: URLSearchParams): ParseResult {
       time,
       entries,
       signature,
-      signingInput: signingInput(INGEST_PATH, signedFields({ uid, kid, time }, rawEntries)),
+      signingInput: signingInput(
+        INGEST_PATH,
+        signedFields(version, { uid, kid, time }, rawEntries),
+      ),
     },
   };
 }
@@ -240,7 +357,7 @@ export async function buildIngestUrl(
   signer: (input: string) => Promise<Uint8Array<ArrayBuffer>>,
 ): Promise<string> {
   const entries = formatEntries(fields.entries);
-  const pairs = signedFields(fields, entries);
+  const pairs = signedFields(INGEST_VERSION, fields, entries);
   const signature = await signer(signingInput(INGEST_PATH, pairs));
   if (signature.length !== SIGNATURE_BYTES) {
     throw new RangeError(`署名は ${SIGNATURE_BYTES} バイト: ${signature.length}`);
@@ -248,7 +365,7 @@ export async function buildIngestUrl(
 
   const url = new URL(INGEST_PATH, origin);
   for (const [key, value] of pairs) {
-    url.searchParams.set(key, value);
+    url.searchParams.append(key, value);
   }
   url.searchParams.set(INGEST_PARAM.signature, encodeBase64url(signature));
   return url.href;

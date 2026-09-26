@@ -122,7 +122,7 @@ async function record(db: D1Database, beacon: Beacon): Promise<number | "conflic
       .bind(uid, ...pairs),
     db
       .prepare(
-        `SELECT ph, day, w, r, pages, created FROM daily WHERE uid = ? AND (ph, day) IN (VALUES ${rowValues})`,
+        `SELECT ph, day, w, r, pages, created, wc, wo, links FROM daily WHERE uid = ? AND (ph, day) IN (VALUES ${rowValues})`,
       )
       .bind(uid, ...pairs),
   ]);
@@ -142,6 +142,9 @@ async function record(db: D1Database, beacon: Beacon): Promise<number | "conflic
         r: Number(row.r),
         pages: Number(row.pages),
         created: Number(row.created),
+        wc: Number(row.wc),
+        wo: Number(row.wo),
+        links: Number(row.links),
       },
     ]),
   );
@@ -227,14 +230,28 @@ function dailyStatement(
 ): D1PreparedStatement {
   return db
     .prepare(
-      `INSERT INTO daily (uid, ph, day, w, r, pages, created) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO daily (uid, ph, day, w, r, pages, created, wc, wo, links) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (uid, ph, day) DO UPDATE SET
          w = max(daily.w, excluded.w),
          r = max(daily.w + daily.r, excluded.w + excluded.r) - max(daily.w, excluded.w),
          pages = max(daily.pages, excluded.pages),
-         created = max(daily.created, excluded.created)`,
+         created = max(daily.created, excluded.created),
+         wc = max(daily.wc, excluded.wc),
+         wo = max(daily.wo, excluded.wo),
+         links = max(daily.links, excluded.links)`,
     )
-    .bind(uid, entry.ph, entry.day, daily.w, daily.r, daily.pages, daily.created);
+    .bind(
+      uid,
+      entry.ph,
+      entry.day,
+      daily.w,
+      daily.r,
+      daily.pages,
+      daily.created,
+      daily.wc,
+      daily.wo,
+      daily.links,
+    );
 }
 
 /** D1 の BLOB を 180 バイトのビットマップにする。形が違えば throw (500 になる)。 */

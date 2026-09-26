@@ -71,8 +71,15 @@ describe("record", () => {
     expect(storage.state.writes).toBe(1);
 
     const day = store.readDay(TODAY);
-    expect(day.projects.get("project-a")?.counts).toEqual({ w: 0, r: 1, pages: 0, created: 0 });
-    expect(day.total.counts).toEqual({ w: 0, r: 1, pages: 0, created: 0 });
+    expect(day.projects.get("project-a")?.counts).toEqual({
+      w: 0,
+      r: 1,
+      pages: 0,
+      created: 0,
+      wc: 0,
+      wo: 0,
+    });
+    expect(day.total.counts).toEqual({ w: 0, r: 1, pages: 0, created: 0, wc: 0, wo: 0 });
   });
 
   it("**2 つのプロジェクトで同じ分に活動したとき、合算の w は 2 ではなく 1** (二重計上しない)", () => {
@@ -126,7 +133,14 @@ describe("record", () => {
     expect(store.record(created)).toBe("written");
     expect(store.record(created)).toBe("unchanged");
 
-    expect(store.readDay(TODAY).total.counts).toEqual({ w: 0, r: 0, pages: 0, created: 1 });
+    expect(store.readDay(TODAY).total.counts).toEqual({
+      w: 0,
+      r: 0,
+      pages: 0,
+      created: 1,
+      wc: 0,
+      wo: 0,
+    });
   });
 
   it("**書くたびに読み直す。** 別のタブが間に書いた bit を消さない", () => {
@@ -153,6 +167,48 @@ describe("record", () => {
     expect(store.readDay(TODAY).total.counts.r).toBe(1);
   });
 
+  it("**作る・関わるの振り分けは w の部分集合で、同じ分なら作るが勝つ**", () => {
+    const { store } = setup();
+    const axis = (project: string, minute: number, to: "c" | "o"): Activity => ({
+      kind: "axis",
+      project,
+      day: TODAY,
+      minute,
+      axis: to,
+    });
+
+    // 振り分けだけ届いても w に立つ
+    expect(store.record(axis("project-a", 10, "o"))).toBe("written");
+    expect(store.readDay(TODAY).total.counts).toMatchObject({ w: 1, wc: 0, wo: 1 });
+
+    // 同じ分に作るが来たら、作るに数える
+    expect(store.record(axis("project-a", 10, "c"))).toBe("written");
+    expect(store.readDay(TODAY).total.counts).toMatchObject({ w: 1, wc: 1, wo: 0 });
+
+    // もう一度届いても書かない
+    expect(store.record(axis("project-a", 10, "c"))).toBe("unchanged");
+
+    // 別のプロジェクトの同じ分: 行ごとには数え、合算では作るが勝つ
+    store.record(axis("project-b", 10, "o"));
+    store.record(axis("project-b", 11, "o"));
+    const day = store.readDay(TODAY);
+    expect(day.projects.get("project-b")?.counts).toMatchObject({ w: 2, wc: 0, wo: 2 });
+    expect(day.total.counts).toMatchObject({ w: 2, wc: 1, wo: 1 });
+  });
+
+  it("**v1 の記録は捨てずに読み、次の書き込みで v2 にする** (作る・関わるは空)", () => {
+    const { storage, store } = setup();
+    store.record(write("project-a", 0, PAGE_A));
+    const saved = JSON.parse(storage.map.get(BITS_KEY) ?? "");
+    const { c: _c, o: _o, ...v1Row } = saved.days[TODAY]["project-a"];
+    storage.map.set(BITS_KEY, JSON.stringify({ v: 1, days: { [TODAY]: { "project-a": v1Row } } }));
+
+    expect(store.readDay(TODAY).total.counts).toMatchObject({ w: 1, pages: 1, wc: 0, wo: 0 });
+    expect(store.record(read("project-a", 5))).toBe("written");
+    expect(JSON.parse(storage.map.get(BITS_KEY) ?? "").v).toBe(2);
+    expect(store.readDay(TODAY).total.counts).toMatchObject({ w: 1, r: 1, pages: 1 });
+  });
+
   it("保存する形。版と、日 → プロジェクト名 → 180 バイトの base64url とページ ID", () => {
     const { storage, store } = setup();
     store.record(write("project-a", 0, PAGE_A));
@@ -163,6 +219,8 @@ describe("record", () => {
     expect(row).toEqual({
       w: expect.any(String),
       r: expect.any(String),
+      c: expect.any(String),
+      o: expect.any(String),
       pages: [PAGE_A],
       created: [],
     });
@@ -220,7 +278,7 @@ describe("壊れた記録と、書けないとき", () => {
 
     const day = store.readDay(TODAY);
     expect([...day.projects.keys()]).toEqual(["project-a"]);
-    expect(day.total.counts).toEqual({ w: 0, r: 0, pages: 1, created: 0 });
+    expect(day.total.counts).toEqual({ w: 0, r: 0, pages: 1, created: 0, wc: 0, wo: 0 });
   });
 
   it("**書き込みが例外になっても外へ投げない** (容量超過)。警告は 1 回だけ", () => {
@@ -246,7 +304,14 @@ describe("sweep", () => {
     const bits = JSON.parse(storage.map.get(BITS_KEY) ?? "");
     expect(Object.keys(bits.days)).toEqual([kept]);
     // **消した日はもう読めない。** 送れない日の記録を持ち続けない (ADR-0019)
-    expect(store.readDay(dropped).total.counts).toEqual({ w: 0, r: 0, pages: 0, created: 0 });
+    expect(store.readDay(dropped).total.counts).toEqual({
+      w: 0,
+      r: 0,
+      pages: 0,
+      created: 0,
+      wc: 0,
+      wo: 0,
+    });
   });
 
   it("消すものが無ければ書かない", () => {
@@ -298,7 +363,7 @@ describe("readDay", () => {
   it("記録の無い日は 0", () => {
     const { store } = setup();
     const day = store.readDay(TODAY);
-    expect(day.total.counts).toEqual({ w: 0, r: 0, pages: 0, created: 0 });
+    expect(day.total.counts).toEqual({ w: 0, r: 0, pages: 0, created: 0, wc: 0, wo: 0 });
     expect(day.projects.size).toBe(0);
   });
 
@@ -318,14 +383,28 @@ describe("readDay", () => {
     const { storage, store } = setup();
     storage.map.set(BITS_KEY, JSON.stringify({ v: STORE_VERSION + 1, days: {} }));
 
-    expect(store.readDay(TODAY).total.counts).toEqual({ w: 0, r: 0, pages: 0, created: 0 });
+    expect(store.readDay(TODAY).total.counts).toEqual({
+      w: 0,
+      r: 0,
+      pages: 0,
+      created: 0,
+      wc: 0,
+      wo: 0,
+    });
   });
 
   it("JSON として読めなければ空を返す", () => {
     const { storage, store } = setup();
     storage.map.set(BITS_KEY, "{");
 
-    expect(store.readDay(TODAY).total.counts).toEqual({ w: 0, r: 0, pages: 0, created: 0 });
+    expect(store.readDay(TODAY).total.counts).toEqual({
+      w: 0,
+      r: 0,
+      pages: 0,
+      created: 0,
+      wc: 0,
+      wo: 0,
+    });
   });
 
   it("実在しない日は例外", () => {

@@ -21,7 +21,7 @@ import {
   SENT_KEY,
   writeSent,
 } from "../../src/userscript/outbox.ts";
-import { BITS_KEY, createStore } from "../../src/userscript/store.ts";
+import { BITS_KEY, createStore, STORE_VERSION } from "../../src/userscript/store.ts";
 
 const UID = encodeBase64url(new Uint8Array(20).fill(5));
 const OTHER_UID = encodeBase64url(new Uint8Array(20).fill(6));
@@ -99,8 +99,34 @@ describe("collectEntries", () => {
 
   it("知らない版の記録からは何も出さない", async () => {
     const { store, storage } = storeWith([{ kind: "read", project: "p", day: TODAY, minute: 1 }]);
-    storage.setItem(BITS_KEY, JSON.stringify({ v: 2, days: {} }));
+    storage.setItem(
+      BITS_KEY,
+      JSON.stringify({ v: STORE_VERSION + 1, days: { [TODAY]: { p: { w: "", r: "" } } } }),
+    );
     expect(await collectEntries(store, UID, [TODAY])).toEqual([]);
+  });
+
+  it("作る・関わるの分を送り、リンクはまだ 0", async () => {
+    const { store } = storeWith([
+      { kind: "axis", project: "p", day: TODAY, minute: 5, axis: "c" },
+      { kind: "axis", project: "p", day: TODAY, minute: 6, axis: "o" },
+      { kind: "write", project: "p", day: TODAY, minute: 7 },
+    ]);
+    const entries = await collectEntries(store, UID, [TODAY]);
+    for (const e of entries) {
+      expect([popcount(e.wbits), e.wc, e.wo, e.links]).toEqual([3, 1, 1, 0]);
+    }
+  });
+
+  it("**作る・関わるが書いた分を超えていたら丸める** (Worker が 400 を返し続けないように)", async () => {
+    const w = bitmapOf([1]);
+    const row = {
+      counts: { w: 1, r: 0, pages: 0, created: 0, wc: 1, wo: 3 },
+      bits: { w, r: bitmapOf([]) },
+    };
+    const store = { readDay: () => ({ total: row, projects: new Map() }) };
+    const [total] = await collectEntries(store, UID, [TODAY]);
+    expect(total).toMatchObject({ wc: 1, wo: 0 });
   });
 
   it("ページの編集だけの行も送る (ビットマップと同じ行に数が入る)", async () => {
@@ -120,6 +146,9 @@ function entry(overrides: Partial<Entry> = {}): Entry {
     rbits: bitmapOf([2]),
     pages: 0,
     created: 0,
+    wc: 0,
+    wo: 0,
+    links: 0,
     ...overrides,
   };
 }
@@ -158,6 +187,9 @@ describe("chunk と URL の長さ", () => {
         rbits: full,
         pages: 99_999,
         created: 99_999,
+        wc: 1440,
+        wo: 0,
+        links: 99_999,
       }),
     );
     const url = await buildIngestUrl(
