@@ -19,7 +19,7 @@ export const DEMO_PUBLIC_ID = "demo";
  * `isValidProjectName` / `isValidUserName` が英字・数字・ハイフンしか通さないのでここに来る時点で
  * 危険な文字は無いが、**二重に塞ぐ**。
  */
-function escapeXml(text: string): string {
+export function escapeXml(text: string): string {
   return text
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")

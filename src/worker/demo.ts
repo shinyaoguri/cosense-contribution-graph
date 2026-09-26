@@ -7,6 +7,7 @@
 import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
 import type { Minutes } from "./graph/balance.ts";
 import { DAYS, MAX_WEEKS } from "./graph/grid.ts";
+import type { OverviewDay } from "./graph/overview.ts";
 
 /**
  * デモの「今日」。**週の途中 (水曜) に固定する。** 日曜や土曜だと左右の列が欠けず、
@@ -83,4 +84,20 @@ export function demoData(): DemoData {
   }
 
   return { days, population };
+}
+
+/**
+ * 活動の概観のデモ (ADR-0021)。草のデモの日から、書いた分の一部を作る・関わるに振り分ける。
+ * **草のデモデータ (`demoData`) は変えない** (草のゴールデンテストと ETag を保つ)。
+ */
+export function demoOverviewDays(): ReadonlyMap<string, OverviewDay> {
+  const result = new Map<string, OverviewDay>();
+  for (const [day, minutes] of demoData().days) {
+    // 草の割合と相関させないよう、別の種から取る
+    const h = hash32(toEpochDay(day) ^ 0x5bd1e995);
+    const wc = Math.floor((minutes.w * (h % 30)) / 100);
+    const wo = Math.floor(((minutes.w - wc) * ((h >>> 8) % 50)) / 100);
+    result.set(day, { ...minutes, wc, wo });
+  }
+  return result;
 }

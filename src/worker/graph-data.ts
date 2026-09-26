@@ -5,6 +5,8 @@
  * - **四分位とバランスの中心は、常に `ph = '*'` の全期間から取る** (ADR-0007 決定 4)。プロジェクト別の草も
  *   同じスケールで塗るので、並べて比べられる
  * - プロジェクト別は直近 53 週ぶんだけを読む。週数を減らしたときの切り詰めは `renderGraph` がする
+ *
+ * 活動の概観 `/v1/g/{publicId}/overview.svg` (ADR-0021) も同じ `publicId` を同じく引き、**草と同じ期間**を合計して描く。
  */
 
 import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
@@ -13,7 +15,9 @@ import { DEFAULT_TIME_ZONE, todayIn } from "./days.ts";
 import type { Minutes } from "./graph/balance.ts";
 import { centerOf } from "./graph/balance.ts";
 import { DAYS, MAX_WEEKS, type Params } from "./graph/grid.ts";
+import { type OverviewDay, sumOverview } from "./graph/overview.ts";
 import { buildScale } from "./graph/scale.ts";
+import { renderOverview } from "./overview-svg.ts";
 import { renderGraph } from "./svg.ts";
 
 type DayRow = { readonly day: string; readonly w: number; readonly r: number };
@@ -47,10 +51,7 @@ async function loadGraph(
     return undefined;
   }
 
-  // **右端の日。** 既定は今日で、`?year=` があればその年の 12/31 まで遡る (Issue #128)。
-  // **未来は受けない** — 今年を指定したときは自然と「今日が右端」になる
-  const realToday = todayIn(DEFAULT_TIME_ZONE, nowMs);
-  const today = end !== undefined && end < realToday ? end : realToday;
+  const today = rightEdge(nowMs, end);
   const start = fromEpochDay(toEpochDay(today) - DAYS * (MAX_WEEKS - 1));
   const populationQuery = db
     .prepare("SELECT day, w, r FROM daily WHERE uid = ? AND ph = ?")
@@ -86,6 +87,47 @@ async function loadGraph(
     population: populationRows.map(minutes),
     startDay,
   };
+}
+
+/**
+ * **右端の日。** 既定は今日で、`?year=` があればその年の 12/31 まで遡る (Issue #128)。
+ * **未来は受けない** — 今年を指定したときは自然と「今日が右端」になる
+ */
+function rightEdge(nowMs: number, end?: string): string {
+  const realToday = todayIn(DEFAULT_TIME_ZONE, nowMs);
+  return end !== undefined && end < realToday ? end : realToday;
+}
+
+/**
+ * D1 の記録から活動の概観の SVG を描く (ADR-0021)。`publicId` が `graphs` に無ければ `undefined`。D1 の失敗は throw する。
+ *
+ * 期間は草と同じ `[右端 − 7 × (weeks − 1), 右端]`。四分位もバランスの中心も要らないので、その期間の行だけを読む。
+ */
+export async function renderStoredOverview(
+  db: D1Database,
+  publicId: string,
+  params: Params,
+  nowMs: number,
+  end?: string,
+): Promise<string | undefined> {
+  const graph = await db
+    .prepare("SELECT uid, ph FROM graphs WHERE public_id = ?")
+    .bind(publicId)
+    .first<{ uid: string; ph: string }>();
+  if (!graph) {
+    return undefined;
+  }
+  const today = rightEdge(nowMs, end);
+  const start = fromEpochDay(toEpochDay(today) - DAYS * (params.weeks - 1));
+  const { results } = await db
+    .prepare("SELECT w, r, wc, wo FROM daily WHERE uid = ? AND ph = ? AND day >= ? AND day <= ?")
+    .bind(graph.uid, graph.ph, start, today)
+    .all<OverviewDay>();
+  return renderOverview({
+    totals: sumOverview(results),
+    theme: params.theme,
+    palette: params.palette,
+  });
 }
 
 /** D1 の記録から SVG を描く。`publicId` が `graphs` に無ければ `undefined`。D1 の失敗は throw する。 */

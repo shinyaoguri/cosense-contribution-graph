@@ -1,6 +1,7 @@
 import { ACCOUNT_PATH, AUTH_CALLBACK_PATH, AUTH_START_PATH } from "../shared/auth.ts";
 import { INGEST_PATH } from "../shared/beacon.ts";
 import { ENROLL_PATH } from "../shared/enroll.ts";
+import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
 import { sha256Hex } from "../shared/hash.ts";
 import { isValidDataKey, isValidPublicId } from "../shared/ids.ts";
 import { PROBE_PATH } from "../shared/probe.ts";
@@ -8,16 +9,19 @@ import { REVOKE_PATH } from "../shared/revoke.ts";
 import { type AccountDeps, handleAccount } from "./account.ts";
 import { type AuthDeps, handleAuthCallback, handleAuthStart } from "./auth.ts";
 import { deleteExpiredEnrollTokens, deleteOldDaybits } from "./cron.ts";
-import { DEMO_TODAY, demoData } from "./demo.ts";
+import { DEMO_TODAY, demoData, demoOverviewDays } from "./demo.ts";
 import { handleEnroll, handleRevoke } from "./enroll.ts";
 import { FAVICON_CACHE_CONTROL, FAVICON_PATH, FAVICON_SVG } from "./favicon.ts";
 import { centerOf } from "./graph/balance.ts";
+import { DAYS } from "./graph/grid.ts";
+import { sumOverview } from "./graph/overview.ts";
 import { buildScale } from "./graph/scale.ts";
-import { renderStoredGraph } from "./graph-data.ts";
+import { renderStoredGraph, renderStoredOverview } from "./graph-data.ts";
 import { googleKeys } from "./idtoken.ts";
 import { handleIngest } from "./ingest.ts";
 import { type GraphData, loadGraphData } from "./json.ts";
 import { d1KeyResolver } from "./keys.ts";
+import { renderOverview } from "./overview-svg.ts";
 import { parseLabel, parseParams, parseUser, parseYear } from "./params.ts";
 import { handleProbe } from "./probe.ts";
 import { HOME_PATH, handleHome, handlePrivacy, PRIVACY_PATH } from "./site.ts";
@@ -35,6 +39,9 @@ import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
 
 /** `publicId` は URL で決まる。どのプロジェクトを描くかをクエリで指定しない (design §6)。 */
 const GRAPH_PATH = /^\/v1\/g\/([^/]+)\.svg$/;
+
+/** 活動の概観 (ADR-0021)。**草と同じ publicId** から作る (草の URL を受け取った人にも見える)。 */
+const OVERVIEW_PATH = /^\/v1\/g\/([^/]+)\/overview\.svg$/;
 
 /** 日ごとの集計値。**草の URL からは導けない鍵を並べる** (ADR-0020)。 */
 const GRAPH_DATA_PATH = /^\/v1\/g\/([^/]+)\/([^/]+)\.json$/;
@@ -131,6 +138,31 @@ export default {
       return notFound();
     }
 
+    const overviewId = OVERVIEW_PATH.exec(url.pathname)?.[1];
+    if (overviewId === DEMO_PUBLIC_ID) {
+      return svgResponse(request, renderDemoOverview(url.searchParams));
+    }
+    // 形の違う publicId は D1 を引かずに 404
+    if (overviewId !== undefined && isValidPublicId(overviewId)) {
+      let body: string | undefined;
+      try {
+        body = await renderStoredOverview(
+          env.DB,
+          overviewId,
+          parseParams(url.searchParams),
+          Date.now(),
+          parseYear(url.searchParams),
+        );
+      } catch {
+        console.log(JSON.stringify({ event: "overview", status: 503 }));
+        return unavailable();
+      }
+      if (body !== undefined) {
+        return svgResponse(request, body);
+      }
+      return notFound();
+    }
+
     const publicId = GRAPH_PATH.exec(url.pathname)?.[1];
     if (publicId === DEMO_PUBLIC_ID) {
       return svgResponse(request, renderDemo(url.searchParams));
@@ -208,6 +240,22 @@ function renderDemo(search: URLSearchParams): string {
     params: parseParams(search),
     label: parseLabel(search),
     user: parseUser(search),
+  });
+}
+
+/** 活動の概観のデモ。期間の決め方は草のデモと同じ。 */
+function renderDemoOverview(search: URLSearchParams): string {
+  const params = parseParams(search);
+  const end = parseYear(search);
+  const today = end !== undefined && end < DEMO_TODAY ? end : DEMO_TODAY;
+  const start = fromEpochDay(toEpochDay(today) - DAYS * (params.weeks - 1));
+  const days = [...demoOverviewDays()]
+    .filter(([day]) => day >= start && day <= today)
+    .map(([, values]) => values);
+  return renderOverview({
+    totals: sumOverview(days),
+    theme: params.theme,
+    palette: params.palette,
   });
 }
 

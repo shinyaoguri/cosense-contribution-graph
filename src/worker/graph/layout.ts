@@ -152,11 +152,11 @@ const FONT_SIZE = 9;
 const CELL_RADIUS = 2;
 
 // 外部フォントは読めないので OS の日本語フォントを並べる。CJK フォントの無い環境では文字化けする
-const FONT_FAMILY =
+export const FONT_FAMILY =
   "'Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans CJK JP','Yu Gothic',Meiryo,sans-serif";
 
 // 背景は両テーマとも透明。埋め込み側がテーマを選ぶ前提で、文字色だけ変える
-const TEXT_COLOR: Record<Theme, string> = { light: "#57606a", dark: "#9198a1" };
+export const TEXT_COLOR: Record<Theme, string> = { light: "#57606a", dark: "#9198a1" };
 
 /**
  * ユーザー名の文字色 (2026-09-24)。ほかのラベルより濃くして、誰の草かを先に読ませる。
@@ -179,7 +179,7 @@ const BALANCE_STRIP_LEVEL = 3;
 const AMOUNT_STRIP_BALANCE = 0;
 
 /** 計測開始前のマスの枠 (design §8)。文字色より薄くして、記録のあるマスと取り違えないようにする */
-const MUTED_COLOR: Record<Theme, string> = { light: "#d0d7de", dark: "#3d444d" };
+export const MUTED_COLOR: Record<Theme, string> = { light: "#d0d7de", dark: "#3d444d" };
 
 /**
  * プロジェクトのページ (Issue #119)。**ラベルにも `href` にも同じものを使う** —
