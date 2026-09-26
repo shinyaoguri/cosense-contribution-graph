@@ -23,6 +23,13 @@ describe("GET /v1/g/{publicId}.svg — D1 が読めない", () => {
     expect(res.headers.get("cache-control")).toBe("no-store");
   });
 
+  it("**活動の概観も 503 で、キャッシュさせない**", async () => {
+    const res = await SELF.fetch(`https://example.com/v1/g/${"0".repeat(32)}/overview.svg`);
+
+    expect(res.status).toBe(503);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+  });
+
   it("デモは D1 を使わないので描ける", async () => {
     const res = await SELF.fetch("https://example.com/v1/g/demo.svg");
     expect(res.status).toBe(200);
