@@ -20,15 +20,15 @@ Cosense (旧 Scrapbox) の活動を草として可視化する。成果物は **
 
 | | 役割 |
 |---|---|
-| `docs/decisions.md` | ADR。**最初に読む。** 送信経路と身元の紐づけが素朴な設計と違う理由がここにある |
+| `docs/decisions/` | ADR。1 件 1 ファイルで、`README.md` が一覧。**最初に読む。** 送信経路と身元の紐づけが素朴な設計と違う理由がここにある |
 | `docs/design.md` | 設計。指標・スキーマ・API・配色・脅威モデル |
 | `docs/research.md` | 実測事実。**基準日と出典が付いている。推測で上書きしない** |
 | `docs/roadmap.md` | 実装順と段階ごとの完了条件。どこまで進んだかもここにある |
 | `docs/privacy.md` | プライバシーポリシーの草案 |
 
-設計判断を変えるときは ADR を足すか、既存 ADR に改訂を書く。**ADR が 20 件を超えたら
-`docs/decisions/` へ分割する** (それまでは単一ファイルのまま)。
-件数は `grep -c '^## ADR-' docs/decisions.md` で数える。**本文に件数を書かない** (足すたびにずれる。#37)。
+設計判断を変えるときは ADR を足すか、既存 ADR に改訂を書く。**ADR は `docs/decisions/NNNN-<slug>.md` に
+1 件 1 ファイルで足し、`docs/decisions/README.md` の一覧に 1 行足す** (漏れは `check-links.sh` が落とす)。
+**`docs/decisions.md` は古いリンクの受け皿で、ADR を足さない** (#149)。**本文に件数を書かない** (足すたびにずれる。#37)。
 
 ## 検証
 

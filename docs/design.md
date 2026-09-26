@@ -3,8 +3,8 @@
 Cosense (旧 Scrapbox) の活動を GitHub のコントリビューショングラフのように可視化する。
 成果物は UserScript と Cloudflare Worker + D1 の2つ。
 
-前提となる実測事実は `research.md`、設計判断とその理由は `decisions.md` にある。
-**この文書を読む前に `decisions.md` の ADR-0001 / ADR-0002 / ADR-0011 を読むこと。**
+前提となる実測事実は `research.md`、設計判断とその理由は `decisions/` にある。
+**この文書を読む前に `decisions/` の ADR-0001 / ADR-0002 / ADR-0011 を読むこと。**
 送信経路、指標の持ち方、身元の紐づけ方が素朴な設計と違う理由がそこにある。
 
 ---

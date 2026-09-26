@@ -10,4 +10,4 @@ labels: enhancement
 
 ## 関連する記録
 
-<!-- docs/decisions.md の ADR、docs/roadmap.md の段階、既存の PR / Issue があれば -->
+<!-- docs/decisions/ の ADR、docs/roadmap.md の段階、既存の PR / Issue があれば -->
