@@ -10,17 +10,12 @@
  */
 import privacyMarkdown from "../../docs/privacy.md";
 import { ACCOUNT_PATH } from "../shared/auth.ts";
+import { DISTRIBUTION_URL, PRIVACY_PATH, REPOSITORY_URL } from "../shared/links.ts";
 import { FAVICON_LINK } from "./favicon.ts";
 import { renderMarkdown } from "./markdown.ts";
 import { DEMO_PUBLIC_ID } from "./svg.ts";
 
 export const HOME_PATH = "/";
-export const PRIVACY_PATH = "/privacy";
-
-/** 配布ページ (ADR-0005)。トップから導入の手順を案内する。 */
-const DISTRIBUTION_URL = "https://scrapbox.io/cosense-grass/";
-
-const REPOSITORY_URL = "https://github.com/shinyaoguri/cosense-contribution-graph";
 
 const CACHE_CONTROL = "public, max-age=3600";
 

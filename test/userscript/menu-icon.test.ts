@@ -8,6 +8,7 @@ const enrolled: SendStatus = {
   kid: "0123456789abcdef",
   graphUrl: "https://grass.soui.dev/v1/g/total.svg",
   overviewUrl: "https://grass.soui.dev/v1/g/total/overview.svg",
+  dataUrl: "https://grass.soui.dev/v1/g/total/ffffffffffffffffffffffffffffffff.json",
   totalSent: true,
   projects: [],
   todaySends: 0,

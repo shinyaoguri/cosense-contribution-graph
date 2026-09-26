@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { encodeBase64url } from "../../src/shared/base64url.ts";
 import { parseIngestQuery } from "../../src/shared/beacon.ts";
-import { kidOf, PH_ALL, phOf, publicIdOf } from "../../src/shared/ids.ts";
+import { dataKeyOf, kidOf, PH_ALL, phOf, publicIdOf } from "../../src/shared/ids.ts";
 import {
   exportPublicKey,
   generateSigningKeyPair,
@@ -14,7 +14,7 @@ import { MAX_TODAY_SENDS, readSent, SENT_KEY } from "../../src/userscript/outbox
 import { backoffMs, createSender } from "../../src/userscript/sender.ts";
 import { type Activity, createStore } from "../../src/userscript/store.ts";
 import { localDay } from "../../src/userscript/time.ts";
-import { graphUrl, overviewUrl } from "../../src/userscript/worker-origin.ts";
+import { dataUrl, graphUrl, overviewUrl } from "../../src/userscript/worker-origin.ts";
 
 const UID = encodeBase64url(new Uint8Array(20).fill(9));
 
@@ -393,6 +393,11 @@ describe("createSender — status", () => {
     expect(after.graphUrl).toMatch(/^https:\/\/grass\.soui\.dev\/v1\/g\/[0-9a-f]{32}\.svg$/);
     // 概観は草と同じ publicId で、名前を付けない (ADR-0021)
     expect(after.overviewUrl).toBe(after.graphUrl.replace(/\.svg$/, "/overview.svg"));
+    // 日ごとの数値は uid からしか作れない鍵を並べる (ADR-0020)。草の URL の publicId とは別の値
+    expect(after.dataUrl).toBe(
+      dataUrl(await publicIdOf(UID, PH_ALL), await dataKeyOf(UID, PH_ALL)),
+    );
+    expect(after.dataUrl).not.toContain(`/${await publicIdOf(UID, PH_ALL)}.json`);
     expect(after.pendingPastDays).toBe(0);
     expect(after.todayPending).toBe(false);
     expect(after.todaySends).toBe(1);
@@ -408,6 +413,10 @@ describe("createSender — status", () => {
         name: "p",
         graphUrl: graphUrl(await publicIdOf(UID, await phOf(UID, "p")), { project: "p" }),
         overviewUrl: overviewUrl(await publicIdOf(UID, await phOf(UID, "p"))),
+        dataUrl: dataUrl(
+          await publicIdOf(UID, await phOf(UID, "p")),
+          await dataKeyOf(UID, await phOf(UID, "p")),
+        ),
         sent: true,
       },
     ]);
