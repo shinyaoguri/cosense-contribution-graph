@@ -22,17 +22,17 @@ const CASES: readonly (readonly [string, () => string, string])[] = [
   [
     "デモ (ライト)",
     () => render(demo()),
-    "9a498dbd61c5f27521806fee32ece49e8439b249cba4431fc85afbc9332847b2",
+    "08330a6211cb495a8cb3ad2f39bc73b9d8714c67b71be96d53e2ce14b3de18f7",
   ],
   [
     "デモ (ダーク)",
     () => render(demo(), "dark"),
-    "d0cd7250e7780f8822948716d580ed57fb93fbb95146fdaae986e971c7857ec6",
+    "4f93b995cbb7468f1c091f161cbf4dfc5200019e7e27fd5243386cefdb1812bd",
   ],
   [
     "デモ (blue-yellow)",
     () => render(demo(), "light", "blue-yellow"),
-    "23e32aa4c35dc07c985bebb3f3c15394858b5d360cb6a1715b8fb1e1d9182e85",
+    "caa026893bde5dbd1fd8d14374940c41838af4c4e7441d26a523eea0b5dba9b3",
   ],
   [
     "1 軸だけ",
