@@ -209,9 +209,8 @@ describe.each(SCHEME_NAMES)("palette=%s の格子", (name) => {
   function expectedGrid(balanceOfDay: (minutes: { w: number; r: number }) => number): string[] {
     return gridCells(DEMO_TODAY, MAX_WEEKS).map((cell) => {
       const minutes = days.get(cell.day) ?? { w: 0, r: 0 };
-      const total = minutes.w + minutes.r;
-      const level = levelOf(total, scale);
-      return scheme.cell({ level, balance: balanceOfDay(minutes), total }, "light");
+      const level = levelOf(minutes.w + minutes.r, scale);
+      return scheme.cell({ level, balance: balanceOfDay(minutes) }, "light");
     });
   }
 
@@ -239,7 +238,7 @@ describe("デモの草", () => {
 
     for (const balance of scheme.legendBalances) {
       const column = new Set(
-        ([1, 2, 3, 4] as const).map((level) => scheme.cell({ level, balance, total: 99 }, "light")),
+        ([1, 2, 3, 4] as const).map((level) => scheme.cell({ level, balance }, "light")),
       );
       const days = grid.filter((fill) => column.has(fill)).length;
       expect(days, `balance=${balance}`).toBeGreaterThanOrEqual(30);
@@ -250,12 +249,10 @@ describe("デモの草", () => {
 describe.each(SCHEME_NAMES)("palette=%s の凡例 (スキームから組み立てる)", (name) => {
   /**
    * 凡例は 量の帯 (Level 1〜4、バランス 0) → 読み書きの帯 (Level 3、スキームのバランスの見本)。
-   * マスは飽和させる (total = Infinity)。
    */
   function expectedLegend(theme: Theme): string[] {
     const scheme = schemeOf(name);
-    const cell = (level: 1 | 2 | 3 | 4, balance: number) =>
-      scheme.cell({ level, balance, total: Number.POSITIVE_INFINITY }, theme);
+    const cell = (level: 1 | 2 | 3 | 4, balance: number) => scheme.cell({ level, balance }, theme);
     return [
       ...([1, 2, 3, 4] as const).map((level) => cell(level, 0)),
       ...scheme.legendBalances.map((balance) => cell(3, balance)),

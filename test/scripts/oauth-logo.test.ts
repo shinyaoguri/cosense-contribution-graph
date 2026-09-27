@@ -30,10 +30,10 @@ describe("OAuth 同意画面のロゴ", () => {
     expect(png.length).toBeLessThan(10_000);
   });
 
-  it("**favicon と同じ絵** — 中央のマスは synced の最も濃い紫、四隅は白", () => {
+  it("**favicon と同じ絵** — 中央のマスは synced の最も濃い青緑、四隅は白", () => {
     const { pixel } = decode(renderLogo());
 
-    expect(pixel(60, 60)).toBe("#5b21b6");
+    expect(pixel(60, 60)).toBe("#00755b");
     for (const [x, y] of [
       [0, 0],
       [119, 0],

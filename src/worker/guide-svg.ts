@@ -34,13 +34,21 @@ const READ_BALANCE = BALANCES[0] ?? -1;
 const WRITE_BALANCE = BALANCES[BALANCES.length - 1] ?? 1;
 
 export function cellColor(level: Level, balance: number): string {
-  return SCHEME.cell({ level, balance, total: Number.POSITIVE_INFINITY }, THEME);
+  return SCHEME.cell({ level, balance }, THEME);
 }
 
 /** 読んだ・書いたの見本の色。概観の塗りと同じ段 (Level 3) */
 const WRITE_COLOR = cellColor(3, WRITE_BALANCE);
 const READ_COLOR = cellColor(3, READ_BALANCE);
 const EMPTY_COLOR = cellColor(0, 0);
+
+/**
+ * 「読んだ」「書いた」の文字の色。**マスの色をそのまま文字に使わない** — 琥珀はもともと明るいので、
+ * 白地で Level 3 は 2.4:1、Level 4 でも 3.8:1 しかない。読み寄りは Level 4 の紫 (8.0:1)、
+ * 書き寄りは Level 4 の琥珀を同じ色相のまま 4.5:1 を超えるまで暗くした色 (4.9:1) にする (ADR-0023)
+ */
+const READ_TEXT = cellColor(4, READ_BALANCE);
+const WRITE_TEXT = "#946900";
 
 type TextOptions = {
   readonly anchor?: "start" | "middle" | "end";
@@ -184,10 +192,10 @@ function minutesSvg(): string {
   return svg(
     "minutes",
     text(20, 18, "例: ある日の 10:00〜10:19 (1 マス = 1 分)", { weight: "bold", fill: STRONG }) +
-      above(0, 2, "読んだ", "見ていて操作した", READ_COLOR) +
-      above(3, 8, "書いた", "ページを編集した", WRITE_COLOR) +
-      above(9, 11, "読んだ", "スクロールなど", READ_COLOR) +
-      above(15, 17, "読んだ", "", READ_COLOR) +
+      above(0, 2, "読んだ", "見ていて操作した", READ_TEXT) +
+      above(3, 8, "書いた", "ページを編集した", WRITE_TEXT) +
+      above(9, 11, "読んだ", "スクロールなど", READ_TEXT) +
+      above(15, 17, "読んだ", "", READ_TEXT) +
       below(12, 14, "数えない", "3 分操作が無い") +
       below(18, 19, "数えない", "別のタブへ") +
       bothNote +
@@ -295,10 +303,10 @@ function grassSvg(): string {
     arrow(keyMiddle - 22, keyBottom + 14, keyX + 2, keyBottom + 14) +
     arrow(keyMiddle + 22, keyBottom + 14, keyRight - 2, keyBottom + 14) +
     text(keyMiddle, keyBottom + 18, "ふだん", { anchor: "middle", size: SMALL }) +
-    text(keyX, keyBottom + 32, "読み寄り", { fill: READ_COLOR, weight: "bold" }) +
+    text(keyX, keyBottom + 32, "読み寄り", { fill: READ_TEXT, weight: "bold" }) +
     text(keyRight, keyBottom + 32, "書き寄り", {
       anchor: "end",
-      fill: WRITE_COLOR,
+      fill: WRITE_TEXT,
       weight: "bold",
     }) +
     text(keyMiddle, keyBottom + 50, "色合い = 読み書きの比率", {
@@ -315,9 +323,9 @@ function grassSvg(): string {
   const notes =
     line(20, notesY - 22, GUIDE_WIDTH - 20, notesY - 22, MUTED) +
     badge(28, notesY - 4, 1) +
-    text(44, notesY, "よく書いた日: 量が多いので濃く、書いた分が多いのでピンク", { fill: STRONG }) +
+    text(44, notesY, "よく書いた日: 量が多いので濃く、書いた分が多いので黄色", { fill: STRONG }) +
     badge(28, notesY + 20, 2) +
-    text(44, notesY + 24, "少し読んだだけの日: 量が少ないので薄く、読んだ分が多いので青", {
+    text(44, notesY + 24, "少し読んだだけの日: 量が少ないので薄く、読んだ分が多いので紫", {
       fill: STRONG,
     });
 

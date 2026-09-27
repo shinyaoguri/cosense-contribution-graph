@@ -118,10 +118,7 @@ describe("layoutOverview", () => {
 
   it("色は配色の量の帯の Level 3 (バランス 0) で、テーマに従う", () => {
     for (const theme of ["light", "dark"] as const) {
-      const expected = schemeOf(DEFAULT_SCHEME).cell(
-        { level: 3, balance: 0, total: Number.POSITIVE_INFINITY },
-        theme,
-      );
+      const expected = schemeOf(DEFAULT_SCHEME).cell({ level: 3, balance: 0 }, theme);
       expect(layout({ read: 1 }, theme).shapeColor).toBe(expected);
     }
     expect(layout({}, "light").textColor).not.toBe(layout({}, "dark").textColor);

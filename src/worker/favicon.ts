@@ -12,7 +12,7 @@ import { grassIconSvg } from "../shared/grass-icon.ts";
 
 export const FAVICON_PATH = "/favicon.svg";
 
-/** 状態で変えない。Worker のページは「送っている」側なので、ボタンの `synced` (紫) を使う。 */
+/** 状態で変えない。Worker のページは「送っている」側なので、ボタンの `synced` (青緑) を使う。 */
 export const FAVICON_SVG = grassIconSvg("synced");
 
 /** 各ページの `<head>` に入れる 1 行。 */
