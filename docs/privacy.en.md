@@ -53,10 +53,10 @@ Our use of information received from Google APIs adheres to the
 During authentication, we use one short-lived cookie to prevent forgery (`__Host-grass-auth`, valid for 10 minutes).
 It contains only a random value and the time it was issued, not the user identifier. It is deleted when you come back from sign-in, whether sign-in succeeded or failed.
 
-When sign-in succeeds, we issue **a cookie for viewing your registered devices, valid for 30 minutes only**
+When sign-in succeeds, we issue **a cookie for using the management page (`/account`), valid for 30 minutes only**
 (`__Host-grass-session`). It contains the user identifier and the time it was issued, and is signed.
 JavaScript cannot read it (HttpOnly), and it is not sent on navigation from other sites (SameSite=Lax).
-It is used only on the device list and revocation page, and never for recording activity.
+It is used only on the management page (device list and revocation, share URLs, and data deletion), and never for recording activity.
 We do not use cookies for tracking.
 
 ## Logs
@@ -74,7 +74,7 @@ What we record are statistics such as approximate write volume, authentication f
 | Hashes of device registration codes | Until used (up to 5 minutes; if unused, deleted by the next scheduled job) |
 
 Daily totals are **kept indefinitely so that you can look back on them years later.**
-You can delete them at any time from the settings when you no longer need them.
+You can delete them at any time from the management page (`/account`) when you no longer need them.
 
 Per-minute bitmaps are working data used to merge correctly when the same record arrives more than once.
 They are deleted after 90 days, but the graph does not change because the daily totals remain.
