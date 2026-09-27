@@ -427,7 +427,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
 
   /**
    * 説明の見出しの帯 (#170)。素の `summary` では既定の小さな三角しか手がかりが無く、開けることに気付きにくかった。
-   * 枠と背景でボタンらしくし、左に「?」、右端に「開く / 閉じる」と向きの変わる山形を置く。
+   * 背景でボタンらしくし (枠は `details` 全体に付ける)、左に「?」、右端に「開く / 閉じる」と向きの変わる山形を置く。
    * `[open]` のセレクタはインラインの style で書けないので、`toggle` で文言と向きを変える
    */
   const guideSummary = (details: HTMLDetailsElement) => {
@@ -437,8 +437,6 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
       alignItems: "center",
       gap: "8px",
       padding: "6px 10px",
-      border: `1px solid ${BORDER_COLOR}`,
-      borderRadius: "6px",
       background: GUIDE_BACKGROUND,
       cursor: "pointer",
       listStyle: "none",
@@ -481,6 +479,8 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     const sync = () => {
       hint.textContent = details.open ? "閉じる" : "開く";
       chevron.style.transform = details.open ? "rotate(90deg)" : "";
+      // 開いているときだけ見出しと本文を区切る。閉じているときは囲みの枠と重なって二重線になる
+      summary.style.borderBottom = details.open ? `1px solid ${BORDER_COLOR}` : "";
     };
     details.addEventListener("toggle", sync);
     sync();
@@ -494,6 +494,13 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
   const guide = () => {
     const details = element("details");
     details.setAttribute(GUIDE_ATTRIBUTE, "");
+    // 枠は見出しでなく `details` 全体に付け、開いたときに本文まで 1 つの囲みにする (#173)。
+    // 本文が枠なしで続くと、どこまでが説明か分からなかった。角の背景を枠の丸みで切るため `overflow: hidden`
+    Object.assign(details.style, {
+      border: `1px solid ${BORDER_COLOR}`,
+      borderRadius: "6px",
+      overflow: "hidden",
+    });
     const summary = guideSummary(details);
     const privacy = element("p");
     privacy.append(
@@ -502,7 +509,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
       "をご覧ください。",
     );
     const body = element("div");
-    body.style.padding = "4px 10px 0";
+    body.style.padding = "4px 12px 8px";
     body.append(
       ...guideSection(
         "数えているもの",

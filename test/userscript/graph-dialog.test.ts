@@ -363,9 +363,8 @@ describe("createGraphDialog", () => {
     t.open(graphs([]));
     const details = t.find()?.querySelector("details");
     const summary = details?.querySelector("summary");
-    // 既定の三角を消し、枠と背景でボタンらしく見せる
+    // 既定の三角を消し、背景でボタンらしく見せる
     expect(summary?.style.listStyle).toBe("none");
-    expect(summary?.style.border).not.toBe("");
     expect(summary?.style.background).not.toBe("");
     // 「?」・開閉の文言・山形は飾りで、読み上げない (開閉の状態は details が伝える)
     const decorations = [...(summary?.querySelectorAll("[aria-hidden='true']") ?? [])];
@@ -385,6 +384,29 @@ describe("createGraphDialog", () => {
     details.dispatchEvent(new Event("toggle"));
     expect(decorations[1]?.textContent).toBe("開く");
     expect(chevron.style.transform).toBe("");
+  });
+
+  it("**開いた範囲が分かるよう、枠は見出しと本文をまとめて囲む** (#173)", () => {
+    const t = setup();
+    t.open(graphs([]));
+    const details = t.find()?.querySelector("details");
+    const summary = details?.querySelector("summary");
+    if (details === null || details === undefined || summary === null || summary === undefined) {
+      throw new Error("details が無い");
+    }
+    // 枠は見出しでなく details 全体
+    expect(details.style.border).not.toBe("");
+    expect(summary.style.border).toBe("");
+    // 閉じているときは区切り線を引かない (枠と重なって二重線になる)
+    expect(summary.style.borderBottom).toBe("");
+
+    details.open = true;
+    details.dispatchEvent(new Event("toggle"));
+    expect(summary.style.borderBottom).not.toBe("");
+
+    details.open = false;
+    details.dispatchEvent(new Event("toggle"));
+    expect(summary.style.borderBottom).toBe("");
   });
 
   it("説明の図の読み方は、長さが平方根で % は分の割合であることを書く (#169)", () => {
