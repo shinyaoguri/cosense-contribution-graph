@@ -5,7 +5,9 @@
   "extends": "../tsconfig.json",
   "compilerOptions": {
     "lib": ["es2023"],
-    "types": ["node", "@cloudflare/vitest-plugin/types"]
+    "types": ["node", "@cloudflare/vitest-plugin/types"],
+    // README の画像の台帳 (docs/readme-images.json) を読む
+    "resolveJsonModule": true
   },
   "include": [
     "../worker-configuration.d.ts",

@@ -19,6 +19,7 @@
     "build:userscript": "node scripts/build-userscript.mjs",
     "paste": "node scripts/paste-distribution.ts",
     "logo": "node scripts/oauth-logo.ts",
+    "readme-images": "node scripts/readme-images.ts",
     "build": "wrangler deploy --dry-run && npm run build:userscript",
     "check": "npm run lint && npm run typecheck && npm run knip && npm test && npm run build"
   },

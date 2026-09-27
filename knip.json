@@ -1,5 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "project": ["src/**/*.ts", "scripts/**/*.{mjs,ts}", "test/**/*.ts"],
-  "ignoreDependencies": ["cloudflare"]
+  "ignoreDependencies": ["cloudflare"],
+  "ignoreBinaries": ["rsvg-convert"]
 }

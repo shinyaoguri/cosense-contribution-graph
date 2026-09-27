@@ -121,3 +121,6 @@ Worker の API も `/v1/` を固定し、破壊的変更では `/v2/` へ上げ�
 - PR タイトルは Conventional Commits。squash merge でそのままコミット要約になる
 - `Closes #N` は **PR 本文**に書く。コミットメッセージ側は squash で捨てられる
 - 見た目が変わる変更は証跡を Gyazo へ上げて URL を貼る。**画像をリポジトリにコミットしない**
+- **README の画像は `docs/readme-images.json` の台帳が正本**で、`<img>` 行は手で書かない。
+  草・概観・説明図の描画を変えたら `npm run dev` を起動して `npm run readme-images` で撮り直す
+  (Gyazo へ上げて台帳と README を書き戻す。撮り直さないと `test/worker/readme-images.test.ts` が落ちる)
