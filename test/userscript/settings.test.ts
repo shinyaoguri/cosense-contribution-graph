@@ -39,6 +39,16 @@ describe("この端末", () => {
     expect(model.signIn).toEqual({ label: SIGN_IN_LABEL });
   });
 
+  it("**未登録の案内は、登録するまで草が出ないことと、数えるのは続けていることを書く** (ADR-0019、#189)", () => {
+    const { device } = describeSettings({ kind: "not-enrolled" }, settings(true));
+    const text = device.lines.join("\n");
+
+    expect(text).toContain("登録するまで草は出ません");
+    expect(text).toContain("直近 30 日分");
+    // 草を描くのは Worker だけ。ブラウザの中で草を表示するとは書かない
+    expect(text).not.toContain("表示します");
+  });
+
   it("**登録済みなら kid を出し、サインインし直せる** (鍵が使えなくなったときの手当て)", () => {
     const model = describeSettings(ENROLLED, settings(true));
 
