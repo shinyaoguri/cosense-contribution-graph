@@ -56,6 +56,9 @@ const DIALOG_CSS = [
   `${BUTTONS}:hover:not(:disabled) { background: #e6e6e6; border-color: #adadad; text-decoration: none; }`,
   `${BUTTONS}:focus-visible { outline: 2px solid #3d72f5; outline-offset: 1px; }`,
   `${DIALOG} button:disabled { opacity: 0.65; cursor: not-allowed; }`,
+  // 期間の選択 (#177)。ボタンと同じ枠にする
+  `${DIALOG} select { font: inherit; font-size: 12px; line-height: 18px; padding: 4px 8px; color: #333; background: #fff; border: 1px solid #ccc; border-radius: 3px; cursor: pointer; }`,
+  `${DIALOG} select:focus-visible { outline: 2px solid #3d72f5; outline-offset: 1px; }`,
   // Safari は summary を `display: flex` にしても既定の三角を出すので、疑似要素で消す (#172)
   `${DIALOG} summary::-webkit-details-marker { display: none; }`,
 ].join("\n");

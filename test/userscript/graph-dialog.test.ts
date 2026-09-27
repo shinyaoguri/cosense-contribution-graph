@@ -3,10 +3,12 @@ import { BUTTON_CLASS, DIALOG_ATTRIBUTE } from "../../src/userscript/dialog.ts";
 import {
   COPIED_FEEDBACK_MS,
   createGraphDialog,
+  FIRST_YEAR,
   GRAPH_HEIGHT,
   GRAPH_WIDTH,
   OVERVIEW_HEIGHT,
   OVERVIEW_WIDTH,
+  RECENT_PERIOD_LABEL,
   type SendNowResult,
 } from "../../src/userscript/graph-dialog.ts";
 import { MENU_TITLE, SETTINGS_LABEL } from "../../src/userscript/settings.ts";
@@ -114,6 +116,7 @@ function setup(
   writeText: (text: string) => Promise<void> = () => Promise.resolve(),
   sendNow: () => Promise<SendNowResult> = () =>
     Promise.resolve({ text: "送りました。", view: SYNC, refresh: false }),
+  now?: () => number,
 ) {
   const copied: string[] = [];
   const settings = { count: 0 };
@@ -123,6 +126,7 @@ function setup(
       copied.push(text);
       return writeText(text);
     },
+    ...(now ? { now } : {}),
   });
   /** 「設定」のハンドラを付けて開く。呼ばれた回数は `settings.count` で見る */
   const open = (view: IntegratedView) =>
@@ -796,5 +800,157 @@ describe("createGraphDialog", () => {
     await settle();
 
     expect(t.copied).toEqual([url("aa")]);
+  });
+
+  describe("期間 (#177)", () => {
+    /** 2027 年 3 月 1 日 (ローカル時刻) */
+    const IN_2027 = () => new Date(2027, 2, 1).getTime();
+    const choose = (t: ReturnType<typeof setup>, value: string) => {
+      const select = t.find()?.querySelector("select");
+      if (!select) {
+        throw new Error("期間の選択が無い");
+      }
+      select.value = value;
+      select.dispatchEvent(new Event("change"));
+    };
+    const srcs = (t: ReturnType<typeof setup>, selector: string) =>
+      [...(t.find()?.querySelectorAll<HTMLImageElement>(selector) ?? [])].map((img) =>
+        img.getAttribute("src"),
+      );
+
+    it("**選択肢は「直近 1 年」と、去年から 2026 年までの各年。今年は並べない** (直近 1 年と同じ絵になる)", () => {
+      const t = setup(undefined, undefined, () => new Date(2028, 0, 5).getTime());
+      t.open(graphs([]));
+      const options = [...(t.find()?.querySelectorAll("option") ?? [])];
+      expect(options.map((o) => [o.value, o.textContent])).toEqual([
+        ["", RECENT_PERIOD_LABEL],
+        ["2027", "2027 年"],
+        ["2026", "2026 年"],
+      ]);
+      expect(FIRST_YEAR).toBe(2026);
+      // 理由の文言だけのとき (草が無い) は出さない
+      document.body.replaceChildren();
+      const u = setup(undefined, undefined, IN_2027);
+      u.open(message("この端末は未登録"));
+      expect(u.find()?.querySelector("select")).toBeNull();
+    });
+
+    it("**過去の年が無いあいだ (2026 年) は、期間の欄を出さない**", () => {
+      const t = setup(undefined, undefined, () => new Date(2026, 11, 31).getTime());
+      t.open(graphs([]));
+      expect(t.find()?.querySelector("select")).toBeNull();
+      expect(t.find()?.querySelector("label")).toBeNull();
+    });
+
+    it("**年を選ぶと、すべての囲みの草と概観を ?year= 付きで読み直し、読めてから差し替える**", () => {
+      const t = setup(undefined, undefined, IN_2027);
+      t.open(graphs([{ label: "alpha", sent: true }]));
+      const created: HTMLImageElement[] = [];
+      const original = document.createElement.bind(document);
+      vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+        const node = original(tag);
+        if (tag === "img") created.push(node as HTMLImageElement);
+        return node;
+      });
+
+      choose(t, "2026");
+
+      expect(created.map((img) => img.getAttribute("src"))).toEqual([
+        `${url("aa")}?year=2026`,
+        `${overviewOf("aa")}?year=2026`,
+        `${url("b0")}?year=2026`,
+        `${overviewOf("b0")}?year=2026`,
+      ]);
+      // 読めるまでは前の絵
+      expect(srcs(t, GRASS)).toEqual([url("aa"), url("b0")]);
+      for (const img of created) {
+        img.dispatchEvent(new Event("load"));
+      }
+      expect(srcs(t, GRASS)).toEqual([`${url("aa")}?year=2026`, `${url("b0")}?year=2026`]);
+      expect(srcs(t, OVERVIEW)).toEqual([
+        `${overviewOf("aa")}?year=2026`,
+        `${overviewOf("b0")}?year=2026`,
+      ]);
+    });
+
+    it("**読み直せなければ、前の期間の絵を残さず文言に替える** (別の年の絵と取り違えない)", () => {
+      const t = setup(undefined, undefined, IN_2027);
+      t.open(graphs([]));
+      const created: HTMLImageElement[] = [];
+      const original = document.createElement.bind(document);
+      vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+        const node = original(tag);
+        if (tag === "img") created.push(node as HTMLImageElement);
+        return node;
+      });
+
+      choose(t, "2026");
+      created[0]?.dispatchEvent(new Event("error"));
+
+      expect(t.find()?.querySelector(GRASS)).toBeNull();
+      expect(t.find()?.textContent).toContain("草を表示できませんでした");
+    });
+
+    it("**コピーする草と概観の URL にも ?year= が付き、`?l=` は残る。JSON は全期間のまま**", async () => {
+      const t = setup(undefined, undefined, IN_2027);
+      const labelled = `${url("aa")}?l=villagepump`;
+      t.open({
+        kind: "graphs",
+        total: {
+          label: TOTAL_LABEL,
+          url: labelled,
+          overviewUrl: overviewOf("aa"),
+          dataUrl: dataOf("aa"),
+          sent: true,
+        },
+        projects: [],
+        sync: SYNC,
+      });
+
+      choose(t, "2026");
+      for (const copy of t.buttons("URL をコピー")) {
+        copy.click();
+      }
+      await settle();
+      expect(t.copied).toEqual([
+        `${labelled}&year=2026`,
+        `${overviewOf("aa")}?year=2026`,
+        dataOf("aa"),
+      ]);
+
+      // 直近 1 年に戻すと、付けない
+      choose(t, "");
+      t.buttons("URL をコピー")[0]?.click();
+      expect(t.copied.at(-1)).toBe(labelled);
+    });
+
+    it("**送った後の取り直しも、選んでいる年の URL で行う**。開き直すと直近 1 年に戻る", async () => {
+      const t = setup(
+        undefined,
+        () => Promise.resolve({ text: "送りました。", view: SYNC, refresh: true }),
+        IN_2027,
+      );
+      t.open(graphs([], true, { lines: [], canSend: true }));
+      choose(t, "2026");
+      const created: HTMLImageElement[] = [];
+      const original = document.createElement.bind(document);
+      vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+        const node = original(tag);
+        if (tag === "img") created.push(node as HTMLImageElement);
+        return node;
+      });
+
+      t.buttons(SEND_NOW_LABEL)[0]?.click();
+      await settle();
+      expect(created.map((img) => img.getAttribute("src"))).toEqual([
+        expect.stringMatching(/\/aa0+\.svg\?year=2026&r=\d+$/),
+        expect.stringMatching(/\/aa0+\/overview\.svg\?year=2026&r=\d+$/),
+      ]);
+
+      vi.restoreAllMocks();
+      t.open(graphs([]));
+      expect(t.find()?.querySelector("select")?.value).toBe("");
+      expect(srcs(t, GRASS)).toEqual([url("aa")]);
+    });
   });
 });

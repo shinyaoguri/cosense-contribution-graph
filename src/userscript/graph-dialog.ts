@@ -88,7 +88,20 @@ export const OVERVIEW_HEIGHT = 220;
 export type GraphDialogDependencies = {
   /** `navigator.clipboard.writeText`。**クリックの処理から await を挟まずに呼ぶ** (Safari はユーザー操作の直後でないと拒む) */
   readonly writeText: (text: string) => Promise<void>;
+  /** 期間の選択肢の「今年」を決める。既定は `Date.now` */
+  readonly now?: () => number;
 };
+
+/**
+ * 期間の選択肢の最も古い年 (#177)。Worker が記録を受け始めたのが 2026 年で、導入前の活動は遡らない (design §9)。
+ * 選択肢は去年からここまで。**今年は並べない** — `?year=` は右端を今日に落として 53 週を遡るので、
+ * 今年を選ぶと直近 1 年と同じ絵になる (`src/worker/params.ts` の `parseYear`)。
+ * そのため 2026 年のあいだは選択肢が無く、期間の欄は 2027 年から出る
+ */
+export const FIRST_YEAR = 2026;
+
+/** 期間の「直近 1 年」(`?year=` を付けない) */
+export const RECENT_PERIOD_LABEL = "直近 1 年";
 
 /** 「今すぐ送る」の結果 (`settings-dialog.ts` の `danger()` と同じ、返り値を差し込む形) */
 export type SendNowResult = {
@@ -114,9 +127,22 @@ export type GraphDialog = {
 
 export function createGraphDialog(doc: Document, deps: GraphDialogDependencies): GraphDialog {
   let dialog: HTMLDialogElement | undefined;
-  /** 表示中の統合の草。送った後にここだけ取り直す */
-  // 送った後に取り直す画像。草と概観の両方
-  let frames: { url: string; frame: HTMLElement; make: (lazy: boolean) => HTMLImageElement }[] = [];
+  /**
+   * 表示中の画像 (草と概観)。送った後と期間を替えた後に取り直す。`url` は期間を付ける前のもの。
+   * `fail` は期間を替えて読めなかったときに枠へ出すもの (前の期間の絵を残すと、別の年の絵と取り違える)
+   */
+  let frames: {
+    url: string;
+    frame: HTMLElement;
+    make: (lazy: boolean) => HTMLImageElement;
+    fail: () => void;
+  }[] = [];
+  /** 選んでいる年 (`?year=`)。`undefined` は直近 1 年。**開くたびに直近 1 年へ戻す** (#177) */
+  let period: string | undefined;
+
+  /** 選んでいる期間を URL に付ける。`l` / `u` を保つよう、文字列で `&` を継ぐ (`srcOf` と同じ) */
+  const withPeriod = (url: string) =>
+    period === undefined ? url : `${url}${url.includes("?") ? "&" : "?"}year=${period}`;
 
   const element = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string) => {
     const node = doc.createElement(tag);
@@ -215,8 +241,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     frame.style.overflowX = "auto";
     const make = (lazy: boolean) =>
       imageElement({ width: GRAPH_WIDTH, height: GRAPH_HEIGHT, alt: `${entry.label} の草` }, lazy);
-    const img = make(true);
-    img.addEventListener("error", () => {
+    const fail = () => {
       frame.replaceChildren(
         element(
           "p",
@@ -225,10 +250,12 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
             : "このブラウザからはまだ送っていません。ほかの端末からも送っていなければ、草はまだありません。",
         ),
       );
-    });
-    img.src = srcOf(entry.url);
+    };
+    const img = make(true);
+    img.addEventListener("error", fail);
+    img.src = srcOf(withPeriod(entry.url));
     frame.append(img);
-    frames.push({ url: entry.url, frame, make });
+    frames.push({ url: entry.url, frame, make, fail });
     return frame;
   };
 
@@ -246,13 +273,14 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
         { width: OVERVIEW_WIDTH, height: OVERVIEW_HEIGHT, alt: `${entry.label} の活動の概観` },
         lazy,
       );
-    const img = make(true);
-    img.addEventListener("error", () => {
+    const fail = () => {
       frame.replaceChildren();
-    });
-    img.src = srcOf(entry.overviewUrl);
+    };
+    const img = make(true);
+    img.addEventListener("error", fail);
+    img.src = srcOf(withPeriod(entry.overviewUrl));
     frame.append(img);
-    frames.push({ url: entry.overviewUrl, frame, make });
+    frames.push({ url: entry.overviewUrl, frame, make, fail });
     return frame;
   };
 
@@ -267,8 +295,64 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
       next.addEventListener("load", () => {
         frame.replaceChildren(next);
       });
-      next.src = srcOf(url, bust);
+      next.src = srcOf(withPeriod(url), bust);
     }
+  };
+
+  /**
+   * 期間を替えたときに、表示中の画像を選んだ期間の URL で読み直す (#177)。**読めてから差し替える**。
+   * 読めなければ枠を文言に替える — 前の期間の絵を残すと、別の年の絵と取り違える
+   */
+  const reloadGraphs = () => {
+    for (const { url, frame, make, fail } of frames) {
+      const next = make(false);
+      next.addEventListener("load", () => {
+        frame.replaceChildren(next);
+      });
+      next.addEventListener("error", fail);
+      next.src = srcOf(withPeriod(url));
+    }
+  };
+
+  /**
+   * 期間の選択 (#177)。「直近 1 年」と、去年から `FIRST_YEAR` までの各年。**過去の年が無ければ出さない**。
+   * 選ぶと、すべての囲みの草と概観、「URL をコピー」でコピーする URL が `?year=` 付きに替わる
+   */
+  const periodPicker = (): HTMLElement[] => {
+    const lastYear = new Date((deps.now ?? Date.now)()).getFullYear() - 1;
+    if (lastYear < FIRST_YEAR) {
+      return [];
+    }
+    const line = element("div");
+    line.style.display = "flex";
+    line.style.alignItems = "center";
+    line.style.gap = "8px";
+    line.style.margin = `${OUTER_GAP}px 0 0`;
+    const label = element("label");
+    label.style.display = "inline-flex";
+    label.style.alignItems = "center";
+    label.style.gap = "8px";
+    label.style.fontWeight = "bold";
+    const select = element("select");
+    const option = (value: string, text: string) => {
+      const node = element("option", text);
+      node.value = value;
+      return node;
+    };
+    select.append(option("", RECENT_PERIOD_LABEL));
+    for (let year = lastYear; year >= FIRST_YEAR; year--) {
+      select.append(option(String(year), `${year} 年`));
+    }
+    select.addEventListener("change", () => {
+      period = select.value === "" ? undefined : select.value;
+      reloadGraphs();
+    });
+    label.append("期間", select);
+    const hint = element("span", "過去の年の草と活動の概観を見て、その URL をコピーできます");
+    hint.style.fontSize = "smaller";
+    hint.style.color = MUTED_TEXT_COLOR;
+    line.append(label, hint);
+    return [line];
   };
 
   /** 同期の状態と「今すぐ送る」。押した後はここだけ描き直す */
@@ -322,6 +406,8 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     readonly url: string;
     readonly what: string;
     readonly open?: boolean;
+    /** 選んでいる期間を付けてコピーするか (草と概観。JSON は全期間なので付けない。#177) */
+    readonly periodic?: boolean;
   }) => {
     // 名前と操作の 2 つのセルを返す。並べる側 (`share`) の格子で名前の列の幅がそろう
     const name = element("span", target.name);
@@ -350,8 +436,9 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     };
     const copy = button("URL をコピー", () => {
       clearTimeout(reset);
+      const url = target.periodic ? withPeriod(target.url) : target.url;
       // await を挟まずに呼ぶ。結果は後から書く
-      deps.writeText(target.url).then(
+      deps.writeText(url).then(
         () => {
           status.textContent = "コピーしました";
           showCopied(true);
@@ -363,12 +450,13 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
             field = element("input");
             field.type = "text";
             field.readOnly = true;
-            field.value = target.url;
             field.style.width = "100%";
             field.style.boxSizing = "border-box";
             field.setAttribute("aria-label", `${target.what}の URL`);
             line.append(field);
           }
+          // 期間を替えて押し直したら、欄もその期間の URL にする
+          field.value = url;
           status.textContent = "コピーできなかったので、下の欄から選んでコピーしてください";
           field.select();
         },
@@ -417,17 +505,18 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     rows.style.gap = `${INNER_GAP}px 12px`;
     const note = element(
       "p",
-      "日ごとの数値の URL を渡すと、書いた分・読んだ分などの日ごとの内訳まで読めます。草や活動の概観の URL からは作れない、別の URL です。",
+      "日ごとの数値の URL を渡すと、書いた分・読んだ分などの日ごとの内訳まで読めます。草や活動の概観の URL からは作れない、別の URL です。期間によらず全期間の値です。",
     );
     note.style.margin = `${INNER_GAP * 1.5}px 0 0`;
     note.style.fontSize = "smaller";
     note.style.color = MUTED_TEXT_COLOR;
     rows.append(
-      ...copyLine({ name: "草", url: entry.url, what: `${entry.label} の草` }),
+      ...copyLine({ name: "草", url: entry.url, what: `${entry.label} の草`, periodic: true }),
       ...copyLine({
         name: "活動の概観",
         url: entry.overviewUrl,
         what: `${entry.label} の活動の概観`,
+        periodic: true,
       }),
       ...copyLine({
         name: "日ごとの数値 (JSON)",
@@ -594,10 +683,14 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
         ],
         "同じ分に両方あれば「書いた」に数えます。数えるのは、自分のページで cosense-grass を読み込んでいるプロジェクトだけです。",
       ),
-      ...guideSection("草", "1 マスが 1 日、1 列が 1 週間です (直近 53 週)。", [
-        "色の濃さ: その日の合計 (書いた分 + 読んだ分) を、これまでの全記録の分布 (四分位) で 4 段階に分けたもの。3 分未満の日は色を付けません",
-        "色合い: その日が書き寄りか読み寄りか。自分のふだんの比率 (全記録の中央値) を真ん中にして、書き寄りの日ほどピンク、読み寄りの日ほど青になります (既定の配色)",
-      ]),
+      ...guideSection(
+        "草",
+        "1 マスが 1 日、1 列が 1 週間です (直近 53 週)。2027 年からは「期間」で過去の年を選ぶと、その年の草と活動の概観になります。",
+        [
+          "色の濃さ: その日の合計 (書いた分 + 読んだ分) を、これまでの全記録の分布 (四分位) で 4 段階に分けたもの。3 分未満の日は色を付けません",
+          "色合い: その日が書き寄りか読み寄りか。自分のふだんの比率 (全記録の中央値) を真ん中にして、書き寄りの日ほどピンク、読み寄りの日ほど青になります (既定の配色)",
+        ],
+      ),
       ...guideSection(
         "活動の概観",
         "草と同じ期間の分を、次の 4 つに分けた割合です。どの分も 1 つにしか数えません。",
@@ -665,6 +758,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
         "同じ Google アカウントで登録した端末の記録をまとめた草です。ほかの人に見せる草は最大 15 分遅れて更新され、今日の列は日本時間で決まります。",
       ),
       guide(),
+      ...periodPicker(),
       graph(view.total),
       sync(view.sync, handlers),
     );
@@ -689,6 +783,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     open(view, handlers) {
       close();
       frames = [];
+      period = undefined;
       const node = element("dialog");
       styleDialog(node);
       // 長い説明文で画面の幅いっぱいに広がらないよう、草の幅に余白を足したところで止める
