@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DIALOG_ATTRIBUTE } from "../../src/userscript/dialog.ts";
 import type { SettingsModel } from "../../src/userscript/settings.ts";
 import { COUNT_READ_LABEL, SETTINGS_DIALOG_TITLE } from "../../src/userscript/settings.ts";
 import {
@@ -114,6 +115,12 @@ describe("開く", () => {
     expect(text).toContain("この端末は登録済みです。");
     expect(text).toContain("0123456789abcdef");
     expect(t.button("閉じる")).toBeUndefined();
+  });
+
+  it("枠とボタンは草のダイアログと同じく Cosense に合わせる (#175)", () => {
+    const t = setup();
+    t.open(ENROLLED);
+    expect(t.node()?.hasAttribute(DIALOG_ATTRIBUTE)).toBe(true);
   });
 
   it("**押し直しても 1 枚しか残らない**", () => {

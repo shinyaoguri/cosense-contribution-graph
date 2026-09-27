@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { BUTTON_CLASS, DIALOG_ATTRIBUTE } from "../../src/userscript/dialog.ts";
 import {
+  COPIED_FEEDBACK_MS,
   createGraphDialog,
   GRAPH_HEIGHT,
   GRAPH_WIDTH,
@@ -547,6 +549,50 @@ describe("createGraphDialog", () => {
     expect(t.copied).toEqual([url("b0")]);
     await settle();
     expect(t.find()?.textContent).toContain("コピーしました");
+  });
+
+  it("**ダイアログは Cosense の見た目の印を持つ** (#175)", () => {
+    const t = setup();
+    t.open(graphs([]));
+    expect(t.find()?.hasAttribute(DIALOG_ATTRIBUTE)).toBe(true);
+    expect(t.find()?.querySelectorAll("style")).toHaveLength(1);
+  });
+
+  it("**コピーのボタンはアイコン付きで、できたら 2 秒だけチェックと緑にして戻す** (#175)", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = setup();
+      t.open(graphs([]));
+      const copy = t.buttons("URL をコピー")[0];
+      const iconOf = () => copy?.querySelector("svg")?.getAttribute("data-icon");
+      expect(iconOf()).toBe("copy");
+      expect(copy?.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
+
+      copy?.click();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(iconOf()).toBe("check");
+      expect(copy?.style.color).not.toBe("");
+      // 文言と aria-label は変えない (読み上げと、文言でボタンを探すテストのため)
+      expect(copy?.textContent).toBe("URL をコピー");
+      const status = copy?.parentElement?.querySelector('[role="status"]');
+      expect(status?.textContent).toBe("コピーしました");
+
+      await vi.advanceTimersByTimeAsync(COPIED_FEEDBACK_MS);
+      expect(iconOf()).toBe("copy");
+      expect(copy?.style.color).toBe("");
+      expect(status?.textContent).toBe("");
+      expect(copy?.querySelectorAll("svg")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("JSON の「開く」は、リンクのままボタンの見た目にする (#175)", () => {
+    const t = setup();
+    t.open(graphs([]));
+    const open = t.find()?.querySelector<HTMLAnchorElement>("a[target=_blank]." + BUTTON_CLASS);
+    expect(open?.textContent).toBe("開く");
+    expect(open?.querySelector("svg")?.getAttribute("data-icon")).toBe("external");
   });
 
   it("**コピーできなければ、選べる欄に URL を出す** (押し直しても欄は 1 つ)", async () => {

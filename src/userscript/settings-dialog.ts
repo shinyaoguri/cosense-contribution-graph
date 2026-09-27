@@ -9,7 +9,7 @@
  *   先にこのダイアログを閉じてから呼ぶ (サインインのダイアログと重ねない)。
  *   始め方は開くたびに渡す (`sign-in-dialog.ts` と同じ handlers の形)
  */
-import { closeOnBackdropClick } from "./dialog.ts";
+import { closeOnBackdropClick, styleDialog } from "./dialog.ts";
 import {
   CLEAR_NOTE,
   COUNT_READ_LABEL,
@@ -190,6 +190,7 @@ export function createSettingsDialog(
     open(model, handlers) {
       close();
       const node = element("dialog");
+      styleDialog(node);
       node.style.maxWidth = "min(640px, calc(100% - 34px))";
       for (const type of STOPPED_EVENTS) {
         node.addEventListener(type, (event) => event.stopPropagation());

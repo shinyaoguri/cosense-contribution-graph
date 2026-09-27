@@ -2,7 +2,8 @@
  * 草のダイアログ (design §9「表示」、段階 8、Issue #73)。何を並べるかは `viewer.ts` が決める。
  *
  * - **ページに挿さずダイアログにする。** Cosense の遷移で消えないので、再マウントが要らない (ADR-0003 の改訂)
- * - **草は常にライトで出す。** 素の `<dialog>` は Cosense のどのテーマでも白地に黒 (research §3 の 2026-09-15 の実測)
+ * - **草は常にライトで出す。** 素の `<dialog>` は Cosense のどのテーマでも白地に黒 (research §3 の 2026-09-15 の実測)。
+ *   枠とボタンは Cosense の見た目に合わせる (`dialog.ts` の `styleDialog`、#175)
  * - **出すのは Worker が作った共有 SVG の `<img>` だけ** (ADR-0019、Issue #109)。ここは草を描かない。
  *   ~~このブラウザから送れていないものは、押されるまで読まない~~ **2026-09-24 に最初から読むよう改めた**
  *   (押す手間の方が煩わしかった)。読めなかったときの文言だけを、送れたかどうかで言い分ける
@@ -17,7 +18,7 @@
  *   ポップアップを開く同期区間は分断されない
  */
 import { DISTRIBUTION_URL, REPOSITORY_URL } from "../shared/links.ts";
-import { closeOnBackdropClick } from "./dialog.ts";
+import { BUTTON_CLASS, closeOnBackdropClick, styleDialog } from "./dialog.ts";
 import { MENU_TITLE, SETTINGS_LABEL } from "./settings.ts";
 import {
   type GraphEntry,
@@ -47,8 +48,31 @@ const MUTED_TEXT_COLOR = "#57606a";
 /** 説明の帯の背景。開けることが分かるよう、本文より一段濃くしてボタンらしく見せる (#170) */
 const GUIDE_BACKGROUND = "#f6f8fa";
 
-/** 説明の `<details>` に付ける印。Safari の既定の三角を消す `<style>` を、この中だけに効かせる */
-const GUIDE_ATTRIBUTE = "data-cosense-grass-guide";
+/** コピーできたことを示す色 (GitHub の成功の緑)。白地で 4.5:1 を超える */
+const SUCCESS_COLOR = "#1a7f37";
+
+/** コピーできた印 (チェックと緑) を出しておく時間 */
+export const COPIED_FEEDBACK_MS = 2000;
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** ボタンのアイコンの形 (16 × 16 の線画。色は文字色に従う) */
+const ICONS = {
+  // 2 枚の四角を重ねた「コピー」
+  copy: [
+    ["rect", { x: "5.5", y: "5.5", width: "8.5", height: "8.5", rx: "1.5" }],
+    [
+      "path",
+      { d: "M10.5 5.5V3.5A1.5 1.5 0 0 0 9 2H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2" },
+    ],
+  ],
+  check: [["path", { d: "M3 8.5l3.2 3.2L13 4.8" }]],
+  // 別のタブで開く
+  external: [
+    ["path", { d: "M9.5 2H14v4.5M14 2L7.5 8.5" }],
+    ["path", { d: "M12 9.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h3.5" }],
+  ],
+} as const satisfies Record<string, readonly (readonly [string, Record<string, string>])[]>;
 
 /** 概観と「共有する」の欄の間。狭い画面で折り返したときは縦の間隔になる */
 const ROW_GAP = 16;
@@ -107,6 +131,33 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     node.type = "button";
     node.addEventListener("click", onClick);
     return node;
+  };
+
+  /** ボタンの頭に置く 14px のアイコン。飾りなので読み上げない。`innerHTML` は使わない */
+  const icon = (kind: keyof typeof ICONS) => {
+    const svg = doc.createElementNS(SVG_NS, "svg");
+    for (const [name, value] of Object.entries({
+      width: "14",
+      height: "14",
+      viewBox: "0 0 16 16",
+      fill: "none",
+      stroke: "currentColor",
+      "stroke-width": "1.5",
+      "stroke-linecap": "round",
+      "stroke-linejoin": "round",
+      "aria-hidden": "true",
+      "data-icon": kind,
+    })) {
+      svg.setAttribute(name, value);
+    }
+    for (const [tag, attributes] of ICONS[kind]) {
+      const shape = doc.createElementNS(SVG_NS, tag);
+      for (const [name, value] of Object.entries(attributes)) {
+        shape.setAttribute(name, value);
+      }
+      svg.append(shape);
+    }
+    return svg;
   };
 
   const close = () => {
@@ -281,14 +332,33 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     line.style.gap = "4px 8px";
     const status = element("span");
     status.setAttribute("role", "status");
+    status.style.fontSize = "smaller";
     let field: HTMLInputElement | undefined;
+    let copyIcon = icon("copy");
+    let reset: ReturnType<typeof setTimeout> | undefined;
+    /** コピーできた印 (チェックと緑) を出すか戻すか。文言と `aria-label` は変えない */
+    const showCopied = (copied: boolean) => {
+      const next = icon(copied ? "check" : "copy");
+      copyIcon.replaceWith(next);
+      copyIcon = next;
+      copy.style.color = copied ? SUCCESS_COLOR : "";
+      copy.style.borderColor = copied ? SUCCESS_COLOR : "";
+      status.style.color = copied ? SUCCESS_COLOR : "";
+      if (!copied) {
+        status.textContent = "";
+      }
+    };
     const copy = button("URL をコピー", () => {
+      clearTimeout(reset);
       // await を挟まずに呼ぶ。結果は後から書く
       deps.writeText(target.url).then(
         () => {
           status.textContent = "コピーしました";
+          showCopied(true);
+          reset = setTimeout(() => showCopied(false), COPIED_FEEDBACK_MS);
         },
         () => {
+          showCopied(false);
           if (field === undefined) {
             field = element("input");
             field.type = "text";
@@ -304,11 +374,16 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
         },
       );
     });
+    copy.prepend(copyIcon);
     copy.setAttribute("aria-label", `${target.what}の URL をコピー`);
     // コピーを先に置き、行ごとの「URL をコピー」の位置をそろえる
     line.append(copy);
     if (target.open) {
-      line.append(externalLink("開く", target.url, `${target.what}を開く`));
+      // 「URL をコピー」と並ぶので、リンクのままボタンの見た目にする
+      const open = externalLink("開く", target.url, `${target.what}を開く`);
+      open.classList.add(BUTTON_CLASS);
+      open.prepend(icon("external"));
+      line.append(open);
     }
     line.append(status);
     return [name, line];
@@ -493,7 +568,6 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
    */
   const guide = () => {
     const details = element("details");
-    details.setAttribute(GUIDE_ATTRIBUTE, "");
     // 枠は見出しでなく `details` 全体に付け、開いたときに本文まで 1 つの囲みにする (#173)。
     // 本文が枠なしで続くと、どこまでが説明か分からなかった。角の背景を枠の丸みで切るため `overflow: hidden`
     Object.assign(details.style, {
@@ -538,12 +612,8 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
       ...guideSection("送るもの"),
       privacy,
     );
-    // Safari は `display: flex` にしても既定の三角を出すので、疑似要素で消す (インラインの style では書けない)
-    const style = element(
-      "style",
-      `[${GUIDE_ATTRIBUTE}] > summary::-webkit-details-marker { display: none; }`,
-    );
-    details.append(style, summary, body);
+    // Safari の既定の三角は、ダイアログの `<style>` が消す (`dialog.ts`)
+    details.append(summary, body);
     return details;
   };
 
@@ -620,6 +690,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
       close();
       frames = [];
       const node = element("dialog");
+      styleDialog(node);
       // 長い説明文で画面の幅いっぱいに広がらないよう、草の幅に余白を足したところで止める
       // 画面側の上限は既定 (`calc(100% - 6px - 2em)`) のまま。これより大きいと、余白と枠のぶん画面からはみ出す (#164)
       node.style.maxWidth = `min(${GRAPH_WIDTH + 80}px, calc(100% - 6px - 2em))`;
