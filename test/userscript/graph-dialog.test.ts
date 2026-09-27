@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { GUIDE_HEIGHTS, GUIDE_WIDTH } from "../../src/shared/guide.ts";
 import { BUTTON_CLASS, DIALOG_ATTRIBUTE } from "../../src/userscript/dialog.ts";
 import {
   COPIED_FEEDBACK_MS,
@@ -19,6 +20,7 @@ import {
   type SyncView,
   TOTAL_LABEL,
 } from "../../src/userscript/viewer.ts";
+import { WORKER_ORIGIN } from "../../src/userscript/worker-origin.ts";
 
 // jsdom 30 の <dialog> は open 属性しか無い。showModal と close を差し替える (sign-in-dialog.test.ts と同じ)
 const prototype = HTMLDialogElement.prototype as HTMLDialogElement & {
@@ -362,6 +364,34 @@ describe("createGraphDialog", () => {
     const u = setup();
     u.open(message("この端末は未登録"));
     expect(u.find()?.querySelector("details")).not.toBeNull();
+  });
+
+  it("**説明の 3 節の先頭に、Worker が描いた例の図を添える** (#182)", () => {
+    const t = setup();
+    t.open(graphs([]));
+
+    const details = t.find()?.querySelector("details");
+    const figures = [...(details?.querySelectorAll("img") ?? [])];
+    expect(figures.map((img) => img.src)).toEqual([
+      `${WORKER_ORIGIN}/v1/guide/minutes.svg`,
+      `${WORKER_ORIGIN}/v1/guide/grass.svg`,
+      `${WORKER_ORIGIN}/v1/guide/overview.svg`,
+    ]);
+    for (const [img, height] of figures.map(
+      (img, i) => [img, Object.values(GUIDE_HEIGHTS)[i]] as const,
+    )) {
+      // 図が読めないときにも要点が伝わる
+      expect(img.alt.length).toBeGreaterThan(20);
+      // 寸法を先に確保し、狭い画面では縦横比を保って縮む
+      expect(img.width).toBe(GUIDE_WIDTH);
+      expect(img.height).toBe(height);
+      expect(img.style.maxWidth).toBe("100%");
+      expect(img.style.height).toBe("auto");
+      // 畳んだ説明を開くまで取りに行かない
+      expect(img.loading).toBe("lazy");
+      // 見出しの直後に置く
+      expect(img.previousElementSibling?.tagName).toBe("H4");
+    }
   });
 
   it("**説明の見出しは、開けることが分かる帯にする** (#170)", () => {
