@@ -45,10 +45,14 @@ const CHUNK_BYTES = 25_000;
 const DELETES_PER_REQUEST = 600;
 
 /**
- * 試し直しの待ち。`503 Service Unavailable` や HTML のエラーページが 1 分近く続くことがある (#166)。
- * 間隔を伸ばしながら 5 回試し直す (合計 62 秒)。preview からやり直す (previewId は 1 回限り)
+ * 試し直しの待ち。preview はページが大きいほど遅く (3,000 行で 4〜25 秒。research §4)、貼っている途中の
+ * 新旧 2 本ぶん (約 6,000 行) では `503 Service Unavailable` や HTML のエラーページが 1 分以上続く (#166・#180)。
+ * 間隔を伸ばしながら 8 回試し直す (1 回の待ちは 60 秒まで、合計約 4 分)。どこで止まっても配信物は壊れないので
+ * (#178)、長く待つことに害は無い。preview からやり直す (previewId は 1 回限り)
  */
-export const RETRY_WAITS_MS: readonly number[] = [2_000, 4_000, 8_000, 16_000, 32_000];
+export const RETRY_WAITS_MS: readonly number[] = [
+  2_000, 4_000, 8_000, 16_000, 32_000, 60_000, 60_000, 60_000,
+];
 
 /** 配信されるファイルの見出し */
 export const SCRIPT_TITLE = "code:script.js";

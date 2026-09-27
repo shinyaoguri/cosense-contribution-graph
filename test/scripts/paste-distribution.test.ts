@@ -344,6 +344,16 @@ describe("withRetries (#166)", () => {
     expect(t.waited).toEqual(RETRY_WAITS_MS);
   });
 
+  it("**待ちは合計 3 分以上で、1 回は 60 秒まで** (大きいページの 503 が 1 分以上続く。#180)", () => {
+    const total = RETRY_WAITS_MS.reduce((a, b) => a + b, 0);
+    expect(total).toBeGreaterThanOrEqual(180_000);
+    expect(Math.max(...RETRY_WAITS_MS)).toBeLessThanOrEqual(60_000);
+    // 間隔は減らない
+    RETRY_WAITS_MS.forEach((ms, i) => {
+      expect(ms).toBeGreaterThanOrEqual(RETRY_WAITS_MS[i - 1] ?? 0);
+    });
+  });
+
   it("isRetryable: 4xx の一部だけを直らない失敗とみなす", () => {
     for (const status of [400, 401, 403, 404, 422]) {
       expect(isRetryable(`Command failed\nHTTP ${status} x`)).toBe(false);
