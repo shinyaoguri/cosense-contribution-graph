@@ -373,9 +373,9 @@ describe("createGraphDialog", () => {
     const details = t.find()?.querySelector("details");
     const figures = [...(details?.querySelectorAll("img") ?? [])];
     expect(figures.map((img) => img.src)).toEqual([
-      `${WORKER_ORIGIN}/v1/guide/minutes.svg`,
-      `${WORKER_ORIGIN}/v1/guide/grass.svg`,
-      `${WORKER_ORIGIN}/v1/guide/overview.svg`,
+      `${WORKER_ORIGIN}/v1/guide/minutes.svg?v=2`,
+      `${WORKER_ORIGIN}/v1/guide/grass.svg?v=2`,
+      `${WORKER_ORIGIN}/v1/guide/overview.svg?v=2`,
     ]);
     for (const [img, height] of figures.map(
       (img, i) => [img, Object.values(GUIDE_HEIGHTS)[i]] as const,
