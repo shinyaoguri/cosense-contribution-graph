@@ -35,10 +35,10 @@ describe("草のアイコン", () => {
     expect(svg).not.toContain('fill="#');
   });
 
-  it("送っているときは紫で塗る", () => {
+  it("送っているときは青緑で塗る", () => {
     const svg = grassIconSvg("synced");
 
-    expect(svg).toContain('fill="#7c3aed"');
+    expect(svg).toContain('fill="#30a282"');
     expect(svg).not.toContain("stroke-dasharray");
   });
 

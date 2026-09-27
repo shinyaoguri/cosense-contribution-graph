@@ -64,14 +64,15 @@ describe("GET /v1/g/demo/overview.svg", () => {
     expect(again.status).toBe(304);
   });
 
-  it("**デモは 4 軸すべてに値がある。** theme と palette が効き、過去の年は空", async () => {
+  it("**デモは 4 軸すべてに値がある。** theme が効き、未知の palette は既定に落ち、過去の年は空", async () => {
     const svg = await (await SELF.fetch(DEMO_URL)).text();
     expect(labelsOf(svg).every((label) => label.endsWith("%"))).toBe(true);
 
     const dark = await (await SELF.fetch(`${DEMO_URL}?theme=dark`)).text();
-    const yellow = await (await SELF.fetch(`${DEMO_URL}?palette=blue-yellow`)).text();
+    // blue-pink と blue-yellow は消した (ADR-0023)。貼られた URL は壊さず既定で描く
+    const removed = await (await SELF.fetch(`${DEMO_URL}?palette=blue-yellow`)).text();
     expect(dark).not.toBe(svg);
-    expect(yellow).not.toBe(svg);
+    expect(removed).toBe(svg);
 
     const past = await (await SELF.fetch(`${DEMO_URL}?year=2020`)).text();
     expect(labelsOf(past)).toEqual(["関わる", "読む", "作る", "育てる"]);

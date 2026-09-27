@@ -44,7 +44,6 @@ export function bandScheme(spec: BandSchemeSpec): ColorScheme {
   return {
     name: spec.name,
     legendBalances: spec.legendBalances,
-    // 合計分数は使わない。手で選んだ色をそのまま使う
     cell({ level, balance }: CellInput, theme: Theme): string {
       if (level === 0) {
         return spec.level0[theme];

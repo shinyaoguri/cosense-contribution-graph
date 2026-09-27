@@ -255,10 +255,7 @@ function layoutMark(scheme: ColorScheme, theme: Theme, x: number, y: number): Sw
     return {
       x: x + depth * MARK_OFFSET,
       y: y + i * MARK_OFFSET,
-      fill: scheme.cell(
-        { level, balance: AMOUNT_STRIP_BALANCE, total: Number.POSITIVE_INFINITY },
-        theme,
-      ),
+      fill: scheme.cell({ level, balance: AMOUNT_STRIP_BALANCE }, theme),
     };
   });
 }
@@ -329,9 +326,8 @@ function layoutLegend(
   x: number,
   y: number,
 ): { readonly swatches: Swatch[]; readonly labels: Label[] } {
-  // 凡例のマスは total = Infinity で渡す。合計分数で彩度を変える配色でも飽和させるため
   const swatch = (level: (typeof LEGEND_LEVELS)[number], balance: number) =>
-    scheme.cell({ level, balance, total: Number.POSITIVE_INFINITY }, theme);
+    scheme.cell({ level, balance }, theme);
 
   const amount = layoutStrip(
     LEGEND_LEVELS.map((level) => swatch(level, AMOUNT_STRIP_BALANCE)),
@@ -384,14 +380,13 @@ export function layoutGraph(input: GraphInput): GraphLayout {
   const grid = cells.map((cell: GridCell) => {
     const minutes = input.days.get(cell.day) ?? { w: 0, r: 0 };
     const beforeStart = input.startDay !== undefined && cell.day < input.startDay;
-    const total = minutes.w + minutes.r;
-    const level = levelOf(total, input.scale);
+    const level = levelOf(minutes.w + minutes.r, input.scale);
     // write モードは全マスのバランスを 0 とみなす。スキームごとの特別扱いを要らなくするため
     const balance = params.mode === "write" ? 0 : balanceOf(minutes, input.center);
     return {
       x: gridX + cell.column * STEP,
       y: gridY + cell.row * STEP,
-      fill: scheme.cell({ level, balance, total }, params.theme),
+      fill: scheme.cell({ level, balance }, params.theme),
       day: cell.day,
       minutes,
       beforeStart,

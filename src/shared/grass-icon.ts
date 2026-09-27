@@ -9,7 +9,7 @@
  *
  * - `not-installed` … 点線の枠だけ。design §9 の「点線は計測開始前」と同じ使い方
  * - `local-only` … グレーで塗る (数えているが、このブラウザにしか記録が無い)
- * - `synced` … 紫で塗る (送っている)
+ * - `synced` … 青緑で塗る (送っている)
  * - `unknown` … 判定が済むまでの暫定。`local-only` と同じ絵にして、ちらつかせない
  *
  * **`src/worker/graph/` を import しない。** 色は値でコピーする
@@ -33,8 +33,11 @@ const SIZE = 20;
  */
 const LEVELS = [1, 3, 0, 2, 3, 1, 0, 2, 2] as const;
 
-/** 紫は既定の配色 (blue-pink) の violet の light 段から取った値 (design §7)。 */
-const SYNCED = ["#ddd6fe", "#a78bfa", "#7c3aed", "#5b21b6"] as const;
+/**
+ * 青緑は配色 (violet-amber) の真ん中の列の light 段から取った値 (design §7、ADR-0023)。
+ * 草らしい緑を選んだ。未サインインのグレーとは、P 型・D 型色覚では色差が小さい (ADR-0023 決定 3)。
+ */
+const SYNCED = ["#a5e0ca", "#73c2a7", "#30a282", "#00755b"] as const;
 
 /** 未サインインのグレー。同じ明度の階段にして、色だけが違って見えるようにする。 */
 const LOCAL = ["#d8dee4", "#afb8c1", "#8b949e", "#6e7781"] as const;

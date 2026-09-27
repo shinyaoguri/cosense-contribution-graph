@@ -175,10 +175,7 @@ export function layoutOverview(input: OverviewInput): OverviewLayout {
       : { x, y, anchor, name: axis.name, percent: percents[i] ?? 0 };
   });
 
-  const shapeColor = schemeOf(input.palette).cell(
-    { level: SHAPE_LEVEL, balance: 0, total: Number.POSITIVE_INFINITY },
-    input.theme,
-  );
+  const shapeColor = schemeOf(input.palette).cell({ level: SHAPE_LEVEL, balance: 0 }, input.theme);
   return {
     width: WIDTH,
     height: HEIGHT,

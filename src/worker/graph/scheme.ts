@@ -1,19 +1,18 @@
 /**
  * 配色の差し替え口 (design §7)。
  *
- * **スキームは「Level・バランス・合計分数・テーマ」を受け取って色を返すだけの純粋な部品。**
+ * **スキームは「Level・バランス・テーマ」を受け取って色を返すだけの純粋な部品。**
  * 描画側 (`svg.ts` と `layout.ts`) はスキームの中身を知らない。
  *
- * 配色を足すときは次の 2 通りのどちらかで作り、下の `SCHEMES` に 1 行足す。
- * - **色を変えたいだけ** なら、`bandScheme()` に 16 進の表を渡す (`blue-pink` がこれ)
- * - **規則で色を計算したい** なら、`ColorScheme` を直接実装する (`blue-yellow` がこれ)
+ * 配色は今は `violet-amber` の 1 つだけ (ADR-0023)。足すときは `bandScheme()` に 16 進の表を渡し、
+ * 下の `SCHEMES` に 1 行足す。規則で色を計算したいなら `ColorScheme` を直接実装してもよい。
  *
- * 足したスキームは `test/worker/graph/scheme.test.ts` の契約テストに自動で通される。
+ * 足したスキームは `test/worker/graph/scheme.test.ts` の契約テストと、
+ * `scheme-cvd.test.ts` の色覚のテストに自動で通される。
  * **使うのは Worker だけ** (ADR-0019)。
  */
 import type { Level } from "./scale.ts";
-import { bluePink } from "./schemes/blue-pink.ts";
-import { blueYellow } from "./schemes/blue-yellow.ts";
+import { violetAmber } from "./schemes/violet-amber.ts";
 
 export type Theme = "light" | "dark";
 
@@ -21,8 +20,6 @@ export type CellInput = {
   readonly level: Level;
   /** -1 (読み寄り) .. +1 (書き寄り)。描画側が中心から計算して渡す。write モードでは 0。 */
   readonly balance: number;
-  /** 合計分数。凡例のマスは `Infinity` を渡す (彩度を飽和させる配色のため)。 */
-  readonly total: number;
 };
 
 export interface ColorScheme {
@@ -34,13 +31,12 @@ export interface ColorScheme {
 }
 
 export const SCHEMES = {
-  "blue-pink": bluePink,
-  "blue-yellow": blueYellow,
+  "violet-amber": violetAmber,
 } as const satisfies Record<string, ColorScheme>;
 
 export type SchemeName = keyof typeof SCHEMES;
 
-export const DEFAULT_SCHEME: SchemeName = "blue-pink";
+export const DEFAULT_SCHEME: SchemeName = "violet-amber";
 
 /**
  * クエリの値が登録済みのスキーム名か。
