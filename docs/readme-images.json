@@ -1,0 +1,44 @@
+{
+  "images": [
+    {
+      "name": "demo-grass",
+      "path": "/v1/g/demo.svg",
+      "alt": "草の例 (デモ)",
+      "width": 807,
+      "sha256": "9af2545fee5a08614702b8c93fb44c7cfad92044f8f4cb8975ae61c355d7e8c1",
+      "url": "https://i.gyazo.com/c5e55702dd6049f1de9092b74a5d35b7.png"
+    },
+    {
+      "name": "guide-minutes",
+      "path": "/v1/guide/minutes.svg",
+      "alt": "1 分ごとの数え方の例",
+      "width": 672,
+      "sha256": "e41fa528d4b21ffa31bfe56edcac00ec0a6eb35187fd3e9ae5acd5fb6a8d9154",
+      "url": "https://i.gyazo.com/d481a5a8aa591df751fd7147d4410c29.png"
+    },
+    {
+      "name": "guide-grass",
+      "path": "/v1/guide/grass.svg",
+      "alt": "草の読み方の例",
+      "width": 672,
+      "sha256": "9df60e2e46e4208b711ee69bbbae09a7cc1793a58b7e6a722b168b9ec06db872",
+      "url": "https://i.gyazo.com/0c37b915a429d2b449f07bc7cf1d24ff.png"
+    },
+    {
+      "name": "demo-overview",
+      "path": "/v1/g/demo/overview.svg",
+      "alt": "活動の概観の例 (デモ)",
+      "width": 332,
+      "sha256": "fdf7594dec9114bf9d1dcca948ee57086bb323f9ecaaaba1db4a1f3395fe8328",
+      "url": "https://i.gyazo.com/5e86939433b622728aee4beb4e177915.png"
+    },
+    {
+      "name": "guide-overview",
+      "path": "/v1/guide/overview.svg",
+      "alt": "活動の概観の読み方の例",
+      "width": 672,
+      "sha256": "651333570251d35aa5482c336f97dc18d5ad29ddc64ddb360af735f9eb50b4d5",
+      "url": "https://i.gyazo.com/a8e4a7853d5187890bd2481532256a4e.png"
+    }
+  ]
+}
