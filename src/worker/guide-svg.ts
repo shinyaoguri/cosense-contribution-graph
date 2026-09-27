@@ -16,8 +16,12 @@ import { escapeXml } from "./svg.ts";
 
 export const GUIDE_PATH = /^\/v1\/guide\/([^/]+)\.svg$/;
 
-/** 絵が固定なので、favicon と同じく草 (15 分) より長く持たせる。変えたときは ETag が変わる。 */
-export const GUIDE_CACHE_CONTROL = "public, max-age=86400";
+/**
+ * **毎回 ETag で確かめ直させる** (favicon と同じ。#186)。絵はデプロイでしか変わらないが、
+ * `max-age` を付けると ETag を確かめるのは期限が切れた後だけなので、配色を変えても古い図が残る。
+ * 変わっていなければ 304 で本文を送らない。
+ */
+export const GUIDE_CACHE_CONTROL = "public, no-cache";
 
 const THEME = "light";
 const SCHEME = schemeOf(DEFAULT_SCHEME);
