@@ -5,6 +5,7 @@
  * サインインのポップアップの postMessage も、このオリジンから来たものだけを受け取る。
  */
 import { ACCOUNT_PATH } from "../shared/auth.ts";
+import type { GuideName } from "../shared/guide.ts";
 import { PRIVACY_JA_PATH } from "../shared/links.ts";
 import { isValidProjectName, isValidUserName } from "../shared/project-name.ts";
 
@@ -15,6 +16,13 @@ export const ACCOUNT_URL = `${WORKER_ORIGIN}${ACCOUNT_PATH}`;
 
 /** プライバシーポリシー。草のダイアログの下端から開く。**ダイアログが日本語なので日本語版** (ADR-0022) */
 export const PRIVACY_URL = `${WORKER_ORIGIN}${PRIVACY_JA_PATH}`;
+
+/**
+ * 草のダイアログの説明に添える図 (Issue #182)。**描くのは Worker** (ADR-0019) で、ここは `<img>` の URL を作るだけ
+ */
+export function guideUrl(name: GuideName): string {
+  return `${WORKER_ORIGIN}/v1/guide/${name}.svg`;
+}
 
 /**
  * 共有 SVG の URL (design §6)。

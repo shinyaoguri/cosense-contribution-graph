@@ -18,6 +18,7 @@ import { DAYS } from "./graph/grid.ts";
 import { sumOverview } from "./graph/overview.ts";
 import { buildScale } from "./graph/scale.ts";
 import { renderStoredGraph, renderStoredOverview } from "./graph-data.ts";
+import { GUIDE_CACHE_CONTROL, GUIDE_PATH, renderGuide } from "./guide-svg.ts";
 import { googleKeys } from "./idtoken.ts";
 import { handleIngest } from "./ingest.ts";
 import { type GraphData, loadGraphData } from "./json.ts";
@@ -34,7 +35,7 @@ import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
  * 経路は `/v1/p.gif` (記録の受け口)、`/v1/enroll.gif` (デバイスの登録)、`/v1/revoke.gif` (デバイスの失効)、
  * `/account` (端末の一覧と失効・共有 URL・全削除)、`/` と `/privacy` (人が読むページ)、`/v1/g/{publicId}.svg`、
  * `/v1/g/{publicId}/{dataKey}.json` (日ごとの集計値。ADR-0020)、
- * `/v1/probe.gif` (送信の疎通確認)、`/auth/start` と `/auth/callback` (Google サインイン)、`/favicon.svg`。
+ * `/v1/probe.gif` (送信の疎通確認)、`/v1/guide/{name}.svg` (草のダイアログの説明の図。Issue #182)、`/auth/start` と `/auth/callback` (Google サインイン)、`/favicon.svg`。
  * グラフは `demo` ならデモを、それ以外は D1 の記録から描く。
  */
 
@@ -121,6 +122,11 @@ export default {
     }
     if (url.pathname === FAVICON_PATH) {
       return svgResponse(request, FAVICON_SVG, FAVICON_CACHE_CONTROL);
+    }
+    const guideName = GUIDE_PATH.exec(url.pathname)?.[1];
+    if (guideName !== undefined) {
+      const body = renderGuide(guideName);
+      return body === undefined ? notFound() : svgResponse(request, body, GUIDE_CACHE_CONTROL);
     }
 
     const data = GRAPH_DATA_PATH.exec(url.pathname);

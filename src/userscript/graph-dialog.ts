@@ -17,6 +17,7 @@
  *   設定への入口はここが唯一。サインインは設定のダイアログの中のクリックで始まるので、
  *   ポップアップを開く同期区間は分断されない
  */
+import { GUIDE_HEIGHTS, GUIDE_WIDTH, type GuideName } from "../shared/guide.ts";
 import { DISTRIBUTION_URL, REPOSITORY_URL } from "../shared/links.ts";
 import { BUTTON_CLASS, closeOnBackdropClick, styleDialog } from "./dialog.ts";
 import { MENU_TITLE, SETTINGS_LABEL } from "./settings.ts";
@@ -27,7 +28,7 @@ import {
   SEND_NOW_LABEL,
   type SyncView,
 } from "./viewer.ts";
-import { PRIVACY_URL } from "./worker-origin.ts";
+import { guideUrl, PRIVACY_URL } from "./worker-origin.ts";
 
 const STOPPED_EVENTS = ["keydown", "keyup", "keypress", "paste", "copy", "cut"] as const;
 
@@ -84,6 +85,19 @@ export const GRAPH_HEIGHT = 146;
 /** 活動の概観の SVG の寸法 (design §8、ADR-0021)。草と同じく先に確保する */
 export const OVERVIEW_WIDTH = 300;
 export const OVERVIEW_HEIGHT = 220;
+
+/**
+ * 説明に添える図の代わりの文 (Issue #182)。図が読めないとき (読み上げ・読み込みの失敗) に、要点を 1 文で伝える。
+ * 図は Worker が描き、寸法は `shared/guide.ts` にある
+ */
+const GUIDE_ALTS: Record<GuideName, string> = {
+  minutes:
+    "ある日の 10:00〜10:19 を 1 分ずつ並べた例。編集した分は「書いた」、見ていて操作した分は「読んだ」、3 分操作が無い分は数えず、この 20 分の活動は 15 分になる",
+  grass:
+    "8 週間の草の例と色の読み方。1 マスが 1 日、1 列が 1 週間。量が多い日ほど濃く、書き寄りの日ほどピンク、読み寄りの日ほど青になる",
+  overview:
+    "読む 240 分・育てる 90 分・関わる 40 分・作る 30 分の例を 4 軸の図にしたもの。いちばん多い読むが端まで届き、長さは割合の平方根",
+};
 
 export type GraphDialogDependencies = {
   /** `navigator.clipboard.writeText`。**クリックの処理から await を挟まずに呼ぶ** (Safari はユーザー操作の直後でないと拒む) */
@@ -574,9 +588,34 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     }
   };
 
-  /** 見出しと本文の段落を持つ説明の 1 節 */
-  const guideSection = (title: string, ...paragraphs: readonly (string | readonly string[])[]) => {
+  /** 説明の図。**狭い画面では縦横比を保って縮む** (幅と高さは属性で先に確保する) */
+  const guideFigure = (name: GuideName) => {
+    const img = element("img");
+    img.src = guideUrl(name);
+    img.alt = GUIDE_ALTS[name];
+    // 説明は畳んであるので、開くまで取りに行かない
+    img.loading = "lazy";
+    img.width = GUIDE_WIDTH;
+    img.height = GUIDE_HEIGHTS[name];
+    Object.assign(img.style, {
+      display: "block",
+      maxWidth: "100%",
+      height: "auto",
+      margin: "4px 0 8px",
+    });
+    return img;
+  };
+
+  /** 見出しと、図 (あれば)、本文の段落を持つ説明の 1 節 */
+  const guideSection = (
+    title: string,
+    figure: GuideName | undefined,
+    ...paragraphs: readonly (string | readonly string[])[]
+  ) => {
     const nodes: HTMLElement[] = [element("h4", title)];
+    if (figure !== undefined) {
+      nodes.push(guideFigure(figure));
+    }
     for (const paragraph of paragraphs) {
       if (typeof paragraph === "string") {
         nodes.push(element("p", paragraph));
@@ -676,6 +715,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     body.append(
       ...guideSection(
         "数えているもの",
+        "minutes",
         "1 日を 1 分ずつに区切り、分ごとに「書いた」か「読んだ」かだけを記録します。",
         [
           "書いた: その分に自分でページを編集した",
@@ -685,24 +725,20 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
       ),
       ...guideSection(
         "草",
+        "grass",
         "1 マスが 1 日、1 列が 1 週間です (直近 53 週)。2027 年からは「期間」で過去の年を選ぶと、その年の草と活動の概観になります。",
         [
-          "色の濃さ: その日の合計 (書いた分 + 読んだ分) を、これまでの全記録の分布 (四分位) で 4 段階に分けたもの。3 分未満の日は色を付けません",
-          "色合い: その日が書き寄りか読み寄りか。自分のふだんの比率 (全記録の中央値) を真ん中にして、書き寄りの日ほどピンク、読み寄りの日ほど青になります (既定の配色)",
+          "濃さ: その日の合計 (書いた分 + 読んだ分) を、これまでの全記録の分布 (四分位) で 4 段階に分けたもの。3 分未満の日は色を付けません",
+          "色合い: 自分のふだんの比率 (全記録の中央値) を真ん中にして、書き寄りの日ほどピンク、読み寄りの日ほど青になります (既定の配色)",
         ],
       ),
       ...guideSection(
         "活動の概観",
-        "草と同じ期間の分を、次の 4 つに分けた割合です。どの分も 1 つにしか数えません。",
-        [
-          "作る: その日に自分が新しく作ったページに書いた分",
-          "育てる: 自分が前に作ったページに書いた分",
-          "関わる: 他の人が作ったページに書いた分",
-          "読む: 読んだだけの分",
-        ],
+        "overview",
+        "草と同じ期間の分を、作る・育てる・関わる・読むの 4 つに分けた割合です。どの分も 1 つにしか数えません。",
         "書いたページがどれにあたるかは、そのページを最初に編集したときに、作成者と作成日を Cosense に問い合わせて決めます。図はいちばん多い軸が端まで伸び、ほかの軸は割合の平方根の長さで描きます (少ない軸も見えるように)。% は分の割合そのもので、合計が 100 になるよう丸めています。",
       ),
-      ...guideSection("送るもの"),
+      ...guideSection("送るもの", undefined),
       privacy,
     );
     // Safari の既定の三角は、ダイアログの `<style>` が消す (`dialog.ts`)
