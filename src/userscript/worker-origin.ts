@@ -18,10 +18,20 @@ export const ACCOUNT_URL = `${WORKER_ORIGIN}${ACCOUNT_PATH}`;
 export const PRIVACY_URL = `${WORKER_ORIGIN}${PRIVACY_JA_PATH}`;
 
 /**
+ * 図の URL に付ける版。Worker はクエリを見ないので、図の中身には効かない。
+ *
+ * **ブラウザに残った古い図を避けるためのもの** (#186)。図は当初 `max-age=86400` で配っていたので、
+ * 配色を変えた後も (#185)、一度開いたブラウザには古い図が残り、強制再読み込みでも取り直されなかった
+ * (ダイアログの `<img>` は後から差し込むため)。今は `no-cache` で毎回確かめ直させるので、
+ * **図を変えるたびに上げる必要は無い**。もう一度 `max-age` を付けたときにだけ上げる
+ */
+const GUIDE_REVISION = "2";
+
+/**
  * 草のダイアログの説明に添える図 (Issue #182)。**描くのは Worker** (ADR-0019) で、ここは `<img>` の URL を作るだけ
  */
 export function guideUrl(name: GuideName): string {
-  return `${WORKER_ORIGIN}/v1/guide/${name}.svg`;
+  return `${WORKER_ORIGIN}/v1/guide/${name}.svg?v=${GUIDE_REVISION}`;
 }
 
 /**

@@ -21,6 +21,14 @@ describe("GET /v1/guide/{name}.svg (Issue #182)", () => {
     },
   );
 
+  it("**クエリは無視して同じ図を返す** (UserScript が古いキャッシュを避けるために `?v=` を付ける。#186)", async () => {
+    const plain = await (await fetchGuide("grass")).text();
+    const res = await SELF.fetch(`${ORIGIN}/v1/guide/grass.svg?v=2`);
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(plain);
+  });
+
   it("**確かめ直しは ETag で 304 を返す** (図が変わっていなければ本文を送らない)", async () => {
     const etag = (await fetchGuide("grass")).headers.get("etag") ?? "";
     expect(etag).not.toBe("");
