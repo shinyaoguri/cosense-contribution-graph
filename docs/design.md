@@ -724,7 +724,9 @@ POST で行う。破壊的な操作に Google サインインを必須にでき�
   CSP を緩めず、同じオリジンのパスで配信する。`/`・`/privacy`・`/account`・`/auth/callback` の HTML が
   `<link rel="icon" href="/favicon.svg" type="image/svg+xml">` で指す
 - 応答のヘッダは草の SVG と同じ (`image/svg+xml`・`nosniff`・`default-src 'none'`・ETag)。
-  **絵が固定なので `public, max-age=86400`** (草の 15 分は変えない)
+  **`public, no-cache` で毎回 ETag を確かめ直させる** (2026-09-27、#186)。当初は「絵が固定なので」と
+  `max-age=86400` にしていたが、ETag を確かめるのは期限が切れた後だけなので、配色を変えても最大 1 日古い絵が残った。
+  変わっていなければ 304 で本文は送らない。草の 15 分は変えない
 - **SVG だけを出す。** PNG や ICO を作るには Worker に画像のエンコーダを持ち込むことになり、釣り合わない。
   SVG の favicon を読まないブラウザでは既定の絵になる。**`/favicon.ico` は 404 のまま**
   (中身が SVG なのに `.ico` を名乗らせない)
@@ -738,7 +740,8 @@ POST で行う。破壊的な操作に Google サインインを必須にでき�
 - **描くのは Worker** (ADR-0019)。色はスキーム、概観は `layoutOverview` の実物から作るので、**図と実際の草・概観の色と形がずれない**
 - **ライト・既定の配色に固定する。** ダイアログは常にライト (research §3) で、UserScript は配色を選ばない
 - 寸法は `src/shared/guide.ts` にあり、UserScript が `<img>` に先に確保する寸法と同じものを読む
-- 応答のヘッダは草の SVG と同じ。**記録を読まない固定の絵なので `public, max-age=86400`** (favicon と同じ)
+- 応答のヘッダは草の SVG と同じ。**`public, no-cache` で毎回 ETag を確かめ直させる** (favicon と同じ。#186)。
+  絵はデプロイでしか変わらないが、`max-age` を付けると配色を変えても古い図がダイアログに残る
 
 ### `GET /account` — 管理のページ
 

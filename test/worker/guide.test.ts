@@ -9,13 +9,28 @@ const ORIGIN = "https://example.com";
 const fetchGuide = (name: string) => SELF.fetch(`${ORIGIN}/v1/guide/${name}.svg`);
 
 describe("GET /v1/guide/{name}.svg (Issue #182)", () => {
-  it.each(GUIDE_NAMES)("**%s は SVG で返し、草より長くキャッシュする**", async (name) => {
-    const res = await fetchGuide(name);
+  it.each(GUIDE_NAMES)(
+    "**%s は SVG で返し、毎回 ETag で確かめ直させる** (デプロイで図を変えたらすぐ替わる。#186)",
+    async (name) => {
+      const res = await fetchGuide(name);
 
-    expect(res.status).toBe(200);
-    expect(res.headers.get("content-type")).toBe("image/svg+xml; charset=utf-8");
-    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
-    expect(res.headers.get("cache-control")).toBe("public, max-age=86400");
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe("image/svg+xml; charset=utf-8");
+      expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(res.headers.get("cache-control")).toBe("public, no-cache");
+    },
+  );
+
+  it("**確かめ直しは ETag で 304 を返す** (図が変わっていなければ本文を送らない)", async () => {
+    const etag = (await fetchGuide("grass")).headers.get("etag") ?? "";
+    expect(etag).not.toBe("");
+
+    const again = await SELF.fetch(`${ORIGIN}/v1/guide/grass.svg`, {
+      headers: { "if-none-match": etag },
+    });
+
+    expect(again.status).toBe(304);
+    expect(again.headers.get("cache-control")).toBe("public, no-cache");
   });
 
   it.each(GUIDE_NAMES)(

@@ -15,11 +15,11 @@ describe("GET /favicon.svg", () => {
     expect(await res.text()).toBe(grassIconSvg("synced"));
   });
 
-  it("**絵が固定なので草より長くキャッシュし、ETag で 304 を返す**", async () => {
+  it("**毎回 ETag で確かめ直させ、変わっていなければ 304 を返す** (デプロイで絵を変えたらすぐ替わる。#186)", async () => {
     const first = await SELF.fetch(`${ORIGIN}${FAVICON_PATH}`);
     const etag = first.headers.get("etag") ?? "";
 
-    expect(first.headers.get("cache-control")).toBe("public, max-age=86400");
+    expect(first.headers.get("cache-control")).toBe("public, no-cache");
     expect(etag).toMatch(/^"[0-9a-f]{32}"$/);
 
     const second = await SELF.fetch(`${ORIGIN}${FAVICON_PATH}`, {
@@ -27,7 +27,7 @@ describe("GET /favicon.svg", () => {
     });
 
     expect(second.status).toBe(304);
-    expect(second.headers.get("cache-control")).toBe("public, max-age=86400");
+    expect(second.headers.get("cache-control")).toBe("public, no-cache");
   });
 
   it("**草のキャッシュは変えない** (favicon のために 15 分を延ばさない)", async () => {

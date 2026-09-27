@@ -18,5 +18,8 @@ export const FAVICON_SVG = grassIconSvg("synced");
 /** 各ページの `<head>` に入れる 1 行。 */
 export const FAVICON_LINK = `<link rel="icon" href="${FAVICON_PATH}" type="image/svg+xml">`;
 
-/** 絵が固定なので、草 (15 分) より長く持たせる。変えたときは ETag が変わる。 */
-export const FAVICON_CACHE_CONTROL = "public, max-age=86400";
+/**
+ * **毎回 ETag で確かめ直させる** (#186)。絵はデプロイでしか変わらないが、`max-age` を付けると
+ * ETag を確かめるのは期限が切れた後だけなので、色を変えても古い絵が残る。変わっていなければ 304。
+ */
+export const FAVICON_CACHE_CONTROL = "public, no-cache";
