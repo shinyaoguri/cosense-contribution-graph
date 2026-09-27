@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DIALOG_ATTRIBUTE } from "../../src/userscript/dialog.ts";
 import { createDialogView } from "../../src/userscript/sign-in-dialog.ts";
 
 // jsdom 30 の <dialog> は open 属性しか無い。showModal と close を差し替える
@@ -52,6 +53,11 @@ describe("createDialogView", () => {
     expect(link?.href).toBe("https://grass.soui.dev/auth/start");
     expect(link?.target).toBe("_blank");
     expect(link?.rel).toBe("noopener noreferrer");
+  });
+
+  it("枠とボタンは草・設定のダイアログと同じく Cosense に合わせる (#175)", () => {
+    const { dialog } = openView();
+    expect(dialog.hasAttribute(DIALOG_ATTRIBUTE)).toBe(true);
   });
 
   it("ポップアップがブロックされたときはその旨を出す", () => {

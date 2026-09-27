@@ -3,10 +3,12 @@
  *
  * - **文言は `textContent` で入れる。** innerHTML を使わない
  * - **ハンドラは `addEventListener`。** Cosense の CSP は `script-src-attr 'none'` で、属性のハンドラは動かない (research §1)
- * - `<dialog>` の `showModal` はページを inert にする。CSS は足さない (ブラウザの既定の見た目)
+ * - `<dialog>` の `showModal` はページを inert にする。枠とボタンは草・設定のダイアログと同じく Cosense に合わせる
+ *   (`dialog.ts` の `styleDialog`、#175。それまでは CSS を足さずブラウザの既定の見た目だった)
  * - キー入力と貼り付けをダイアログの外へ伝えない (Cosense のショートカットに拾わせない)
  */
 import type { SignInView } from "./auth.ts";
+import { styleDialog } from "./dialog.ts";
 
 const STOPPED_EVENTS = ["keydown", "keyup", "keypress", "paste"] as const;
 
@@ -55,6 +57,7 @@ export function createDialogView(doc: Document): SignInView {
     open(state, handlers) {
       close();
       const node = element("dialog");
+      styleDialog(node);
       for (const type of STOPPED_EVENTS) {
         node.addEventListener(type, (event) => event.stopPropagation());
       }
