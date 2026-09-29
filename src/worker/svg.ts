@@ -15,9 +15,9 @@ export const DEMO_PUBLIC_ID = "demo";
 /**
  * SVG に出す文字列をエスケープする。原則として全部通す (design §6)。
  *
- * **プロジェクト名 (`?l=`) とユーザー名 (`?u=`) だけは外から来る** (Issue #119・#134)。受け口の
- * `isValidProjectName` / `isValidUserName` が英字・数字・ハイフンしか通さないのでここに来る時点で
- * 危険な文字は無いが、**二重に塞ぐ**。
+ * **プロジェクト名 (`?l=`) とユーザー名 (`?u=`) だけは外から来る** (Issue #119・#134)。
+ * プロジェクト名は `isValidProjectName` が英字・数字・ハイフンしか通さないので二重に塞ぐだけだが、
+ * **ユーザー名は `<` `&` `"` も通す** (`isValidUserName`、Issue #195) ので、**ここが XSS を塞ぐ要点になる**。
  */
 export function escapeXml(text: string): string {
   return text

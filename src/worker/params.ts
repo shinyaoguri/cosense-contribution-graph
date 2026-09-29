@@ -44,8 +44,9 @@ export function parseLabel(search: URLSearchParams): string | undefined {
 }
 
 /**
- * 画像に描くユーザー名 (`?u=`。Issue #134)。扱いは `parseLabel` と同じで、**サーバは保存しない**。
+ * 画像に描くユーザー名 (`?u=`。Issue #134)。`parseLabel` と同じく**サーバは保存しない**。
  * `isValidUserName` を通ったものだけ返し、外れていれば `undefined` (描かないだけ)。
+ * **形はプロジェクト名よりずっと広く、`<` `&` `"` も通る** (Issue #195)。描くときの `escapeXml` が塞ぐ
  */
 export function parseUser(search: URLSearchParams): string | undefined {
   const raw = search.get("u");
