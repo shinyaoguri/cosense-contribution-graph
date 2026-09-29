@@ -27,14 +27,47 @@ export function isValidProjectName(text: string): boolean {
 }
 
 /**
- * Cosense のユーザー名の形 (Issue #134)。**草の画像に `@<名前>` として描くときの許可リスト。**
+ * ユーザー名の長さの上限 (書記素で数える。Issue #195)。実測の最長は 16 (research §2、2026-09-29)。
+ * 全角で並べても草の幅の見積もり (`layout.ts` の `projectWidth`) が扱える長さにしている
+ */
+export const MAX_USER_NAME_LENGTH = 48;
+
+/** 書記素と別に、UTF-16 の長さでも抑える。結合文字を重ねると 1 書記素のまま URL を膨らませられるため */
+const MAX_USER_NAME_UNITS = 256;
+
+/**
+ * 表示を壊すので通さない文字。制御文字 (Cc)・行と段落の区切り (Zl・Zp)・片割れのサロゲート (Cs。
+ * `encodeURIComponent` が投げる)・双方向の制御文字 (後ろの凡例まで並びを反転させうる)。
+ * **ZWJ・異体字セレクタ・タグ文字は通す** — 絵文字の合成に使う
+ */
+const USER_NAME_FORBIDDEN =
+  /[\p{Cc}\p{Zl}\p{Zp}\p{Cs}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/u;
+
+const segmenter = new Intl.Segmenter();
+
+/** 書記素の数。絵文字の ZWJ の列や旗は 1 つに数える */
+function graphemeCount(text: string): number {
+  let count = 0;
+  for (const _ of segmenter.segment(text)) {
+    count += 1;
+  }
+  return count;
+}
+
+/**
+ * Cosense のユーザー名の形 (Issue #134・#195)。**草の画像に `@<名前>` として描くときの取り決め。**
  * 名前はクエリ `?u=` で渡され、プロジェクト名と同じく**サーバは保存しない**。
  *
- * **形はプロジェクト名と同じにしている。** Cosense 本体の名前の検証 (英字・数字・ハイフン、2〜48 文字) を
- * 実測したが、**それがユーザー名にも使われているかは確かめきれていない** (research §2、2026-09-23)。
- * 外れた名前は描かないだけで壊れないので、分かるまでは狭い方に倒す。
- * 規則が分かれても呼び出し側を変えずに済むよう、関数は分けておく。
+ * **プロジェクト名と違い、表示を壊す文字だけを拒む。** ユーザー名には漢字・かな・空白・`_` が普通に使われる
+ * (research §2 の 2026-09-29 の実測。1 プロジェクトの 63 人のうち 48 人が英数字とハイフンに収まらない)。
+ * `<` `&` `"` も通すので、**描く側の `escapeXml` が XSS を塞ぐ要点になる** (ADR-0007 決定 2 の 2026-09-29 の改訂)。
+ * SVG の応答には `Content-Security-Policy: default-src 'none'` も付く
  */
 export function isValidUserName(text: string): boolean {
-  return isValidProjectName(text);
+  return (
+    text.trim() !== "" &&
+    text.length <= MAX_USER_NAME_UNITS &&
+    !USER_NAME_FORBIDDEN.test(text) &&
+    graphemeCount(text) <= MAX_USER_NAME_LENGTH
+  );
 }

@@ -14,7 +14,7 @@ function size(svg: string): { width: string | undefined; height: string | undefi
   };
 }
 
-/** ユーザー名 (`?u=`。Issue #134)。扱いはプロジェクト名 (`?l=`) と同じで、サーバは保存しない */
+/** ユーザー名 (`?u=`。Issue #134・#195)。プロジェクト名 (`?l=`) と同じくサーバは保存しないが、形はずっと広い */
 describe("parseUser", () => {
   it("**`?u=` の名前を返す**", () => {
     expect(parseUser(new URLSearchParams("u=example-user"))).toBe("example-user");
@@ -25,14 +25,14 @@ describe("parseUser", () => {
     expect(parseUser(new URLSearchParams("l=villagepump"))).toBeUndefined();
   });
 
-  it("**形の違う名前は落とす** (エラーにはしない。画像として読まれるので、描かないだけにする)", () => {
-    for (const raw of ["-a", "a-", "a_b", "a b", "日本語", "a".repeat(65), ""]) {
-      expect(parseUser(new URLSearchParams({ u: raw }))).toBeUndefined();
+  it("**漢字・空白・記号・絵文字の名前も返す** (Issue #195)", () => {
+    for (const raw of ["山田太郎", "山田 太郎", "a_b", "👩‍💻", "a&b"]) {
+      expect(parseUser(new URLSearchParams({ u: raw }))).toBe(raw);
     }
   });
 
-  it("**SVG を壊そうとする値は形で落ちる** (`escapeXml` に頼らない)", () => {
-    for (const raw of ['"><script>alert(1)</script>', "</text><a>", "a&b", "a'b"]) {
+  it("**表示を壊す名前は落とす** (エラーにはしない。画像として読まれるので、描かないだけにする)", () => {
+    for (const raw of ["a\u202eb", "a\nb", "山".repeat(49), "", " "]) {
       expect(parseUser(new URLSearchParams({ u: raw }))).toBeUndefined();
     }
   });
@@ -89,20 +89,47 @@ describe("草の画像のユーザー名 (Issue #134)", () => {
 
   it("**両方が長いときは凡例と重ならないように幅を広げる**", async () => {
     const none = size(await (await fetchDemo()).text());
-    const long = size(await (await fetchDemo(`?l=${"a".repeat(64)}&u=${"b".repeat(64)}`)).text());
+    const long = size(await (await fetchDemo(`?l=${"a".repeat(64)}&u=${"b".repeat(48)}`)).text());
 
     expect(Number(long.width)).toBeGreaterThan(Number(none.width));
     expect(long.height).toBe(none.height);
   });
 
-  it("**形の違う名前は描かない** (エラーにはしない)", async () => {
+  it("**漢字や絵文字の名前も `@<名前>` として描く** (Issue #195)", async () => {
+    const svg = await (
+      await fetchDemo(`?l=villagepump&u=${encodeURIComponent("山田 太郎👩‍💻")}`)
+    ).text();
+
+    expect(svg).toContain('font-weight="bold" fill="#1f2328">@山田 太郎👩‍💻</tspan>');
+  });
+
+  it("**SVG を壊そうとする名前はエスケープして描く** (中身の要素にならない)", async () => {
     const attack = '"><script>alert(1)</script>';
     const res = await fetchDemo(`?l=villagepump&u=${encodeURIComponent(attack)}`);
     const svg = await res.text();
 
     expect(res.status).toBe(200);
-    expect(svg).not.toContain("script");
+    expect(svg).toContain("@&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;</tspan>");
+    expect(svg).not.toContain("<script");
+  });
+
+  it("**表示を壊す名前は描かない** (エラーにはしない)", async () => {
+    const res = await fetchDemo(`?l=villagepump&u=${encodeURIComponent("a\u202eb")}`);
+    const svg = await res.text();
+
+    expect(res.status).toBe(200);
     expect(svg).not.toContain("@");
+  });
+
+  it("**全角の名前は英数字より広く見積もり、凡例と重ならないように幅を広げる** (Issue #195)", async () => {
+    const ascii = size(await (await fetchDemo(`?l=${"a".repeat(64)}&u=${"b".repeat(48)}`)).text());
+    const wide = size(
+      await (
+        await fetchDemo(`?l=${"a".repeat(64)}&u=${encodeURIComponent("山".repeat(48))}`)
+      ).text(),
+    );
+
+    expect(Number(wide.width)).toBeGreaterThan(Number(ascii.width));
   });
 
   it("**名前が違えば ETag も違う**", async () => {

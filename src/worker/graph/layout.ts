@@ -45,7 +45,8 @@ export type GraphInput = {
   readonly label?: string;
   /**
    * この画像に描くユーザー名 (`?u=`。Issue #134)。`label` と同じく**サーバは保存しない** —
-   * 呼び出し側が `isValidUserName` を通したものだけを渡す
+   * 呼び出し側が `isValidUserName` を通したものだけを渡す。**漢字・記号・絵文字を含みうる** (Issue #195) ので、
+   * 文字列にするときに `escapeXml` を通す
    */
   readonly user?: string;
   /**
@@ -127,6 +128,11 @@ const PROJECT_LEGEND_GAP = 12;
  * `m` や大文字ばかりの名前でなければこれに収まる。**上限の 64 文字でも 53 週の幅 (775px) に収まる値**
  */
 const PROJECT_CHAR_WIDTH = 6.5;
+/**
+ * ユーザー名の ASCII でない 1 書記素の見積もり幅 (Issue #195)。漢字・かな・絵文字は太字 9px でほぼ全角 (9px) なので、
+ * 余裕をみて 10 にする。**ユーザー名だけ書記素ごとに見積もる** (プロジェクト名は英数字だけ)
+ */
+const WIDE_CHAR_WIDTH = 10;
 /**
  * ラベルの続き (`suffix`) の前に空ける幅 (px)。9px の文字で 1 文字弱。
  * `svg.ts` が `<tspan dx>` に使い、ここでは幅の見積もりに使う
@@ -262,7 +268,7 @@ function layoutMark(scheme: ColorScheme, theme: Theme, x: number, y: number): Sw
 
 /**
  * 名前の行 (合算の印を含む) が凡例と重ならないために取っておく幅 (見積もり)。何も無ければ 0。
- * ユーザー名も太字なので、プロジェクト名と同じ幅で見積もる
+ * ユーザー名も太字なので 1 文字の幅はプロジェクト名と同じだが、全角の文字は広く見積もる (`userNameWidth`)
  */
 function projectWidth(
   projectName: string | undefined,
@@ -278,10 +284,22 @@ function projectWidth(
     userName === undefined
       ? 0
       : (project === 0 ? 0 : SUFFIX_GAP) +
-        (USER_PREFIX.length + userName.length) * PROJECT_CHAR_WIDTH;
+        USER_PREFIX.length * PROJECT_CHAR_WIDTH +
+        userNameWidth(userName);
   const text = project + user;
   const width = mark + (mark > 0 && text > 0 ? MARK_GAP : 0) + text;
   return width === 0 ? 0 : Math.ceil(width) + PROJECT_LEGEND_GAP;
+}
+
+const segmenter = new Intl.Segmenter();
+
+/** ユーザー名の見積もり幅。書記素ごとに、ASCII の 1 文字なら英数字の幅、それ以外は全角の幅 */
+function userNameWidth(text: string): number {
+  let width = 0;
+  for (const { segment } of segmenter.segment(text)) {
+    width += /^[\x20-\x7e]$/.test(segment) ? PROJECT_CHAR_WIDTH : WIDE_CHAR_WIDTH;
+  }
+  return width;
 }
 
 /** 「少ない ■■■■ 多い」の形の帯 1 本の幅 */

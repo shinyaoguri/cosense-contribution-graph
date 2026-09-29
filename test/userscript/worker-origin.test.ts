@@ -33,14 +33,28 @@ describe("graphUrl", () => {
     expect(graphUrl("0123456789abcdef0123456789abcdef", { project: "a_b", user: "ok" })).toBe(
       "https://grass.soui.dev/v1/g/0123456789abcdef0123456789abcdef.svg?u=ok",
     );
-    expect(graphUrl("0123456789abcdef0123456789abcdef", { project: "ok", user: "<x>" })).toBe(
+    expect(graphUrl("0123456789abcdef0123456789abcdef", { project: "ok", user: "a\u202eb" })).toBe(
       "https://grass.soui.dev/v1/g/0123456789abcdef0123456789abcdef.svg?l=ok",
+    );
+  });
+
+  it("**漢字・空白・記号のユーザー名はエンコードして付ける** (Issue #195)", () => {
+    expect(graphUrl("0123456789abcdef0123456789abcdef", { user: "山田 太郎" })).toBe(
+      "https://grass.soui.dev/v1/g/0123456789abcdef0123456789abcdef.svg?u=%E5%B1%B1%E7%94%B0%20%E5%A4%AA%E9%83%8E",
+    );
+    expect(graphUrl("0123456789abcdef0123456789abcdef", { user: "<x>&" })).toBe(
+      "https://grass.soui.dev/v1/g/0123456789abcdef0123456789abcdef.svg?u=%3Cx%3E%26",
     );
   });
 
   it("**形が取り決めの外なら付けない** (付けても Worker が描かないので、URL を汚さない)", () => {
     for (const name of ["-a", "a_b", "日本語", "a b", ""]) {
-      expect(graphUrl("0123456789abcdef0123456789abcdef", { project: name, user: name })).toBe(
+      expect(graphUrl("0123456789abcdef0123456789abcdef", { project: name })).toBe(
+        "https://grass.soui.dev/v1/g/0123456789abcdef0123456789abcdef.svg",
+      );
+    }
+    for (const name of ["", " ", "a\nb", "a\ud800"]) {
+      expect(graphUrl("0123456789abcdef0123456789abcdef", { user: name })).toBe(
         "https://grass.soui.dev/v1/g/0123456789abcdef0123456789abcdef.svg",
       );
     }
