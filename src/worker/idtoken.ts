@@ -1,7 +1,7 @@
 /**
  * Google の ID トークンを検証する (design §3「ID トークンの検証」)。
  *
- * 呼ぶのは `/auth/callback` (段階 4。OAuth クライアントが要るのでまだ無い)。ID トークンは callback が
+ * 呼ぶのは `/auth/callback` (`auth.ts`)。ID トークンは callback が
  * Google のトークンエンドポイントから直接受け取るものだが、**署名とクレームは必ず自分で見る**。
  * `tokeninfo` エンドポイントはデバッグ専用なので使わない。
  *

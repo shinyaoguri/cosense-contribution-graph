@@ -58,21 +58,28 @@ Cosense (旧 Scrapbox) の活動を GitHub のコントリビューショング�
 ### リポジトリ構成
 
 ```
-wrangler.jsonc              Worker + D1 + Cron + Rate Limiting
+wrangler.jsonc              Worker + D1 + Cron (Rate Limiting は Free プランで使えるか未確認のため足していない)
 vitest.config.ts            projects を列挙する薄い root
 vitest.worker.config.ts     @cloudflare/vitest-plugin (workerd)
 vitest.userscript.config.ts environment: jsdom
-migrations/0001_init.sql
+vitest.scripts.config.ts    environment: node (scripts/ の手元コマンドのテスト)
+migrations/                 D1 のマイグレーション (0001_init.sql から連番)
 src/shared/                 Worker と UserScript の両方から import する
-  ids.ts                    uid / kid / ph / publicId の形と導出
+  ids.ts                    uid / kid / ph / publicId / dataKey の形と導出
+  hash.ts                   SHA-256 の 16 進 (導出に使う。workerd にもブラウザにもある crypto.subtle だけで書く)
   base64url.ts              パディングなしの base64url。デコードは正規形だけを受け付ける
   bits.ts                   ビットマップ: OR / andNot / popcount
   sign.ts                   署名対象の正規化と ECDSA P-256 の署名・検証
   beacon.ts                 GET /v1/p.gif のクエリの組み立てと厳密な読み取り、応答の幅
   enroll.ts                 GET /v1/enroll.gif のクエリの組み立てと厳密な読み取り、応答の幅
+  revoke.ts                 GET /v1/revoke.gif (この端末の失効) のクエリの組み立てと厳密な読み取り
   auth.ts                   サインインのコード (uid と登録トークンの 48 文字) の組み立てと読み取り
   epoch-day.ts              YYYY-MM-DD と通し日数の変換 (UTC だけで計算する)
   grass-icon.ts             草のマス目 3×3 のアイコン。UserScript のボタンと Worker の favicon が同じ絵を使う
+  probe.ts                  GET /v1/probe.gif (送信の疎通確認) の取り決め。使うのは Worker だけ
+  project-name.ts           Cosense のプロジェクト名の形 (半角英数とハイフン。research §2)
+  guide.ts                  草のダイアログの説明に添える図の名前と寸法 (描くのは Worker。Issue #182)
+  links.ts                  人が開くページへのリンク (ポリシー・配布ページ・リポジトリ)。トップとダイアログが共用
 src/worker/
   index.ts                  ルーティング
   auth.ts                   /auth/start と /auth/callback
@@ -80,27 +87,41 @@ src/worker/
   auth-page.ts              callback がポップアップに返す HTML (postMessage とコードの表示)
   idtoken.ts                Google の ID トークンの検証と JWKS の保持
   uid.ts                    sub から uid を導く (HMAC)
-  enroll.ts                 デバイスの登録 (GET /v1/enroll.gif) と登録トークンの発行。失効
+  enroll.ts                 デバイスの登録 (GET /v1/enroll.gif) と登録トークンの発行。失効 (GET /v1/revoke.gif)
   responses.ts              画像ビーコンの受け口が返す透過 GIF と拒否
   ingest.ts                 GET /v1/p.gif
   merge.ts                  受け取ったエントリと保存済みの値のマージ (純関数)
   days.ts                   記録を受け付ける日付の窓と、ビットマップの保持日数
   keys.ts                   署名の検証に使う公開鍵を keys テーブルから引く
+  probe.ts                  GET /v1/probe.gif。送信の疎通確認 (記録しない。D1 も認証も使わない)
+  params.ts                 描画パラメータをクエリから読む (不正な値は既定に落とす)
+  graph-data.ts             共有グラフを D1 の記録から描く (publicId を引いて、草と概観の入力を作る)
   svg.ts                    GET /v1/g/{publicId}.svg。graph/layout.ts のレイアウトを文字列にする
+  overview-svg.ts           GET /v1/g/{publicId}/overview.svg。graph/overview.ts のレイアウトを文字列にする (ADR-0021)
   json.ts                   GET /v1/g/{publicId}/{dataKey}.json。日ごとの集計値 (ADR-0020)
-  admin.ts                  全削除
+  demo.ts                   デモの草 (publicId = demo)。実データを持たず、決定論的に作る
   cron.ts                   古いビットマップの削除
+  account.ts                /account の一覧・失効・共有 URL・全削除 (ADR-0017・0018)
+  session.ts                サインイン済みを 30 分覚える cookie (ADR-0017)
+  site.ts                   / と /privacy (英語)、/ja と /ja/privacy (日本語) (ADR-0018・0022)
+  favicon.ts                /favicon.svg (Cosense のボタンと同じ絵。Issue #130)
+  guide-svg.ts              /v1/guide/{name}.svg (草のダイアログの説明に添える図。Issue #182)
+  markdown.ts               privacy.md・privacy.en.md を HTML にする部分集合の変換
+  md.d.ts                   `*.md` を Text モジュールとして import するための型
+  privacy-source.ts         privacy.md を Text モジュールとして読み込めることの確認 (test/worker/md-probe.test.ts だけが使う)
   graph/                    草を描く一式。**Worker だけが持つ** (ADR-0019、Issue #110)
     layout.ts               草の寸法・色・ラベルの位置。SVG の文字列にも DOM にもしない
+    overview.ts             活動の概観 (4 軸のレーダー) の寸法・色・ラベルの位置 (ADR-0021)
     grid.ts                 53 週グリッドの格子と描画パラメータ
     scale.ts                四分位スケール
     balance.ts              読み書きのバランス (配色に依らない)
     scheme.ts               配色の差し替え口と登録表 (§7)
-    schemes/                配色。表で指定する violet-amber (ADR-0023)
+    schemes/                配色。bands.ts が「表で色を指定するスキーム」を作り、violet-amber.ts が表を持つ (ADR-0023)
 src/userscript/
   index.ts                  エントリ。常駐とマウント
   sensor.ts                 20 秒ポーリングと lines:changed。数えるプロジェクトの判定
   time.ts                   ローカル時刻の日と分
+  image.ts                  画像 GET で Worker に送る (Cosense の CSP で fetch も sendBeacon も使えない。ADR-0001)
   outbox.ts                 送る記録を選び、送信済みをダイジェストで覚える (段階 6)
   sender.ts                 登録した鍵で署名して送る。きっかけ・ロック・失敗の抑制 (段階 6)
   keys.ts                   この端末の鍵と uid を IndexedDB に 1 レコードで持つ
@@ -108,21 +129,23 @@ src/userscript/
   cleaner.ts                このブラウザの記録を消す (localStorage の記録だけ。ADR-0018)
   auth.ts                   サインインのポップアップ、postMessage とコードの貼り付けの受信、登録
   sign-in-dialog.ts         サインインのダイアログ (段階 8 の設定 UI までの仮の置き場)
-  worker-origin.ts          Worker のオリジン (https://grass.soui.dev) と共有 SVG の URL
+  worker-origin.ts          Worker のオリジン (https://grass.soui.dev) と、草・概観・JSON の URL
+  menu-icon.ts              ページメニューのボタンのアイコン (data: URI の SVG。Issue #122)
+  dialog.ts                 背景のクリックで <dialog> を閉じる。草のダイアログと設定のダイアログが使う
   store.ts                  localStorage (直近 30 日のビットマップ。ADR-0019)
   viewer.ts                 草のダイアログに並べる草を決める (段階 8)
   graph-dialog.ts           草のダイアログ。全端末を統合した草を img で並べる。「設定」への導線もここ
   settings.ts               「設定」に何を出すかを決める (段階 8)
   settings-dialog.ts        「設定」のダイアログ (段階 8)
   settings-store.ts         localStorage (設定)
-(worker)
-  account.ts                /account の一覧・失効・共有 URL・全削除 (ADR-0017・0018)
-  session.ts                サインイン済みを 30 分覚える cookie (ADR-0017)
-  site.ts                   / と /privacy (英語)、/ja と /ja/privacy (日本語) (ADR-0018・0022)
-  favicon.ts                /favicon.svg (Cosense のボタンと同じ絵。Issue #130)
-  guide-svg.ts              /v1/guide/{name}.svg (草のダイアログの説明に添える図。Issue #182)
-  markdown.ts               privacy.md・privacy.en.md を HTML にする部分集合の変換
-scripts/build-userscript.mjs esbuild でバンドルする (配布ページへの反映は手動。ADR-0013 決定 3)
+scripts/                    手元と CI で走らせるコマンド
+  build-userscript.mjs      esbuild でバンドルする (配布ページへの反映は paste-distribution.ts。ADR-0013 決定 3)
+  paste-distribution.ts     配布ページへバンドルを貼る (手元の cosense CLI。CI では走らせない)
+  check-distribution.sh     配布ページの script.js が手元のバンドルと一致するか (SHA-256)
+  check-links.sh            Markdown の相対リンクと ADR の索引の検査
+  check-pr-title.sh         PR タイトルの Conventional Commits 検査
+  oauth-logo.ts             OAuth 同意画面のロゴ PNG を作る (コミットしない)
+  readme-images.ts          README の画像を Worker の絵から作って Gyazo へ上げ、台帳を書き戻す
 ```
 
 `shared/` に置くのは**両端が同じ文字列・同じ値を作ることが前提のもの**だけ (署名の正規化・ビーコンの
@@ -559,7 +582,8 @@ callback の手順。**cookie と state が通るまで Google に fetch しな�
 ```
 
 **段階 4 のうち、OAuth クライアントを待たずに実装した** (2026-09-14、`src/worker/enroll.ts`、Issue #61)。
-トークンを発行する `/auth/callback` がまだ無いので、本番では全部 403 になる。
+~~トークンを発行する `/auth/callback` がまだ無いので、本番では全部 403 になる。~~
+(2026-09-14 の時点。`/auth/callback` は同日に #65 で入り、2026-09-15 に持ち主が 2 つのブラウザで登録まで確かめた (#61)。)
 
 1. **形を見る (400)。** `src/shared/enroll.ts` の `parseEnrollQuery`。キーは 5 つちょうど、`k` は 65 バイト、
    `tok` は 16 バイト、`sig` は 64 バイトの正規な base64url
