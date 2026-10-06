@@ -236,7 +236,8 @@ describe("あなたの草", () => {
 
     const html = await (await get(await cookieFor(uid))).text();
 
-    expect(html).toContain(`<img src="/v1/g/${publicId}.svg"`);
+    // 草の寸法は 775×146 (layout.test.ts)。`<img>` が違うと縦横比が崩れる (Issue #156)
+    expect(html).toContain(`<img src="/v1/g/${publicId}.svg" width="775" height="146"`);
   });
 
   it("**草の下に活動の概観を出し、草の URL を知っている人に見えると添える** (ADR-0021)", async () => {

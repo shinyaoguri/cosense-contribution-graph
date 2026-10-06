@@ -180,7 +180,7 @@ async function shareSection(session: Session, deps: AccountDeps): Promise<string
   // 草の URL からは導けない鍵を並べる (ADR-0020)
   const dataUrl = `${deps.publicOrigin}/v1/g/${publicId}/${await dataKeyOf(session.uid, PH_ALL)}.json`;
   return `<p>全プロジェクトを合算した草です。<strong>URL を知っている人は誰でも見られます。</strong></p>
-<img src="${escapeHtml(path)}" width="775" height="200" alt="全プロジェクトを合算した草">
+<img src="${escapeHtml(path)}" width="775" height="146" alt="全プロジェクトを合算した草">
 <p><code>${escapeHtml(url)}</code></p>
 <p>活動の概観です。書いた時間を、新しく作ったページ (作る)・自分が前に作ったページ (育てる)・他の人のページ (関わる) に分け、
 読んだ時間 (読む) と並べた割合です。<strong>草と同じ URL の末尾を変えたもので、草の URL を知っている人は見られます。</strong></p>
