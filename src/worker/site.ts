@@ -89,7 +89,7 @@ A user script counts the minutes you spend writing and reading in each Cosense p
 that you can embed or share. The amount of activity per day is shown by the depth of color, and the balance of writing and reading by the hue.</p>
 <p><small>cosense-grass is not an official Cosense service. It is a personal project and is not affiliated with Helpfeel Inc., the operator of Cosense.</small></p>
 
-<img src="/v1/g/${DEMO_PUBLIC_ID}.svg" width="775" height="200" alt="Example graph (demo)">
+<img src="/v1/g/${DEMO_PUBLIC_ID}.svg" width="775" height="146" alt="Example graph (demo)">
 <p>Minutes written are split into pages you newly created (Create), pages you created before (Grow), and pages created by others (Engage),
 and shown as an "activity overview" together with minutes read (Read).</p>
 <img src="/v1/g/${DEMO_PUBLIC_ID}/overview.svg" width="300" height="220" alt="Example activity overview (demo)">
@@ -130,7 +130,7 @@ const HOME_JA = `<h1>cosense-grass</h1>
 書いた時間と読んだ時間を分単位で数え、日ごとの量を色の濃さ、読み書きの比を色合いで表します。</p>
 <p><small>Cosense の公式サービスではありません。運営元の株式会社 Helpfeel とは関係のない、個人のプロジェクトです。</small></p>
 
-<img src="/v1/g/${DEMO_PUBLIC_ID}.svg" width="775" height="200" alt="草の例 (デモ)">
+<img src="/v1/g/${DEMO_PUBLIC_ID}.svg" width="775" height="146" alt="草の例 (デモ)">
 <p>書いた時間は、新しく作ったページ (作る)・自分が前に作ったページ (育てる)・他の人のページ (関わる) に分けて数え、
 読んだ時間 (読む) と並べた割合を「活動の概観」として出します。</p>
 <img src="/v1/g/${DEMO_PUBLIC_ID}/overview.svg" width="300" height="220" alt="活動の概観の例 (デモ)">

@@ -17,7 +17,8 @@ describe("トップ / (英語)", () => {
     expect(res.status).toBe(200);
     expect(html).toContain('<html lang="en">');
     expect(html).toContain('import "/api/code/cosense-grass/v1/script.js"');
-    expect(html).toContain(`/v1/g/${DEMO_PUBLIC_ID}.svg`);
+    // 草の寸法は Worker の草の 775×146 (layout.test.ts)。`<img>` が違うと縦横比が崩れる (Issue #156)
+    expect(html).toContain(`<img src="/v1/g/${DEMO_PUBLIC_ID}.svg" width="775" height="146"`);
     // 活動の概観のデモも草の下に並べる (ADR-0021)
     expect(html).toContain(
       `<img src="/v1/g/${DEMO_PUBLIC_ID}/overview.svg" width="300" height="220"`,
@@ -101,7 +102,7 @@ describe("トップ /ja (日本語)", () => {
     expect(html).toContain("Cosense の公式サービスではありません");
     expect(html).toContain("<h2>Google サインインを使う理由</h2>");
     expect(html).toContain('import "/api/code/cosense-grass/v1/script.js"');
-    expect(html).toContain(`/v1/g/${DEMO_PUBLIC_ID}.svg`);
+    expect(html).toContain(`<img src="/v1/g/${DEMO_PUBLIC_ID}.svg" width="775" height="146"`);
     expect(html).toContain('<a href="/account">管理のページ</a>で自分の草を見られます');
     expect(html).toContain('href="/ja/privacy"');
     expect(html).not.toContain('href="/privacy"');
