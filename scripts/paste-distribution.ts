@@ -1,8 +1,14 @@
 // 配布ページ (Cosense の公開プロジェクト /cosense-grass) の `code:script.js` を、
 // 手元のバンドルで全面差し替えする (ADR-0013 決定 3 の 2026-09-15 の改訂、Issue #105)。
 //
-//   node scripts/paste-distribution.ts <page> [bundle]
+//   node scripts/paste-distribution.ts <page> [bundle] [--allow-stale]
 //   npm run paste -- dev
+//
+// **貼る前に 2 つ確かめる** (#137・#138)。どちらも書き込みの前なので、止まっても配布ページは変わらない。
+// - **作業ツリーが最新の main か。** `HEAD` が `origin/main` と同じコミットで、追跡しているファイルに変更が無いこと。
+//   手元のバンドルが古いと、配布ページを古い版に戻すか、「既に一致している」と成功して見える (修正が届いていないのに)。
+//   差し戻しなど、意図して古い版を貼るときだけ `--allow-stale` で外す
+// - **`cosense` CLI が使えるか。** 無ければ入れ方と PAT の設定を案内して終わる
 //
 // **CI では走らせない。** 認証は手元の `cosense` CLI が持つ Personal Access Token で、
 // PAT はスコープを持たない (そのユーザーが見られる範囲すべて)。GitHub の Secrets には置かない。
@@ -315,6 +321,96 @@ export async function pasteBundle(
   return plan;
 }
 
+// ---- 事前検査 (#137・#138)。判定は純粋関数で、git と CLI を呼ぶ層は下にある ----
+
+/** 貼る前の検査で止めたことを表す。**何も書き込んでいない**ので、再開の案内は付けない */
+export class PreflightError extends Error {}
+
+export type WorktreeState = {
+  readonly head: string;
+  readonly originMain: string;
+  /** 追跡しているファイルに未コミットの変更があるか (未追跡のファイルは見ない) */
+  readonly dirty: boolean;
+};
+
+const shortSha = (sha: string) => sha.slice(0, 7);
+
+/**
+ * 貼ってはいけない作業ツリーの状態。空なら貼ってよい。
+ *
+ * 手元のバンドル (`dist/userscript.js`) は最後に `npm run build:userscript` を走らせた時点のもので、
+ * 検査はどのコミットから作ったかを知らない。**`HEAD` が最新の main であること**で、「古いバンドルを貼る」を防ぐ (#138)
+ */
+export function worktreeProblems(state: WorktreeState): string[] {
+  const problems: string[] = [];
+  if (state.head !== state.originMain) {
+    problems.push(
+      `HEAD (${shortSha(state.head)}) が origin/main (${shortSha(state.originMain)}) と同じコミットではない。` +
+        "古いバンドルを貼ると、配布ページを古い版に戻したり、修正が届いていないのに「一致している」と成功して見えたりする。" +
+        "最新の main に切り替えて `npm run build:userscript` で作り直してから貼る。" +
+        "意図して別のコミットを貼るとき (差し戻しなど) は `--allow-stale` を付ける",
+    );
+  }
+  if (state.dirty) {
+    problems.push(
+      "追跡しているファイルに未コミットの変更がある。バンドルがコミットと一致しなくなるので、コミットするか戻してから貼る。" +
+        "意図して貼るときは `--allow-stale` を付ける",
+    );
+  }
+  return problems;
+}
+
+export type Args = {
+  readonly page: string | undefined;
+  readonly bundlePath: string | undefined;
+  readonly allowStale: boolean;
+};
+
+/** `<page> [bundle] [--allow-stale]`。**知らないフラグは断る** (綴り違いで検査を外したつもりになるのを防ぐ) */
+export function parseArgs(argv: readonly string[]): Args {
+  const positional: string[] = [];
+  let allowStale = false;
+  for (const arg of argv) {
+    if (arg === "--allow-stale") {
+      allowStale = true;
+    } else if (arg.startsWith("--")) {
+      throw new PreflightError(`知らないフラグ: ${arg} (使えるのは --allow-stale だけ)`);
+    } else {
+      positional.push(arg);
+    }
+  }
+  return { page: positional[0], bundlePath: positional[1], allowStale };
+}
+
+const COSENSE_SETUP =
+  "cosense CLI を使えるようにして、Personal Access Token を設定する。\n" +
+  "  - 入れる: `npm install -g @helpfeel/cosense-cli` (fnm など Node の版ごとにグローバルが分かれる環境では、Node を上げると見えなくなる)\n" +
+  "  - または、Claude Code の cosense-cli プラグインに同梱されている `bin/cosense` を PATH に足す\n" +
+  "  - ログイン: `cosense login https://scrapbox.io`";
+
+/**
+ * `cosense` を呼んだ失敗が「使える状態になっていない」ことによるものなら、案内の文面を返す。
+ * それ以外 (503 など) は `undefined` — 試し直しの対象を横取りしない
+ */
+export function explainCosenseFailure(error: unknown): string | undefined {
+  if (typeof error !== "object" || error === null) {
+    return undefined;
+  }
+  const { code, message, stderr } = error as {
+    code?: unknown;
+    message?: unknown;
+    stderr?: unknown;
+  };
+  if (code === "ENOENT") {
+    return `cosense が PATH に見つからない。\n${COSENSE_SETUP}`;
+  }
+  const text = `${typeof message === "string" ? message : ""}\n${typeof stderr === "string" ? stderr : ""}`;
+  if (text.includes("No Personal Access Token")) {
+    return `cosense の Personal Access Token が無い。\n${COSENSE_SETUP}`;
+  }
+  return undefined;
+}
+
 // ---- ここから下は CLI (ネットワークとファイルを触る) ----
 
 async function cosense(args: readonly string[], stdin?: string): Promise<string> {
@@ -322,8 +418,36 @@ async function cosense(args: readonly string[], stdin?: string): Promise<string>
   if (stdin !== undefined) {
     child.child.stdin?.end(stdin);
   }
-  const { stdout } = await child;
-  return stdout;
+  try {
+    const { stdout } = await child;
+    return stdout;
+  } catch (error) {
+    // 使える状態でないだけなら、何をすればよいかを出す (#137)。そうなるのは最初の呼び出しなので、何も書き込んでいない
+    const explanation = explainCosenseFailure(error);
+    throw explanation === undefined ? error : new PreflightError(explanation);
+  }
+}
+
+async function git(...args: string[]): Promise<string> {
+  const { stdout } = await execFile("git", args);
+  return stdout.trim();
+}
+
+/** `git fetch` のあとの作業ツリーの状態 (#138)。取得できなければ、何をすればよいかを添えて止める */
+async function inspectWorktree(): Promise<WorktreeState> {
+  try {
+    await git("fetch", "origin", "main");
+  } catch (error) {
+    throw new PreflightError(
+      `origin/main を取得できなかった (${error instanceof Error ? error.message : String(error)})。` +
+        "通信を確かめるか、意図して貼るなら `--allow-stale` を付ける",
+    );
+  }
+  return {
+    head: await git("rev-parse", "HEAD"),
+    originMain: await git("rev-parse", "origin/main"),
+    dirty: (await git("status", "--porcelain", "--untracked-files=no")) !== "",
+  };
 }
 
 function field(output: string, name: string): string | undefined {
@@ -419,10 +543,20 @@ async function main(): Promise<void> {
   if (process.env.CI) {
     throw new Error("CI では走らせない (PAT を Secrets に置かない。ADR-0013 決定 3)");
   }
-  const [page, bundlePath = "dist/userscript.js"] = process.argv.slice(2);
+  const { page, bundlePath = "dist/userscript.js", allowStale } = parseArgs(process.argv.slice(2));
   if (page === undefined) {
-    throw new Error("ページ名を渡す (例: npm run paste -- dev)");
+    throw new PreflightError("ページ名を渡す (例: npm run paste -- dev)");
   }
+
+  // **配信物と比べるより前に確かめる。** 古い手元のバンドルが配布ページと一致して「何もしない」で終わると、
+  // 修正が届いていないのに成功して見える (#138)。CLI が無いことも、配布ページを読む前に分かるようにする (#137)
+  if (!allowStale) {
+    const problems = worktreeProblems(await inspectWorktree());
+    if (problems.length > 0) {
+      throw new PreflightError(problems.join("\n"));
+    }
+  }
+  await cosense(["--version"]);
 
   const bundleText = await readFile(bundlePath, "utf8");
   const statePath = `dist/paste-${page}.state.json`;
@@ -511,10 +645,13 @@ async function main(): Promise<void> {
 if (process.argv[1]?.endsWith("paste-distribution.ts")) {
   main().catch((error: unknown) => {
     console.error(`NG: ${error instanceof Error ? error.message : String(error)}`);
-    console.error(
-      "途中で止まったときは、同じコマンドをもう一度走らせると続きから再開する " +
-        "(dist/paste-<page>.state.json に進み具合が残っている)",
-    );
+    // 事前検査で止まったときは何も書き込んでいないので、再開の案内は出さない (#137)
+    if (!(error instanceof PreflightError)) {
+      console.error(
+        "途中で止まったときは、同じコマンドをもう一度走らせると続きから再開する " +
+          "(dist/paste-<page>.state.json に進み具合が残っている)",
+      );
+    }
     process.exitCode = 1;
   });
 }
