@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   chunkByBytes,
+  explainCosenseFailure,
   isRetryable,
   type Line,
   NEXT_TITLE,
@@ -8,12 +9,14 @@ import {
   type Op,
   type Page,
   type Progress,
+  parseArgs,
   pasteBundle,
   planPaste,
   planSwap,
   RETRY_WAITS_MS,
   SCRIPT_TITLE,
   withRetries,
+  worktreeProblems,
 } from "../../scripts/paste-distribution.ts";
 
 /** 配布ページの形 (題 + コード記法 + 1 段インデントされたコード行) */
@@ -380,5 +383,90 @@ describe("chunkByBytes", () => {
 
   it("上限より長い 1 行は、単独の塊として通す (割れないので落とさない)", () => {
     expect(chunkByBytes(["x".repeat(50)], 10)).toEqual([["x".repeat(50)]]);
+  });
+});
+
+describe("worktreeProblems (#138)", () => {
+  const main = "933832cf0000000000000000000000000000abcd";
+  const older = "5938070a0000000000000000000000000000abcd";
+
+  it("**HEAD が origin/main と同じで、変更が無ければ問題なし**", () => {
+    expect(worktreeProblems({ head: main, originMain: main, dirty: false })).toEqual([]);
+  });
+
+  it("**HEAD が origin/main と違えば止める** — 古い版に戻す・修正が届かないのに成功して見える", () => {
+    const problems = worktreeProblems({ head: older, originMain: main, dirty: false });
+
+    expect(problems).toHaveLength(1);
+    // どのコミットとどのコミットが違うのかと、直し方 (ビルドし直す・意図して外す) が分かる
+    expect(problems[0]).toContain("5938070");
+    expect(problems[0]).toContain("933832c");
+    expect(problems[0]).toContain("npm run build:userscript");
+    expect(problems[0]).toContain("--allow-stale");
+  });
+
+  it("**追跡しているファイルに未コミットの変更があれば止める**", () => {
+    const problems = worktreeProblems({ head: main, originMain: main, dirty: true });
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain("未コミット");
+  });
+
+  it("**両方なら両方を出す**", () => {
+    expect(worktreeProblems({ head: older, originMain: main, dirty: true })).toHaveLength(2);
+  });
+});
+
+describe("parseArgs (#138)", () => {
+  it("ページ名と、省略できるバンドルのパス", () => {
+    expect(parseArgs(["dev"])).toEqual({ page: "dev", bundlePath: undefined, allowStale: false });
+    expect(parseArgs(["v1", "dist/other.js"])).toEqual({
+      page: "v1",
+      bundlePath: "dist/other.js",
+      allowStale: false,
+    });
+  });
+
+  it("**`--allow-stale` は位置を問わず、検査を外す印になる**", () => {
+    expect(parseArgs(["dev", "--allow-stale"]).allowStale).toBe(true);
+    expect(parseArgs(["--allow-stale", "dev"])).toEqual({
+      page: "dev",
+      bundlePath: undefined,
+      allowStale: true,
+    });
+  });
+
+  it("**知らないフラグは断る** (綴りを間違えて検査を外したつもりになるのを防ぐ)", () => {
+    expect(() => parseArgs(["dev", "--allow-stalee"])).toThrow(/--allow-stalee/);
+  });
+
+  it("ページ名が無いときは page が undefined (main が案内する)", () => {
+    expect(parseArgs([]).page).toBeUndefined();
+  });
+});
+
+describe("explainCosenseFailure (#137)", () => {
+  it("**cosense が PATH に無い (ENOENT) ときは、入れ方と PAT の設定を案内する**", () => {
+    const error = Object.assign(new Error("spawn cosense ENOENT"), { code: "ENOENT" });
+
+    const text = explainCosenseFailure(error);
+
+    expect(text).toContain("@helpfeel/cosense-cli");
+    expect(text).toContain("cosense-cli プラグイン");
+    expect(text).toContain("cosense login https://scrapbox.io");
+  });
+
+  it("**PAT が無いときも、ログインの案内にする**", () => {
+    const error = Object.assign(new Error("Command failed: cosense readPage https://x"), {
+      stderr:
+        "No Personal Access Token found for https://scrapbox.io. Run `cosense login https://scrapbox.io`",
+    });
+
+    expect(explainCosenseFailure(error)).toContain("cosense login https://scrapbox.io");
+  });
+
+  it("**それ以外の失敗 (503 など) は案内を付けない** — 試し直しの対象を横取りしない", () => {
+    expect(explainCosenseFailure(new Error("HTTP 503 Service Unavailable"))).toBeUndefined();
+    expect(explainCosenseFailure("文字列")).toBeUndefined();
   });
 });
