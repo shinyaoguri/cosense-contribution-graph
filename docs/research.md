@@ -1101,6 +1101,23 @@ cloudflareTest(async () => ({
 **`.claude/settings.json` の deny は `wrangler d1 migrations apply` を `--local` でも止める**。ローカルでスキーマを当てるときは
 `wrangler d1 execute cosense-grass --local --file migrations/0001_init.sql` を使った。
 
+### Workers Logs の invocation logs と保持期間 (基準日 2026-10-06、Issue #55)
+
+出典: [Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/)
+
+- **invocation logs は、1 回の呼び出しにつき 1 件、リクエストとレスポンスの詳細を記録する。** Fetch のメッセージは `<Method> <URL>` の形。
+  **URL にクエリ文字列まで含まれるかは、公式に書かれていない**
+- 無効にするのは `observability.logs.invocation_logs = false`。**既定は有効** (observability を有効にすると出る)
+- **保持期間は Free プランが 3 日、Paid プランが 7 日** (最大でも 7 日)
+
+**`/v1/p.gif` の URL (uid と署名) が記録されていたかは、確かめられないまま終わった。** invocation logs が有効だったのは
+#39 のデプロイ (2026-09-14 04:38 UTC ごろ) より前で、見たいのはその期間の記録。保持期間は最長 7 日なので、
+**遅くとも 2026-09-21 には消えた**。その前にダッシュボードで見た人はいない (Issue #55 の「もう記録が残っていない」の行)。
+
+公式の記述は、URL が記録されることまでは示す。クエリを含まないとは言い切れないので、
+**含む前提で invocation logs は切ったままにする** (ADR-0013 の 2026-09-14 の改訂のまま)。戻すなら、
+`u=` と `sig=` が記録に載る前提で、載せない手段を先に確かめる。
+
 ---
 
 ## 6. Google OAuth と COOP
