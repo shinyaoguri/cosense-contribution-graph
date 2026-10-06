@@ -632,9 +632,11 @@ Cosense のページに貼ったときの見た目だけ、まだ確かめてい
 - `src/worker/auth.ts` `/auth/start` と `/auth/callback`。**入れた** (2026-09-14、Issue #61)。ブラウザで `https://grass.soui.dev/auth/start` を
   開けば 48 文字のコードが表示される。cookie は `auth-cookie.ts`、ポップアップの HTML は `auth-page.ts`、コードは `src/shared/auth.ts`
 - `src/worker/idtoken.ts` ID トークンの検証と JWKS の保持、`src/worker/uid.ts` sub から uid を導く。
-  **OAuth クライアントを待たずに先に入れた** (2026-09-14、Issue #61)。使う経路 (callback) はまだ無い
+  **OAuth クライアントを待たずに先に入れた** (2026-09-14、Issue #61)。~~使う経路 (callback) はまだ無い~~
+  (当時。`/auth/callback` は #65 で入った)
 - `src/worker/enroll.ts` デバイスの登録と失効。**登録 (`/v1/enroll.gif`) と登録トークンの発行を先に入れた** (2026-09-14、Issue #61)。
-  トークンを発行する callback がまだ無いので本番では 403。失効はまだ
+  ~~トークンを発行する callback がまだ無いので本番では 403。失効はまだ~~
+  (2026-09-14 の時点。callback は #65 で、失効 (`/v1/revoke.gif`) は #85 で入った)
 - `src/userscript/keys.ts` この端末の鍵と uid を IndexedDB に 1 レコードで持つ。**入れた** (2026-09-15、Issue #61)。キーは `device` で、
   記録の疎通確認のキー `trial` は読まない
 - 受け口 (`src/worker/keys.ts`) は `keys` テーブルを引く形にしてある (#56)。**enroll が `keys` に行を入れれば記録が通る**
@@ -975,5 +977,6 @@ PR の順。
   設定は個人標準の監査で `gh` コマンドから当て、何をなぜ変えたかは PR #11 の本文に残した。
   定義ファイルを採るなら当てた内容を移して正本を 1 つにする必要があり、
   1 リポジトリだけの実践を先に入れる理由が無かった。**再検討は Issue #10**
-- 配布の自動化。Personal Access Token はスコープがなくアカウント全体にアクセスできるので、
-  CI の Secrets に置かない。**リリース頻度が上がったら再検討**
+- ~~配布の自動化。Personal Access Token はスコープがなくアカウント全体にアクセスできるので、
+  CI の Secrets に置かない。リリース頻度が上がったら再検討~~ **決着した** (2026-09-15、Issue #105・#107)。
+  PAT は CI の Secrets に置かず、手元の `cosense` CLI で貼る (`npm run paste -- <page>`)。ADR-0013 決定 3 の 2026-09-15 の改訂

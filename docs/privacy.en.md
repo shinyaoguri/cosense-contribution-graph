@@ -15,7 +15,6 @@ The source code and design are public on [GitHub](https://github.com/shinyaoguri
 | One-time codes for device registration | A hash of the code, not the code itself | To register the key of a device you signed in on |
 | Project identifiers | Hashes salted with the user identifier above | To count activity per project |
 | Daily activity | Per-minute bitmaps and daily totals (minutes written and minutes read; of the minutes written, minutes on pages you newly created and on pages created by others; pages edited; pages newly created; links created) | To draw the graph and the activity overview |
-| Time zone | A string such as `Asia/Tokyo` | To decide where a day begins and ends |
 
 ## What we do not store
 
