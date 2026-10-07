@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GUIDE_HEIGHTS, GUIDE_WIDTH } from "../../src/shared/guide.ts";
 import { BUTTON_CLASS, DIALOG_ATTRIBUTE } from "../../src/userscript/dialog.ts";
 import {
+  CARD_HEIGHT,
+  CARD_WIDTH,
   COPIED_FEEDBACK_MS,
   createGraphDialog,
   FIRST_YEAR,
@@ -55,10 +57,20 @@ const CARD_TITLE = "section > h4";
 const GRASS = 'img[alt$="の草"]';
 /** 活動の概観の画像 (ADR-0021) */
 const OVERVIEW = 'img[alt$="の活動の概観"]';
+/** カードの図 (ADR-0024) */
+const CARD = 'img[alt$="のカード"]';
+const PASTE_LINE = "Cosense に貼る行をコピー";
 const dataOf = (name: string) =>
   `https://grass.soui.dev/v1/g/${name.padEnd(32, "0")}/${"f".repeat(32)}.json`;
 const overviewOf = (name: string) =>
   `https://grass.soui.dev/v1/g/${name.padEnd(32, "0")}/overview.svg`;
+
+const cardOf = (name: string) => `https://grass.soui.dev/v1/g/${name.padEnd(32, "0")}/card.svg`;
+/** Cosense に貼る行。合算はリンク先が無い */
+const lineOf = (name: string, project?: string) =>
+  project === undefined
+    ? `[${cardOf(name)}]`
+    : `[${cardOf(name)}?l=${project} https://scrapbox.io/${project}/]`;
 
 const SYNC: SyncView = { lines: ["このブラウザの記録は送信済みです。"], canSend: false };
 
@@ -74,6 +86,7 @@ function graphs(
       url: url("aa"),
       overviewUrl: overviewOf("aa"),
       dataUrl: dataOf("aa"),
+      cardLine: lineOf("aa"),
       sent: totalSent,
     },
     projects: projects.map((p, i) => ({
@@ -81,6 +94,8 @@ function graphs(
       url: url(`b${i}`),
       overviewUrl: overviewOf(`b${i}`),
       dataUrl: dataOf(`b${i}`),
+      cardUrl: cardOf(`b${i}`),
+      cardLine: lineOf(`b${i}`, `p${i}`),
     })),
     sync,
   };
@@ -323,6 +338,78 @@ describe("createGraphDialog", () => {
     expect(t.find()?.textContent).toContain("日ごとの内訳まで読めます");
   });
 
+  it("**「共有する」にカードの行を置く。プロジェクト別は図を半分の大きさで出し、合算はコピーだけ** (ADR-0024・0025)", () => {
+    const t = setup();
+    t.open(graphs([{ label: "alpha", sent: true }]));
+
+    const images = [...(t.find()?.querySelectorAll<HTMLImageElement>(CARD) ?? [])];
+    expect(images.map((img) => [img.getAttribute("src"), img.alt])).toEqual([
+      [cardOf("b0"), "alpha のカード"],
+    ]);
+    for (const img of images) {
+      expect([img.width, img.height]).toEqual([CARD_WIDTH, CARD_HEIGHT]);
+      expect([CARD_WIDTH * 2, CARD_HEIGHT * 2]).toEqual([500, 400]);
+      expect(img.getAttribute("loading")).toBe("lazy");
+      expect(img.getAttribute("referrerpolicy")).toBe("no-referrer");
+    }
+    // 合算の囲みには図が無く、コピーだけある
+    const [total, project] = t.sections().filter((node) => node.style.border !== "");
+    expect(total?.querySelectorAll(CARD)).toHaveLength(0);
+    expect(project?.querySelectorAll(CARD)).toHaveLength(1);
+    expect(
+      t
+        .buttons(PASTE_LINE)
+        .map((b) => [b.closest("section") === total, b.getAttribute("aria-label")]),
+    ).toEqual([
+      [true, `${TOTAL_LABEL} のカードの Cosense に貼る行をコピー`],
+      [false, "alpha のカードの Cosense に貼る行をコピー"],
+    ]);
+  });
+
+  it("**「Cosense に貼る行をコピー」はリンク付きの画像の行を書く** (合算はリンク先なし)", async () => {
+    const t = setup();
+    t.open(graphs([{ label: "alpha", sent: true }]));
+
+    for (const copy of t.buttons(PASTE_LINE)) {
+      copy.click();
+    }
+    await settle();
+
+    expect(t.copied).toEqual([lineOf("aa"), lineOf("b0", "p0")]);
+  });
+
+  it("**カードの図が読めなければ図だけ消し、コピーは残す**", () => {
+    const t = setup();
+    t.open(graphs([{ label: "alpha", sent: true }]));
+
+    t.find()?.querySelector<HTMLImageElement>(CARD)?.dispatchEvent(new Event("error"));
+
+    expect(t.find()?.querySelectorAll(CARD)).toHaveLength(0);
+    expect(t.buttons(PASTE_LINE)).toHaveLength(2);
+  });
+
+  it("**行をコピーできなければ、選べる欄に行を出す**", async () => {
+    const t = setup(() => Promise.reject(new Error("denied")));
+    t.open(graphs([]));
+
+    t.buttons(PASTE_LINE)[0]?.click();
+    await settle();
+
+    const field = t.find()?.querySelector<HTMLInputElement>("input");
+    expect(field?.value).toBe(lineOf("aa"));
+    expect(field?.getAttribute("aria-label")).toBe(`${TOTAL_LABEL} のカードの Cosense に貼る行`);
+  });
+
+  it("**説明に、カードの行を自分のページに自動で貼ること・止め方を書く** (ADR-0025 決定 4)", () => {
+    const t = setup();
+    t.open(graphs([]));
+
+    const text = t.find()?.querySelector("details")?.textContent ?? "";
+    expect(text).toContain("自動で貼ります");
+    expect(text).toContain("貼り直します");
+    expect(text).toContain("読み込みの 1 行を外して");
+  });
+
   it("**概観と「共有する」の欄を草の下の 1 行に並べ、狭ければ折り返す** (右側を空けない。#164)", () => {
     const t = setup();
     t.open(graphs([]));
@@ -490,6 +577,7 @@ describe("createGraphDialog", () => {
     expect(order).toEqual([
       `${TOTAL_LABEL} の草`,
       `${TOTAL_LABEL} の活動の概観`,
+      "button",
       "button",
       "button",
       "button",
@@ -764,12 +852,14 @@ describe("createGraphDialog", () => {
     t.buttons(SEND_NOW_LABEL)[0]?.click();
     await settle();
 
-    // 表示中の草 2 枚と概観 2 枚を、キャッシュを外すクエリ付きで取り直す
+    // 表示中の草 2 枚・概観 2 枚・カード 1 枚を、キャッシュを外すクエリ付きで取り直す
     expect(created.map((img) => img.getAttribute("src"))).toEqual([
       expect.stringMatching(/\/aa0+\.svg\?r=\d+$/),
       expect.stringMatching(/\/aa0+\/overview\.svg\?r=\d+$/),
       expect.stringMatching(/\/b00+\.svg\?r=\d+$/),
       expect.stringMatching(/\/b00+\/overview\.svg\?r=\d+$/),
+      // カードも直近の記録で描かれるので取り直す
+      expect.stringMatching(/\/b00+\/card\.svg\?r=\d+$/),
     ]);
     // 読めるまでは古い絵のまま
     expect(
@@ -796,6 +886,7 @@ describe("createGraphDialog", () => {
         url: labelled,
         overviewUrl: overviewOf("aa"),
         dataUrl: dataOf("aa"),
+        cardLine: lineOf("aa"),
         sent: true,
       },
       projects: [],
@@ -885,6 +976,7 @@ describe("createGraphDialog", () => {
 
       choose(t, "2026");
 
+      // カードは期間で変わらない (直近 26 週) ので読み直さない
       expect(created.map((img) => img.getAttribute("src"))).toEqual([
         `${url("aa")}?year=2026`,
         `${overviewOf("aa")}?year=2026`,
@@ -931,6 +1023,7 @@ describe("createGraphDialog", () => {
           url: labelled,
           overviewUrl: overviewOf("aa"),
           dataUrl: dataOf("aa"),
+          cardLine: lineOf("aa"),
           sent: true,
         },
         projects: [],

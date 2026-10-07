@@ -14,7 +14,13 @@ import { MAX_TODAY_SENDS, readSent, SENT_KEY } from "../../src/userscript/outbox
 import { backoffMs, createSender } from "../../src/userscript/sender.ts";
 import { type Activity, createStore } from "../../src/userscript/store.ts";
 import { localDay } from "../../src/userscript/time.ts";
-import { dataUrl, graphUrl, overviewUrl } from "../../src/userscript/worker-origin.ts";
+import {
+  cardLine,
+  cardUrl,
+  dataUrl,
+  graphUrl,
+  overviewUrl,
+} from "../../src/userscript/worker-origin.ts";
 
 const UID = encodeBase64url(new Uint8Array(20).fill(9));
 
@@ -417,10 +423,17 @@ describe("createSender — status", () => {
           await publicIdOf(UID, await phOf(UID, "p")),
           await dataKeyOf(UID, await phOf(UID, "p")),
         ),
+        cardUrl: cardUrl(await publicIdOf(UID, await phOf(UID, "p")), { project: "p" }),
+        cardLine: cardLine(await publicIdOf(UID, await phOf(UID, "p")), { project: "p" }),
         sent: true,
       },
     ]);
     expect(after.projects[0]?.graphUrl).toMatch(/\?l=p$/);
+    // **カードは草と同じ publicId** (ADR-0024 決定 4)。合算の行はリンク先を持たない (ADR-0025)
+    expect(after.projects[0]?.cardUrl).toBe(
+      after.projects[0]?.graphUrl.replace(/\.svg\?/, "/card.svg?"),
+    );
+    expect(after.cardLine).toBe(`[${after.graphUrl.replace(/\.svg$/, "/card.svg")}]`);
     expect(after.backoffUntil).toBeUndefined();
   });
 

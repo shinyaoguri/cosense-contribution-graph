@@ -19,6 +19,7 @@ const ENROLLED: SendStatus = {
   overviewUrl: "https://grass.soui.dev/v1/g/0123456789abcdef0123456789abcdef/overview.svg",
   dataUrl:
     "https://grass.soui.dev/v1/g/0123456789abcdef0123456789abcdef/ffffffffffffffffffffffffffffffff.json",
+  cardLine: "[https://grass.soui.dev/v1/g/total/card.svg]",
   totalSent: true,
   projects: [],
   todaySends: 0,

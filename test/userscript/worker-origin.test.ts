@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { graphUrl, WORKER_ORIGIN } from "../../src/userscript/worker-origin.ts";
+import { encodeBase64url } from "../../src/shared/base64url.ts";
+import { PH_ALL, phOf, publicIdOf, UID_BYTES } from "../../src/shared/ids.ts";
+import {
+  cardLine,
+  cardUrl,
+  graphIds,
+  graphUrl,
+  WORKER_ORIGIN,
+} from "../../src/userscript/worker-origin.ts";
 
 describe("graphUrl", () => {
   it("独自ドメインの共有 SVG の URL", () => {
@@ -58,5 +66,60 @@ describe("graphUrl", () => {
         "https://grass.soui.dev/v1/g/0123456789abcdef0123456789abcdef.svg",
       );
     }
+  });
+});
+
+describe("cardUrl と cardLine (ADR-0024・0025)", () => {
+  const ID = "0123456789abcdef0123456789abcdef";
+
+  it("**カードの図は草と同じ publicId で、名前の付け方も草と同じ**", () => {
+    expect(cardUrl(ID)).toBe(`https://grass.soui.dev/v1/g/${ID}/card.svg`);
+    expect(cardUrl(ID, { project: "villagepump", user: "山田 太郎" })).toBe(
+      `https://grass.soui.dev/v1/g/${ID}/card.svg?l=villagepump&u=%E5%B1%B1%E7%94%B0%20%E5%A4%AA%E9%83%8E`,
+    );
+    expect(cardUrl(ID, { project: "a_b", user: "a\nb" })).toBe(
+      `https://grass.soui.dev/v1/g/${ID}/card.svg`,
+    );
+  });
+
+  it("**プロジェクトのカードはリンク付きの画像の行。押すとそのプロジェクトへ飛ぶ**", () => {
+    expect(cardLine(ID, { project: "villagepump", user: "example-user" })).toBe(
+      `[https://grass.soui.dev/v1/g/${ID}/card.svg?l=villagepump&u=example-user https://scrapbox.io/villagepump/]`,
+    );
+  });
+
+  it("**合算はどのプロジェクトのものでもないので、リンク先を付けない**", () => {
+    expect(cardLine(ID, { user: "example-user" })).toBe(
+      `[https://grass.soui.dev/v1/g/${ID}/card.svg?u=example-user]`,
+    );
+    // 取り決めの外のプロジェクト名もリンクにしない (名前も描かれない)
+    expect(cardLine(ID, { project: "a b" })).toBe(`[https://grass.soui.dev/v1/g/${ID}/card.svg]`);
+  });
+
+  it("**角括弧の中に空白・`]`・改行が入らない** (入ると Cosense の記法が切れる)", () => {
+    for (const user of ["a ] b", "[x]", "山田\u3000太郎", "a\tb", "#tag", "a&b=c"]) {
+      const line = cardLine(ID, { project: "p", user });
+      const [image, link, ...rest] = line.slice(1, -1).split(" ");
+      expect(rest).toEqual([]);
+      expect(link).toBe("https://scrapbox.io/p/");
+      expect(image).not.toMatch(/[\s[\]]/);
+      // Cosense のパーサが画像とみなす形 (`@progfay/scrapbox-parser` の ImageNode.ts の srcFirstStrongImageRegExp)
+      expect(line).toMatch(
+        /^\[https?:\/\/[^\s\]]+\.(?:png|jpe?g|gif|svg|webp)(?:\?[^\]\s]+)?(?:\s+https?:\/\/[^\s\]]+)?\]$/i,
+      );
+    }
+  });
+});
+
+describe("graphIds", () => {
+  const UID = encodeBase64url(new Uint8Array(UID_BYTES).fill(7));
+
+  it("**プロジェクトなら phOf → publicIdOf、省けば合算 (`*`)** (導き方を 1 か所に。ADR-0025)", async () => {
+    const ph = await phOf(UID, "my-project");
+    expect(await graphIds(UID, "my-project")).toEqual({
+      ph,
+      publicId: await publicIdOf(UID, ph),
+    });
+    expect(await graphIds(UID)).toEqual({ ph: PH_ALL, publicId: await publicIdOf(UID, PH_ALL) });
   });
 });

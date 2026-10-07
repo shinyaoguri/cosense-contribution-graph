@@ -42,6 +42,9 @@ function setup(projectName = "project-a") {
   const revokes = { count: 0, outcome: "revoked" as RevokeOutcome };
   const clears = { count: 0, outcome: "cleared" as ClearResult };
   const triggers: string[] = [];
+  /** カードの図を確かめたプロジェクト (呼ばれた順)。送信のきっかけと並べて順番を見る */
+  const ensured: string[] = [];
+  const events: string[] = [];
   const views: { view: IntegratedView; handlers: GraphDialogHandlers }[] = [];
   const settingsViews: { model: SettingsModel; handlers: SettingsHandlers }[] = [];
   const sending = {
@@ -57,6 +60,7 @@ function setup(projectName = "project-a") {
     sender: {
       trigger: async (kind) => {
         triggers.push(kind);
+        events.push(`trigger:${kind}`);
         return sending.outcome;
       },
       status: () => {
@@ -65,6 +69,13 @@ function setup(projectName = "project-a") {
       },
     },
     graphDialog: { open: (view, handlers) => views.push({ view, handlers }) },
+    profileCard: {
+      ensure: async (name) => {
+        ensured.push(name);
+        events.push(`ensure:${name}`);
+        return "present";
+      },
+    },
     revoker: {
       revokeThisDevice: async () => {
         revokes.count++;
@@ -171,6 +182,8 @@ function setup(projectName = "project-a") {
     openSettings,
     signIns,
     triggers,
+    ensured,
+    events,
     views,
     settingsViews,
     revokes,
@@ -260,6 +273,7 @@ function enrolled(): SendStatus {
     graphUrl: "https://grass.soui.dev/v1/g/x.svg",
     overviewUrl: "https://grass.soui.dev/v1/g/x/overview.svg",
     dataUrl: "https://grass.soui.dev/v1/g/x/ffffffffffffffffffffffffffffffff.json",
+    cardLine: "[https://grass.soui.dev/v1/g/total/card.svg]",
     totalSent: true,
     projects: [],
     todaySends: 0,
@@ -303,6 +317,7 @@ describe("草を見る", () => {
       graphUrl: "https://grass.soui.dev/v1/g/total.svg",
       overviewUrl: "https://grass.soui.dev/v1/g/total/overview.svg",
       dataUrl: "https://grass.soui.dev/v1/g/total/ffffffffffffffffffffffffffffffff.json",
+      cardLine: "[https://grass.soui.dev/v1/g/total/card.svg]",
       totalSent: true,
       projects: [
         {
@@ -310,6 +325,8 @@ describe("草を見る", () => {
           graphUrl: "https://grass.soui.dev/v1/g/a.svg",
           overviewUrl: "https://grass.soui.dev/v1/g/a/overview.svg",
           dataUrl: "https://grass.soui.dev/v1/g/a/ffffffffffffffffffffffffffffffff.json",
+          cardUrl: "https://grass.soui.dev/v1/g/a/card.svg",
+          cardLine: "[https://grass.soui.dev/v1/g/a/card.svg https://scrapbox.io/a/]",
           sent: true,
         },
         {
@@ -317,6 +334,8 @@ describe("草を見る", () => {
           graphUrl: "https://grass.soui.dev/v1/g/b.svg",
           overviewUrl: "https://grass.soui.dev/v1/g/b/overview.svg",
           dataUrl: "https://grass.soui.dev/v1/g/b/ffffffffffffffffffffffffffffffff.json",
+          cardUrl: "https://grass.soui.dev/v1/g/b/card.svg",
+          cardLine: "[https://grass.soui.dev/v1/g/b/card.svg https://scrapbox.io/b/]",
           sent: false,
         },
       ],
@@ -350,6 +369,7 @@ describe("草を見る", () => {
       graphUrl: "https://grass.soui.dev/v1/g/total.svg",
       overviewUrl: "https://grass.soui.dev/v1/g/total/overview.svg",
       dataUrl: "https://grass.soui.dev/v1/g/total/ffffffffffffffffffffffffffffffff.json",
+      cardLine: "[https://grass.soui.dev/v1/g/total/card.svg]",
       totalSent: true,
       projects: [],
       todaySends: 1,
@@ -465,5 +485,47 @@ describe("送信のきっかけ", () => {
     t.settingsViews[0]?.handlers.signIn();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(t.triggers).toEqual(["load", "enrolled"]);
+  });
+});
+
+describe("プロフィールページのカード (ADR-0025)", () => {
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it("**読み込みの送信の後に、今のプロジェクトで 1 回確かめる**", async () => {
+    const t = setup("project-a");
+    start(t.cosense, t.deps);
+    await settle();
+
+    expect(t.ensured).toEqual(["project-a"]);
+    expect(t.events).toEqual(["trigger:load", "ensure:project-a"]);
+  });
+
+  it("**導入していないプロジェクト・確かめている最中では呼ばない** (導入の判定はセンサーと同じ)", async () => {
+    for (const status of ["not-installed", "checking"] as const) {
+      const t = setup();
+      t.sensor.status = status;
+      start(t.cosense, t.deps);
+      await settle();
+
+      expect(t.ensured).toEqual([]);
+    }
+  });
+
+  it("**登録できたら enrolled で送った後に確かめる**。登録できなければ呼ばない", async () => {
+    const t = setup("project-a");
+    start(t.cosense, t.deps);
+    await t.openSettings();
+
+    t.signIns.outcome = "cancelled";
+    t.settingsViews[0]?.handlers.signIn();
+    await settle();
+    expect(t.ensured).toEqual(["project-a"]);
+
+    // 移った先のプロジェクトで登録した
+    t.project.name = "project-b";
+    t.signIns.outcome = "added";
+    t.settingsViews[0]?.handlers.signIn();
+    await settle();
+    expect(t.events.slice(-2)).toEqual(["trigger:enrolled", "ensure:project-b"]);
   });
 });

@@ -18,17 +18,22 @@
  * 「設定」には**この端末の切り離し**と**このブラウザの記録の削除**も載せている。
  * サーバのデータの管理 (端末の一覧・共有 URL・全削除) は Worker の `/account` (ADR-0018、Issue #88)。
  *
+ * **プロフィールページにカードの図を貼り続ける** (ADR-0025、段階 10、Issue #208)。読み込み時の送信の後と、
+ * 端末の登録に成功した後に、そのプロジェクトに導入済みなら `profile.ts` が確かめる。**UserScript がページに書く唯一の機能。**
+ *
  * 開発用だった**送信の疎通確認** (Issue #31) と**センサーの記録** (Issue #36) のメニューは、v1 を配るのに合わせて消した (Issue #95)。
  * 疎通確認は本物の送信が入って役目を終えている。Worker 側の `/v1/probe.gif` は残っているので、手で叩けば確かめられる。
  */
 import { generateSigningKeyPair } from "../shared/sign.ts";
 import { AUTH_POPUP_FEATURES, AUTH_POPUP_NAME, createSignIn } from "./auth.ts";
 import { CLEAR_TEXT, type Cleaner, createCleaner } from "./cleaner.ts";
+import { sendCommit } from "./cosense-socket.ts";
 import { createGraphDialog, type GraphDialog } from "./graph-dialog.ts";
 import { requestImage } from "./image.ts";
 import { createIndexedDbDeviceStore } from "./keys.ts";
 import { describeMenuState, type MenuState, menuIcon } from "./menu-icon.ts";
 import { SEND_TEXT, SEND_TEXT_FALLBACK } from "./outbox.ts";
+import { createProfileCard, type ProfileCard } from "./profile.ts";
 import { createRevoker, REVOKE_TEXT, type Revoker } from "./revoke.ts";
 import { createSender, type Sender } from "./sender.ts";
 import { type Sensor, type SensorCosense, startExclusive, startSensor } from "./sensor.ts";
@@ -45,7 +50,7 @@ import { describeIntegrated, describeSync, type IntegratedView } from "./viewer.
  * **番号を上げるのは、利用者が import の 1 行を書き直さないと動かなくなるときだけ** (ADR-0019)。
  * 見えるものが減るだけの変更は同じページを差し替え、minor を上げる。
  */
-export const USERSCRIPT_VERSION = "1.8.0";
+export const USERSCRIPT_VERSION = "1.9.0";
 
 /** UserScript から使う `window.scrapbox` のうち、ここで触る部分だけ (research §2)。 */
 export type Cosense = SensorCosense & {
@@ -72,6 +77,11 @@ export type Dependencies = {
   readonly sender: Pick<Sender, "trigger" | "status">;
   readonly graphDialog: Pick<GraphDialog, "open">;
   readonly settingsDialog: Pick<SettingsDialog, "open">;
+  /**
+   * プロフィールページにカードの図の行が無ければ貼る (ADR-0025)。**導入済みのプロジェクトでだけ呼ぶ** —
+   * 導入の判定はセンサーが持っているので、ここ (`start`) で見てから渡す
+   */
+  readonly profileCard: Pick<ProfileCard, "ensure">;
   /** この端末の登録を取り消す */
   readonly revoker: Revoker;
   /** このブラウザの記録を消す */
@@ -93,10 +103,21 @@ const RECHECK_LIMIT = 6;
 export function start(cosense: Cosense, deps: Dependencies): void {
   const sensor = deps.startSensor();
 
-  // **足すのはこのボタン 1 つだけ。** 「設定」はこのダイアログから開く (Issue #95・#122)
-  const button = startMenuButton(cosense, sensor, deps);
+  /**
+   * カードの図を確かめる (ADR-0025 決定 4)。**そのプロジェクトに導入済み (import の 1 行がある) のときだけ。**
+   * 判定はセンサーと同じもの (ADR-0007 決定 5)。読み込んだプロジェクトは導入済みで、移った先は確かめ終わるまで呼ばない
+   */
+  const ensureCard = () => {
+    if (sensor.status() === "counting") {
+      void deps.profileCard.ensure(cosense.Project.name);
+    }
+  };
 
-  void deps.sender.trigger("load");
+  // **足すのはこのボタン 1 つだけ。** 「設定」はこのダイアログから開く (Issue #95・#122)
+  const button = startMenuButton(cosense, sensor, deps, ensureCard);
+
+  // 送った後に確かめる。読み込み直後の通信を重ねない (送信は失敗しても結果で返り、reject しない)
+  void deps.sender.trigger("load").then(ensureCard);
   // **隠すたびに送る。** 変化が無ければ送らず、当日分は 1 日 4 回まで (sender.ts)
   deps.document.addEventListener("visibilitychange", () => {
     if (deps.document.visibilityState === "hidden") {
@@ -124,6 +145,7 @@ function startMenuButton(
   cosense: Cosense,
   sensor: Pick<Sensor, "status">,
   deps: Dependencies,
+  ensureCard: () => void,
 ): MenuButton {
   let shown: MenuState | undefined;
   let rechecks = 0;
@@ -136,7 +158,7 @@ function startMenuButton(
     cosense.PageMenu.addMenu({
       title: MENU_TITLE,
       image: menuIcon(state),
-      onClick: () => void runViewMenu(cosense, deps, button),
+      onClick: () => void runViewMenu(cosense, deps, button, ensureCard),
     });
   };
 
@@ -163,14 +185,19 @@ function startMenuButton(
 }
 
 /** 開くたびに登録の状態と設定を読み直す (別のタブで登録・変更したものを拾う) */
-async function runSettingsDialog(deps: Dependencies, button: MenuButton): Promise<void> {
+async function runSettingsDialog(
+  deps: Dependencies,
+  button: MenuButton,
+  ensureCard: () => void,
+): Promise<void> {
   const status = await deps.sender.status();
   deps.settingsDialog.open(describeSettings(status, deps.settings.read()), {
     // ポップアップを開くのは signIn の同期区間。登録できたら、貯まっていた記録と今日の分を送る
     signIn: () => {
       void deps.signIn().then((outcome) => {
         if (outcome === "added" || outcome === "known") {
-          void deps.sender.trigger("enrolled");
+          // 登録できたらカードの図も確かめる (読み込み時は未登録で飛ばしている)
+          void deps.sender.trigger("enrolled").then(ensureCard);
         }
         // 登録できても失敗しても、アイコンが示す状態は変わりうる
         button.refresh();
@@ -191,6 +218,7 @@ async function runViewMenu(
   cosense: Cosense,
   deps: Dependencies,
   button: MenuButton,
+  ensureCard: () => void,
 ): Promise<void> {
   const project = cosense.Project.name;
   let integrated: IntegratedView;
@@ -204,7 +232,7 @@ async function runViewMenu(
   }
   deps.graphDialog.open(integrated, {
     // 押された時点で草のダイアログは閉じている。設定は自分で状況を読み直す
-    openSettings: () => void runSettingsDialog(deps, button),
+    openSettings: () => void runSettingsDialog(deps, button, ensureCard),
     // **送った後に状況を読み直す。** ダイアログを開き直さず、状態行だけ差し替えてもらう
     sendNow: async () => {
       const outcome = await deps.sender.trigger("manual");
@@ -243,8 +271,33 @@ if (typeof window !== "undefined" && window.scrapbox) {
     warn,
     userName: () => cosense.User?.name,
   });
+  // 同一オリジン。connect-src 'self' なので通る (research §1)
+  const fetchText = async (path: string, init: RequestInit = {}) => {
+    const response = await fetch(path, { credentials: "same-origin", ...init });
+    return response.ok ? await response.text() : undefined;
+  };
   start(cosense, {
     sender,
+    profileCard: createProfileCard({
+      keys,
+      userName: () => cosense.User?.name,
+      // 読み直し (NotFastForward の後) で古い版を掴まないよう、キャッシュを使わない
+      fetchText: (path) => fetchText(path, { cache: "no-store" }),
+      // 同一オリジンの WebSocket。connect-src に wss://scrapbox.io がある (research §1 の 2026-10-07)
+      sendCommit: (commit) =>
+        sendCommit(commit, {
+          openSocket: (url) => new WebSocket(url),
+          setTimeout: (handler, ms) => window.setTimeout(handler, ms),
+          clearTimeout: (id) => window.clearTimeout(id),
+        }),
+      // 同じブラウザのタブどうしで二重に貼らない (ADR-0025 決定 5)。無ければそのまま
+      withLock: (name, run) =>
+        window.navigator.locks ? window.navigator.locks.request(name, run) : run(),
+      now: () => new Date(),
+      random: () => Math.random(),
+      log: (message) => console.info(`[cosense-grass] ${message}`),
+      warn,
+    }),
     revoker: createRevoker({ keys, sendImage: (url) => requestImage(url), now: () => new Date() }),
     cleaner: createCleaner({ storage: window.localStorage }),
     settings,
@@ -279,11 +332,7 @@ if (typeof window !== "undefined" && window.scrapbox) {
           setInterval: (handler, ms) => window.setInterval(handler, ms),
           countRead: () => settings.read().settings.countRead,
           clearInterval: (id) => window.clearInterval(id),
-          // 同一オリジン。connect-src 'self' なので通る (research §1)
-          fetchText: async (path) => {
-            const response = await fetch(path, { credentials: "same-origin" });
-            return response.ok ? await response.text() : undefined;
-          },
+          fetchText: (path) => fetchText(path),
           warn,
           onDayChange: () => void sender.trigger("day-change"),
         }),
