@@ -195,18 +195,42 @@ describe("ラベル", () => {
     expect(en).not.toContain("月");
   });
 
-  it("月ラベルは月の 1〜7 日が月曜の列にだけ出し、右端の列には出さない", () => {
-    const months = layoutCard(input())
+  const monthLabels = (today: string) =>
+    layoutCard(input({ today }))
       .labels.filter((l) => /月$/.test(l.text) && l.text.length > 1)
-      .map((l) => l.text);
-    // 範囲は 2026-03-23 から。9 月の最初の月曜 (9/7) は右から 2 列目
-    expect(months).toEqual(["4月", "5月", "6月", "7月", "8月", "9月"]);
+      .map((l) => ({ text: l.text, x: l.x, anchor: l.anchor }));
 
-    // 右端の列 (2026-10-05 の週) が 10 月の最初の週なら出さない
-    const octoberLabels = layoutCard(input({ today: "2026-10-07" }))
-      .labels.map((l) => l.text)
-      .filter((t) => t === "10月");
-    expect(octoberLabels).toEqual([]);
+  it("**月ラベルはその月の 1 日を含む列に出す** (#208)", () => {
+    // 範囲は 2026-03-23 から。各月の 1 日 (4/1 は水曜) を含む列に出る
+    expect(monthLabels(input().today).map((l) => l.text)).toEqual([
+      "4月",
+      "5月",
+      "6月",
+      "7月",
+      "8月",
+      "9月",
+    ]);
+
+    // 10/1 (木) は右から 2 列目 (9/28 の週) にある。月曜が 1〜7 日の列 (右端) に限ると出せなかった
+    const october = monthLabels("2026-10-07").find((l) => l.text === "10月");
+    expect(october?.anchor).toBe("start");
+    const september = monthLabels("2026-10-07").find((l) => l.text === "9月");
+    // 9/1 (火) は 8/31 の週。10 月のラベルは 9 月のラベルの 4 列あと
+    expect((october?.x ?? 0) - (september?.x ?? 0)).toBeGreaterThan(0);
+  });
+
+  it("**右端の列の月ラベルは右端をそろえ、「計」の見出しと重ねない**", () => {
+    // 12/1 (火) は右端の列 (11/30 の週)
+    const december = monthLabels("2026-12-02").find((l) => l.text === "12月");
+    expect(december?.anchor).toBe("end");
+    const sum = layoutCard(input({ today: "2026-12-02" })).labels.find((l) => l.text === "計");
+    expect(december?.x ?? Number.POSITIVE_INFINITY).toBeLessThan(sum?.x ?? 0);
+  });
+
+  it("**まだ来ていない 1 日には月ラベルを出さない**", () => {
+    // 10/1 (木) は 9/30 から見ると明日
+    expect(monthLabels("2026-09-30").map((l) => l.text)).not.toContain("10月");
+    expect(monthLabels("2026-10-01").map((l) => l.text)).toContain("10月");
   });
 });
 
