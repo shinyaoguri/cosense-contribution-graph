@@ -459,6 +459,8 @@ CREATE TABLE daily (
   wc INTEGER NOT NULL DEFAULT 0,       -- 作る (分)。ADR-0021、migrations/0005 (#151)
   wo INTEGER NOT NULL DEFAULT 0,       -- 関わる (分)。同上
   links INTEGER NOT NULL DEFAULT 0,    -- 作ったリンクの件数。同上
+  sw0 INTEGER, sw1 INTEGER, sw2 INTEGER, sw3 INTEGER,  -- 時間帯の区間ごとの w。migrations/0006 (#208)
+  sr0 INTEGER, sr1 INTEGER, sr2 INTEGER, sr3 INTEGER,  -- 同じく r (r & ~w)。NULL は内訳なし
   PRIMARY KEY (uid, ph, day)
 ) WITHOUT ROWID;
 
@@ -511,7 +513,16 @@ total' = max(w_old + r_old, w_new + r_new)
 r'     = total' − w'
 pages' = max(pages_old, pages_new)、created も同じ
 wc'    = max(wc_old, wc_new)、wo と links も同じ (ADR-0021)
+sw_k'  = max(sw_k_old, sw_k_new)                          区間 k = 0..3 (#208)
+sr_k'  = max(sw_k_old + sr_k_old, sw_k_new + sr_k_new) − sw_k'
 ```
+
+**時間帯の区間** (2026-10-07、Issue #208、`migrations/0006_daily_segments.sql`)。暦の日 (クライアントのローカル日付) を
+0–9 / 9–13 / 13–18 / 18–24 時の 4 区間に分け、マージした後のビットマップから区間ごとの `popcount(w)` と `popcount(r & ~w)` を数える
+(`src/worker/segments.ts`)。区間の和は w / r に一致する。夜 (18–9) は描画するときに「D の区間 3 + D+1 の区間 0」として組むので、
+受け口はほかの日の行を書かない。**保存済みが NULL (列を足す前の行) なら max を取らずに新しい値を書く** (SQLite の `max` は
+引数に NULL があると NULL を返すので、SQL では `CASE` で分ける)。既存の行は Cron が daybits の残る 90 日分だけ遡って埋め
+(1 回 500 行まで)、それより古い行は NULL のままになる。
 
 `wc` / `wo` / `links` はビットマップを持たない (送るのは数だけ) ので、`pages` / `created` と同じく max でしか守れない。
 複数端末では少なめに出る (Issue #71)。**`wc + wo` は `w` を超えうる** (§4)。

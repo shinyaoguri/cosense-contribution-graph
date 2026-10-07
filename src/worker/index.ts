@@ -9,7 +9,12 @@ import { PROBE_PATH } from "../shared/probe.ts";
 import { REVOKE_PATH } from "../shared/revoke.ts";
 import { type AccountDeps, handleAccount } from "./account.ts";
 import { type AuthDeps, handleAuthCallback, handleAuthStart } from "./auth.ts";
-import { deleteExpiredEnrollTokens, deleteOldDaybits } from "./cron.ts";
+import {
+  BACKFILL_LIMIT,
+  backfillDailySegments,
+  deleteExpiredEnrollTokens,
+  deleteOldDaybits,
+} from "./cron.ts";
 import { DEMO_TODAY, demoData, demoOverviewDays } from "./demo.ts";
 import { handleEnroll, handleRevoke } from "./enroll.ts";
 import { FAVICON_CACHE_CONTROL, FAVICON_PATH, FAVICON_SVG } from "./favicon.ts";
@@ -206,7 +211,10 @@ export default {
     const deleted = await deleteOldDaybits(env.DB, controller.scheduledTime);
     // 使われずに期限が切れた登録トークンを消す
     const expiredTokens = await deleteExpiredEnrollTokens(env.DB, controller.scheduledTime);
-    console.log(JSON.stringify({ event: "cron", deleted, expiredTokens }));
+    // 時間帯の区間が無い daily を、残っている daybits から遡って埋める (Issue #208)。
+    // **daybits を消した後に呼ぶ。** 消える日の行を読んでも書いても無駄になるため
+    const backfilled = await backfillDailySegments(env.DB, BACKFILL_LIMIT);
+    console.log(JSON.stringify({ event: "cron", deleted, expiredTokens, backfilled }));
   },
 } satisfies ExportedHandler<Env>;
 
