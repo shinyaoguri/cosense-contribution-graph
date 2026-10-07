@@ -10,7 +10,13 @@ import {
   SEND_NOW_LABEL,
   TOTAL_LABEL,
 } from "../../src/userscript/viewer.ts";
-import { dataUrl, graphUrl, overviewUrl } from "../../src/userscript/worker-origin.ts";
+import {
+  cardLine,
+  cardUrl,
+  dataUrl,
+  graphUrl,
+  overviewUrl,
+} from "../../src/userscript/worker-origin.ts";
 
 const UID = "AAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
@@ -27,6 +33,7 @@ async function enrolled(
     graphUrl: graphUrl(await publicIdOf(UID, PH_ALL)),
     overviewUrl: overviewUrl(await publicIdOf(UID, PH_ALL)),
     dataUrl: dataUrl(await publicIdOf(UID, PH_ALL), await dataKeyOf(UID, PH_ALL)),
+    cardLine: cardLine(await publicIdOf(UID, PH_ALL)),
     totalSent,
     projects: await Promise.all(
       projects.map(async ({ name, sent }) => ({
@@ -37,6 +44,8 @@ async function enrolled(
           await publicIdOf(UID, await phOf(UID, name)),
           await dataKeyOf(UID, await phOf(UID, name)),
         ),
+        cardUrl: cardUrl(await publicIdOf(UID, await phOf(UID, name)), { project: name }),
+        cardLine: cardLine(await publicIdOf(UID, await phOf(UID, name)), { project: name }),
         sent,
       })),
     ),
@@ -161,6 +170,7 @@ describe("describeIntegrated", () => {
       url: status.kind === "enrolled" && status.graphUrl,
       overviewUrl: status.kind === "enrolled" && status.overviewUrl,
       dataUrl: status.kind === "enrolled" && status.dataUrl,
+      cardLine: status.kind === "enrolled" && status.cardLine,
       sent: true,
     });
     expect(view.projects.map((p) => [p.label, p.sent])).toEqual([
@@ -168,6 +178,18 @@ describe("describeIntegrated", () => {
       ["alpha", true],
       ["gamma", true],
     ]);
+  });
+
+  it("**カードは状況の値そのもの。合算はコピーする行だけで、図はプロジェクト別にだけ出す** (ADR-0025)", async () => {
+    const status = await enrolled([{ name: "alpha", sent: true }]);
+
+    const view = describeIntegrated(status, "alpha", NOW);
+
+    if (view.kind !== "graphs" || status.kind !== "enrolled") throw new Error("graphs のはず");
+    expect(view.total.cardLine).toBe(status.cardLine);
+    expect(view.total.cardUrl).toBeUndefined();
+    expect(view.projects[0]?.cardUrl).toBe(status.projects[0]?.cardUrl);
+    expect(view.projects[0]?.cardLine).toBe(status.projects[0]?.cardLine);
   });
 
   it("**URL は状況の値そのもの** (32 桁の publicId で、プロジェクト名もクエリも含まない)", async () => {

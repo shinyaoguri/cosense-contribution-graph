@@ -129,7 +129,9 @@ src/userscript/
   cleaner.ts                このブラウザの記録を消す (localStorage の記録だけ。ADR-0018)
   auth.ts                   サインインのポップアップ、postMessage とコードの貼り付けの受信、登録
   sign-in-dialog.ts         サインインのダイアログ (段階 8 の設定 UI までの仮の置き場)
-  worker-origin.ts          Worker のオリジン (https://grass.soui.dev) と、草・概観・JSON の URL
+  worker-origin.ts          Worker のオリジン (https://grass.soui.dev) と、草・概観・カード・JSON の URL、Cosense に貼るカードの行。publicId の導き方 (graphIds)
+  profile.ts                プロフィールページにカードの行を貼り続ける (ADR-0025)。足す位置・commit とメタデータの組み立て・読み直し
+  cosense-socket.ts         Cosense 本体と同じ WebSocket で commit を 1 つ送る。Engine.IO v4 / socket.io v5 の最小限 (ADR-0025)
   menu-icon.ts              ページメニューのボタンのアイコン (data: URI の SVG。Issue #122)
   dialog.ts                 背景のクリックで <dialog> を閉じる。草のダイアログと設定のダイアログが使う
   store.ts                  localStorage (直近 30 日のビットマップ。ADR-0019)
@@ -1473,15 +1475,19 @@ URL は `src/shared/links.ts` に置き、Worker のトップと共用する。�
 していた。撤去して失うのは、マスのツールチップ・未登録での表示・送信前の反映の 3 つ
 (いずれも ADR-0019 の帰結に書いた)。
 
-**カードの図もダイアログから見て、貼る行を取り直せるようにする** (ADR-0024・0025。段階 10 で実装予定、#208)。
+**カードの図もダイアログから見て、貼る行を取り直せるようにする** (ADR-0024・0025。段階 10 で実装した、#208)。
 
-- 「このプロジェクトのカード」は、図 (`/v1/g/{publicId}/card.svg`) と「Cosense に貼る行をコピー」を出す
-- 「合算のカード」はコピーだけを出す
-- コピーするのはリンク付きの画像の行 (下の「プロフィールへの自動挿入」と同じ形)。既存の `copyLine` を使う
+- 各囲みの「共有する」の欄に「カード」の行を足した (草・活動の概観の次、JSON の前)
+- プロジェクト別の囲みは、図 (`/v1/g/{publicId}/card.svg`) を **250 × 200 (図の半分)** で出し、その下に「Cosense に貼る行をコピー」を置く。
+  図は概観と同じく遅延読み込みで Referer を送らず、読めなければ図だけを消す。**期間では読み直さない** (図は直近 26 週で決まっている) が、「今すぐ送る」の後の取り直しはする
+- 合算の囲みはコピーだけを出す (合算のカードはプロフィールページに貼らない)
+- コピーするのはただの画像の行 `[<図の URL>]` (ADR-0025 の 2026-10-07 の改訂。下の「プロフィールへの自動挿入」と同じ形。`worker-origin.ts` の `cardLine`)。既存の `copyLine` を使い、
+  ボタンの `aria-label` は「{見出し} のカードの Cosense に貼る行をコピー」
+- 畳んだ説明に「カードと自分のページ」の節を足し、自動で貼ること・消しても貼り直すこと・止め方 (import の 1 行を外す) を書いた
 
 ### プロフィールへの自動挿入
 
-**ADR-0025。2026-10-07 に決めた。段階 10 で実装予定 (#208)。commit が受理されるかは未確認** (research §7)。
+**ADR-0025。2026-10-07 に決め、段階 10 で実装した (#208。`src/userscript/profile.ts`・`cosense-socket.ts`)。実機での commit の受理は未確認** (research §7)。
 UserScript が、導入したプロジェクトのプロフィールページ (自分のユーザー名のページ) に、そのプロジェクトのカードの図の行を貼り続ける。
 **UserScript がページに書く初めての機能。**
 
@@ -1491,10 +1497,10 @@ UserScript が、導入したプロジェクトのプロフィールページ (�
   判定は `grass.soui.dev` / `cosense-grass.soui.workers.dev` の図の URL のパターンで、完全一致にしない。あれば何もしない (普段は GET 1 回で終わる)
 - **無ければ貼る。** 位置は cosense-grass を読み込むコードブロックの最後の行の直後。無ければ最下部。**最上部には置かない**。
   利用者が動かした行は戻さず、消したら次に開いたときに貼り直す
-- 行はリンク付きの画像:
+- 行はただの画像 (ADR-0025 の 2026-10-07 の改訂。最初はリンク付きの画像だった):
 
   ```
-  [https://grass.soui.dev/v1/g/<publicId>/card.svg?l=<project>&u=<user> https://scrapbox.io/<project>/]
+  [https://grass.soui.dev/v1/g/<publicId>/card.svg?l=<project>&u=<user>]
   ```
 
 - **経路は同一オリジンの WebSocket** (`wss://scrapbox.io/socket.io/`、research §1・§4)。ライブラリを使わず、ネイティブの `WebSocket` の上に
@@ -1504,7 +1510,25 @@ UserScript が、導入したプロジェクトのプロフィールページ (�
 - **不変条件: insert だけを送り、update と delete は送らない。コードブロックの中に入れない** (入ると script.js が変わり、SHA1 の承認ゲートで UserScript が止まる。research §2)。テストで守る
 - **二重貼りの防止**: `parentId` が古ければ (`NotFastForwardError`) 読み直して確かめ直す (最大 3 回)。同じブラウザのタブどうしは `navigator.locks` で直列にする
 - **センサーは変えない。** 別の接続からの commit は開いているタブに `by: "remote"` で届き、センサーは `edit` だけを数える (ADR-0006)
-- publicId は `phOf` / `publicIdOf` で導き、`sender.ts` の status と同じ関数を使う (導き方を 2 か所に書かない)
+- publicId は `phOf` / `publicIdOf` で導き、`sender.ts` の status と同じ関数を使う (導き方を 2 か所に書かない。`worker-origin.ts` の `graphIds`)
+
+**実装で決めたこと** (2026-10-07)。commit とメタデータの形は `@cosense/std` の `websocket/push.ts`・`diffToChanges.ts`・`id.ts`・`makeChanges.ts`・
+`getPageMetadataFromLines.ts`、行のまとまりは `@progfay/scrapbox-parser` の `block/Pack.ts` を読んで合わせた (出典はコードのコメント)。
+
+- **導入の判定は `index.ts` が持つ。** センサーの `status()` が `counting` のときだけ `profile.ts` を呼ぶ。読み込んだプロジェクトは導入済みで、
+  移った先で登録したときは、確かめ終わる (`checking` が終わる) までは呼ばない (次に開いたときに確かめる)
+- **1 回のページ読み込みで、1 つのプロジェクトにつき 1 回だけ確かめる。** 未登録・未ログインで飛ばしたときは数えない (登録の後に確かめる)。失敗しても同じ読み込みでは試し直さない
+- **ページを作らない。** `/api/pages/:project/:user` が 404 か `persistent: false` なら何もしない。読むときはキャッシュを使わない (`cache: "no-store"`)
+- **判定はオリジンを見ない** (ADR-0025 の改訂)。行のどこかに `/v1/g/<publicId>/card.svg` があれば貼らない。コードブロックの中にあっても「ある」とする
+- **足す位置**: `code:` で始まり、それより深く字下げされた行のどれかが `/api/code/cosense-grass/` を含むブロックの最後の行の次 (`_insert` はその次の行の id、末尾なら `_end`)。
+  無ければ末尾。**ページがタイトルの 1 行だけなら足さない** (末尾がタイトルの直後になる)。行は字下げしないので、どのブロックにも入らない
+- **行の id** は `createNewLineId` と同じ形 (秒の 16 進 8 桁 + userId の末尾 6 桁 + `0000` + 乱数の 16 進 8 桁)
+- **メタデータの差分**: 行を 1 つ足して変わりうるのは `image` / `descriptions` / `linesCount` / `charsCount` だけ (リンク・アイコン・ファイル・helpfeel・infobox は増えない)。
+  `linesCount` と `charsCount` (コードポイントで数える。タイトルも含む) は必ず入れる。
+  `image` は、画像の無いページか、今の画像の行が足す位置より後ろにあるときだけカードの図にする。**今の画像の行を本文の中で見つけられなければ変えない** (誤ってサムネを差し替えない)。
+  `descriptions` は、足す位置より前の説明 (中身のある行とコードブロック。空行とテーブルは数えない) が 5 つ未満のときだけ、その位置に入れて 5 つに切る
+- **送り方**: commit 1 つにつき接続を 1 本開き、応答 (か 20 秒のタイムアウト) で閉じる。ack の番号は 0 に固定。`room:join` は送らない (`@cosense/std` の `push.ts` も送っていない)
+- **ログ**: 貼れたら `console.info`、貼れなければ理由の種類 (エラーの名前・`timeout` など) だけを `console.warn` に出す。URL・publicId・ページの中身は出さない
 
 ### 設定 UI
 

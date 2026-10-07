@@ -21,7 +21,7 @@
  * - **uid・ph・kid・URL・プロジェクト名・例外のメッセージはログに出さない**
  */
 import { buildIngestUrl, readIngestWidth } from "../shared/beacon.ts";
-import { dataKeyOf, PH_ALL, phOf, publicIdOf } from "../shared/ids.ts";
+import { dataKeyOf, PH_ALL } from "../shared/ids.ts";
 import { sign } from "../shared/sign.ts";
 import type { ImageResult } from "./image.ts";
 import type { DeviceStore } from "./keys.ts";
@@ -44,7 +44,15 @@ import {
 import { MENU_TITLE, SETTINGS_LABEL } from "./settings.ts";
 import type { Store } from "./store.ts";
 import { localDay } from "./time.ts";
-import { dataUrl, graphUrl, overviewUrl, WORKER_ORIGIN } from "./worker-origin.ts";
+import {
+  cardLine,
+  cardUrl,
+  dataUrl,
+  graphIds,
+  graphUrl,
+  overviewUrl,
+  WORKER_ORIGIN,
+} from "./worker-origin.ts";
 
 const BACKOFF_BASE_MS = 15 * 60_000;
 const BACKOFF_MAX_MS = 24 * 60 * 60_000;
@@ -78,6 +86,8 @@ export type SendStatus =
       readonly overviewUrl: string;
       /** 合算の日ごとの集計値の JSON (ADR-0020)。**渡すと内訳まで読める**ので、ダイアログにだけ出す */
       readonly dataUrl: string;
+      /** 合算のカードの図を Cosense に貼る行 (ADR-0025)。リンク先は付かない */
+      readonly cardLine: string;
       /**
        * 合算の行 (`*`) を 1 件でも送れたか。false なら共有 SVG はまだ無いので 404 になる (Issue #100)。
        * ほかの端末から送っていれば草はあるので、**読むかどうかは見る側が決める**
@@ -92,6 +102,10 @@ export type SendStatus =
         readonly graphUrl: string;
         readonly overviewUrl: string;
         readonly dataUrl: string;
+        /** カードの図 (ADR-0024)。ダイアログに出す */
+        readonly cardUrl: string;
+        /** カードの図を Cosense に貼る行。**プロフィールページに自動で貼るものと同じ** (ADR-0025) */
+        readonly cardLine: string;
         readonly sent: boolean;
       }[];
       readonly todaySends: number;
@@ -185,25 +199,29 @@ export function createSender(deps: SenderDependencies): Sender {
         [...names]
           .sort((a, b) => a.localeCompare(b))
           .map(async (name) => {
-            const ph = await phOf(uid, name);
-            const publicId = await publicIdOf(uid, ph);
+            const { ph, publicId } = await graphIds(uid, name);
             // **プロジェクト別にだけ名前を渡す** (Issue #119)。合算はどのプロジェクトのものでもない
+            const names = { project: name, user };
             return {
               name,
-              graphUrl: graphUrl(publicId, { project: name, user }),
+              graphUrl: graphUrl(publicId, names),
               overviewUrl: overviewUrl(publicId),
               dataUrl: dataUrl(publicId, await dataKeyOf(uid, ph)),
+              cardUrl: cardUrl(publicId, names),
+              cardLine: cardLine(publicId, names),
               sent: sentPhs.has(ph),
             };
           }),
       );
       const backoffUntil = sent.failure ? sent.failure.at + backoffMs(sent.failure.n) : undefined;
+      const total = await graphIds(uid);
       return {
         kind: "enrolled",
         kid,
-        graphUrl: graphUrl(await publicIdOf(uid, PH_ALL), { user }),
-        overviewUrl: overviewUrl(await publicIdOf(uid, PH_ALL)),
-        dataUrl: dataUrl(await publicIdOf(uid, PH_ALL), await dataKeyOf(uid, PH_ALL)),
+        graphUrl: graphUrl(total.publicId, { user }),
+        overviewUrl: overviewUrl(total.publicId),
+        dataUrl: dataUrl(total.publicId, await dataKeyOf(uid, total.ph)),
+        cardLine: cardLine(total.publicId, { user }),
         totalSent: sentPhs.has(PH_ALL),
         projects,
         todaySends: sent.days[today]?.n ?? 0,

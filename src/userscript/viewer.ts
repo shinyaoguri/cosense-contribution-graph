@@ -32,6 +32,10 @@ export type GraphEntry = {
   readonly overviewUrl: string;
   /** 日ごとの集計値の JSON (ADR-0020)。**渡すと内訳まで読める** */
   readonly dataUrl: string;
+  /** Cosense に貼るカードの行 (ADR-0025)。プロジェクト別はプロフィールページに自動で貼るものと同じ */
+  readonly cardLine: string;
+  /** カードの図 (ADR-0024)。**プロジェクト別にだけある** (合算はコピーだけ出す) */
+  readonly cardUrl?: string;
   /**
    * このブラウザから 1 件でも送れたか。false なら草はまだ無いかもしれない (ほかの端末から送っていればある)。
    * ~~押されるまで画像を読まない~~ **2026-09-24 から最初から読み**、読めなかったときの文言の言い分けにだけ使う
@@ -160,6 +164,7 @@ export function describeIntegrated(
           url: status.graphUrl,
           overviewUrl: status.overviewUrl,
           dataUrl: status.dataUrl,
+          cardLine: status.cardLine,
           sent: status.totalSent,
         },
         projects: [
@@ -168,6 +173,8 @@ export function describeIntegrated(
             url: project.graphUrl,
             overviewUrl: project.overviewUrl,
             dataUrl: project.dataUrl,
+            cardLine: project.cardLine,
+            cardUrl: project.cardUrl,
             sent: project.sent,
           })),
           ...others.map((project) => ({
@@ -175,6 +182,8 @@ export function describeIntegrated(
             url: project.graphUrl,
             overviewUrl: project.overviewUrl,
             dataUrl: project.dataUrl,
+            cardLine: project.cardLine,
+            cardUrl: project.cardUrl,
             sent: project.sent,
           })),
         ],

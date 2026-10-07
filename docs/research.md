@@ -854,8 +854,10 @@ UserScript から**開いていないページ**へ書く経路を探した。§
 
 配布ページへの貼り付けはページが大きいほど遅く、503 が増える (上の「ops は 1 リクエスト 30KB 前後に割る」、Issue #180)。
 
-**未確認。** commit が実際に受理されるか、`room:join` が要らないか、サーバがメタデータを計算し直すか、
-`disableRealtimeCollaboration` のプロジェクト、Chrome 以外。実装の PR で作者の捨てプロジェクトに送って確かめる (§7)。
+**2026-10-07、#213 の版を配布ページ `dev` に貼り、作者が自分のプロジェクトで確かめた。** `room:join` を送らずに送った commit が受理され、
+プロフィールページにカードの図の行が貼られた。開き直しても二重に貼らず、消すと次に開いたときに貼り直し、センサーは書いた分に数えなかった。
+
+**未確認。** サーバがメタデータを計算し直すか、`disableRealtimeCollaboration` のプロジェクト、Chrome 以外 (§7)。
 
 ---
 
@@ -1505,8 +1507,8 @@ Microsoft は `openid profile` のみなら publisher verification は不要と�
   **REST の `user` が作成者で `created` が初回保存の時刻なことは確かめた** (§4、2026-09-26)。
   活動の概観の振り分け (ADR-0021) は作成者と作成日で決めるので、ID が変わっても判定は変わらない
 - **元に戻す / やり直しで `by` が `undefined` になるか。別のタブでの自分の編集が `remote` で届くか** (§2 の `window.scrapbox` API)
-- **UserScript が同一オリジンの WebSocket で送った commit が受理されるか** (§4 の WebSocket の節、ADR-0025)。`room:join` の要否、
-  サーバがメタデータを計算し直すか、`disableRealtimeCollaboration` のプロジェクト、Chrome 以外も。Issue #208 の UserScript の PR で作者の捨てプロジェクトに送って確かめる
+- ~~UserScript が同一オリジンの WebSocket で送った commit が受理されるか~~ **2026-10-07 に確かめた** (§4 の WebSocket の節。`room:join` は要らない)。
+  残りは、サーバがメタデータを計算し直すか、`disableRealtimeCollaboration` のプロジェクト、Chrome 以外 (ADR-0025)
 - **`<img>` で読まれた SVG が外部の画像を読まないこと** (ADR-0024 でアイコンを `data:` で埋め込む前提)。Issue #208 の図の PR で実機で確かめる
 
 設計に影響しないが残っているもの。
