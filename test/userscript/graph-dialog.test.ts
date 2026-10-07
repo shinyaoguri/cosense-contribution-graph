@@ -1,11 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GUIDE_HEIGHTS, GUIDE_WIDTH } from "../../src/shared/guide.ts";
-import { BUTTON_CLASS, DIALOG_ATTRIBUTE } from "../../src/userscript/dialog.ts";
+import {
+  BUTTON_CLASS,
+  DIALOG_ATTRIBUTE,
+  DIALOG_BORDER,
+  DIALOG_PADDING,
+} from "../../src/userscript/dialog.ts";
 import {
   CARD_HEIGHT,
   CARD_WIDTH,
   COPIED_FEEDBACK_MS,
   createGraphDialog,
+  DIALOG_MAX_WIDTH,
   FIRST_YEAR,
   GRAPH_HEIGHT,
   GRAPH_WIDTH,
@@ -393,7 +399,7 @@ describe("createGraphDialog", () => {
 
     expect(t.find()?.querySelectorAll(CARD)).toHaveLength(0);
     expect(frame?.isConnected).toBe(true);
-    expect(frame?.style.flex).toBe(`0 0 ${SHOWN.card.width}px`);
+    expect(frame?.style.flexBasis).toBe(`${SHOWN.card.width}px`);
     expect(frame?.style.minHeight).toBe(`${SHOWN.card.height}px`);
     expect(t.buttons(PASTE_LINE)).toHaveLength(1);
   });
@@ -458,6 +464,32 @@ describe("createGraphDialog", () => {
     const area = (size: { width: number; height: number }) => size.width * size.height;
     expect(area(SHOWN.card)).toBeGreaterThan(area(SHOWN.graph));
     expect(area(SHOWN.card)).toBeGreaterThan(area(SHOWN.overview));
+  });
+
+  it("**ダイアログの幅の上限は、囲みの幅に余白と枠を足した外寸** (border-box。足し忘れると Cosense で縦に崩れた。2026-10-07)", () => {
+    const t = setup();
+    t.open(graphs([]));
+
+    const block = 300 + 16 + 513 + 2 * (12 + 1);
+    expect(DIALOG_MAX_WIDTH).toBe(block + 2 * (DIALOG_PADDING + DIALOG_BORDER));
+    expect(SHOWN.card.width + 16 + SHOWN.graph.width + 2 * (12 + 1)).toBe(block);
+    // 画面側の上限 (calc) は jsdom が書き換えるので、外寸の側だけ見る
+    expect(t.find()?.style.maxWidth).toMatch(new RegExp(`^min\\(${DIALOG_MAX_WIDTH}px, `));
+  });
+
+  it("**少し狭いだけなら右の列を縮めて横に並べたまま、草とカードも縮める**", () => {
+    const t = setup();
+    t.open(graphs([]));
+
+    const grass = t.find()?.querySelector<HTMLImageElement>(GRASS);
+    const card = t.find()?.querySelector<HTMLImageElement>(CARD);
+    const column = grass?.parentElement?.parentElement;
+    expect(column?.style.flexShrink).toBe("1");
+    expect(column?.style.maxWidth).toBe(`${SHOWN.graph.width}px`);
+    for (const img of [grass, card]) {
+      expect([img?.style.maxWidth, img?.style.height]).toEqual(["100%", "auto"]);
+    }
+    expect(card?.parentElement?.style.flexShrink).toBe("1");
   });
 
   it("**日ごとの数値を渡すと何が読めるかを、囲みの下端に添える** (ADR-0020 の改訂)", () => {

@@ -44,13 +44,19 @@ export const BUTTON_CLASS = "cosense-grass-button";
 const DIALOG = `dialog[${DIALOG_ATTRIBUTE}]`;
 const BUTTONS = `${DIALOG} :is(button, .${BUTTON_CLASS})`;
 
+/** ダイアログの内側の余白と枠線の太さ。幅を決める側 (`graph-dialog.ts`) が外寸を計算するのに使う */
+export const DIALOG_PADDING = 20;
+export const DIALOG_BORDER = 1;
+
 /**
  * Cosense (Bootstrap 3 系) の `.modal-content` と `.btn-default.btn-sm` の値 (#175。2026-09-27 に計算値を読んで確かめた)。
  * **Cosense のクラスは借りない** — 借りると Cosense の CSS の変更でこちらが崩れ、Cosense の外 (確認用の HTML) で見た目を確かめられない。
- * 暗幕は Cosense の 0.8 より薄い Bootstrap の既定の 0.5 にする (ページの草が透けて見える方が、どこから開いたか分かる)
+ * 暗幕は Cosense の 0.8 より薄い Bootstrap の既定の 0.5 にする (ページの草が透けて見える方が、どこから開いたか分かる)。
+ * **`box-sizing: border-box` を明示する** (2026-10-07)。Cosense は Bootstrap の `* { box-sizing: border-box }` で全要素をそうしていて、
+ * `max-width` に余白と枠が含まれる。確認用の HTML (既定の content-box) でだけ幅が 42px 広く出て、Cosense で草のダイアログが縦に崩れた
  */
 const DIALOG_CSS = [
-  `${DIALOG} { border: 1px solid rgba(0, 0, 0, 0.2); border-radius: 6px; box-shadow: 0 3px 9px rgba(0, 0, 0, 0.5); background: #fff; color: #333; padding: 20px; }`,
+  `${DIALOG} { box-sizing: border-box; border: ${DIALOG_BORDER}px solid rgba(0, 0, 0, 0.2); border-radius: 6px; box-shadow: 0 3px 9px rgba(0, 0, 0, 0.5); background: #fff; color: #333; padding: ${DIALOG_PADDING}px; }`,
   `${DIALOG}::backdrop { background: rgba(0, 0, 0, 0.5); }`,
   `${BUTTONS} { display: inline-flex; align-items: center; gap: 4px; padding: 5px 10px; font: inherit; font-size: 12px; line-height: 18px; color: #333; background: #fff; border: 1px solid #ccc; border-radius: 3px; cursor: pointer; text-decoration: none; white-space: nowrap; }`,
   `${BUTTONS}:hover:not(:disabled) { background: #e6e6e6; border-color: #adadad; text-decoration: none; }`,

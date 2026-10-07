@@ -21,7 +21,13 @@
  */
 import { GUIDE_HEIGHTS, GUIDE_WIDTH, type GuideName } from "../shared/guide.ts";
 import { DISTRIBUTION_URL, REPOSITORY_URL } from "../shared/links.ts";
-import { BUTTON_CLASS, closeOnBackdropClick, styleDialog } from "./dialog.ts";
+import {
+  BUTTON_CLASS,
+  closeOnBackdropClick,
+  DIALOG_BORDER,
+  DIALOG_PADDING,
+  styleDialog,
+} from "./dialog.ts";
 import { MENU_TITLE, SETTINGS_LABEL } from "./settings.ts";
 import {
   type GraphEntry,
@@ -107,8 +113,21 @@ export const SHOWN = {
   overview: { width: 184, height: 135 },
 } as const;
 
-/** 囲みの外寸の幅。カード・間・右の列に、囲みの内側の余白と枠線 (1px) を足す。ダイアログの幅をこれに合わせる */
+/** 囲みの外寸の幅。カード・間・右の列に、囲みの内側の余白と枠線 (1px) を足す */
 const BLOCK_WIDTH = SHOWN.card.width + ROW_GAP + SHOWN.graph.width + 2 * (INNER_PADDING + 1);
+
+/**
+ * ダイアログの外寸の幅の上限。囲みの幅に、ダイアログの余白と枠線を足す。**ダイアログは border-box** (`dialog.ts`) なので
+ * `max-width` はこの外寸で書く。余白と枠を足し忘れると、囲みの内側がカードと右の列の和に届かず、右の列がカードの下へ折り返す
+ * (2026-10-07。Cosense でだけ起きた)
+ */
+export const DIALOG_MAX_WIDTH = BLOCK_WIDTH + 2 * (DIALOG_PADDING + DIALOG_BORDER);
+
+/**
+ * 右の列がこれより狭くなるまでは、カードの横に並べたままにする。その間は草を列の幅まで縮める。
+ * これより狭い画面では、カードの下へ折り返す (概観とコピーの格子が並ぶ幅は残す)
+ */
+const COLUMN_MIN_WIDTH = 360;
 
 /**
  * コピーするものの種類ごとのボタンの文言と、コピーできないときの欄の名乗りの末尾。
@@ -288,10 +307,14 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
    */
   const image = (entry: GraphEntry) => {
     const frame = element("div");
-    // 狭い画面では横にスクロールする (style 属性は Cosense の CSP で許されている。research §1)
-    frame.style.overflowX = "auto";
-    const make = (lazy: boolean) =>
-      imageElement({ ...SHOWN.graph, alt: `${entry.label} の草` }, lazy);
+    const make = (lazy: boolean) => {
+      const img = imageElement({ ...SHOWN.graph, alt: `${entry.label} の草` }, lazy);
+      // 右の列が狭いときは列の幅まで縮める (縦横比は width / height 属性から保たれる)。
+      // style 属性は Cosense の CSP で許されている (research §1)
+      img.style.maxWidth = "100%";
+      img.style.height = "auto";
+      return img;
+    };
     const fail = () => {
       frame.replaceChildren(
         element(
@@ -344,7 +367,15 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
   const card = (entry: GraphEntry) => {
     const { label, cardUrl: url } = entry;
     const frame = reservedFrame(SHOWN.card);
-    const make = (lazy: boolean) => imageElement({ ...SHOWN.card, alt: `${label} のカード` }, lazy);
+    // 囲みがカードより狭い画面 (スマホ) では、枠ごと縮める
+    frame.style.flexShrink = "1";
+    frame.style.minWidth = "0";
+    const make = (lazy: boolean) => {
+      const img = imageElement({ ...SHOWN.card, alt: `${label} のカード` }, lazy);
+      img.style.maxWidth = "100%";
+      img.style.height = "auto";
+      return img;
+    };
     const fail = () => {
       frame.replaceChildren();
     };
@@ -647,8 +678,9 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     column.style.display = "flex";
     column.style.flexDirection = "column";
     column.style.gap = `${INNER_GAP}px`;
-    // 狭くなったらカードの下へ折り返し、それでも足りなければ草が横にスクロールする
-    column.style.flex = `0 1 ${SHOWN.graph.width}px`;
+    // 少し狭いだけなら列を縮めて横に並べたまま (草も縮む)、`COLUMN_MIN_WIDTH` を割るとカードの下へ折り返す
+    column.style.flex = `1 1 ${COLUMN_MIN_WIDTH}px`;
+    column.style.maxWidth = `${SHOWN.graph.width}px`;
     column.style.minWidth = "0";
     column.append(grass, lower);
     const row = element("div");
@@ -917,9 +949,9 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
       period = undefined;
       const node = element("dialog");
       styleDialog(node);
-      // 長い説明文で画面の幅いっぱいに広がらないよう、囲みの幅 (`BLOCK_WIDTH`) で止める
+      // 長い説明文で画面の幅いっぱいに広がらないよう、囲みの幅に余白と枠を足したところで止める
       // 画面側の上限は既定 (`calc(100% - 6px - 2em)`) のまま。これより大きいと、余白と枠のぶん画面からはみ出す (#164)
-      node.style.maxWidth = `min(${BLOCK_WIDTH}px, calc(100% - 6px - 2em))`;
+      node.style.maxWidth = `min(${DIALOG_MAX_WIDTH}px, calc(100% - 6px - 2em))`;
       for (const type of STOPPED_EVENTS) {
         node.addEventListener(type, (event) => event.stopPropagation());
       }
