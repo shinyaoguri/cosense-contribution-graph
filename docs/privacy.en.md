@@ -14,7 +14,7 @@ The source code and design are public on [GitHub](https://github.com/shinyaoguri
 | Device public keys | The public key itself | To verify that records are sent by you |
 | One-time codes for device registration | A hash of the code, not the code itself | To register the key of a device you signed in on |
 | Project identifiers | Hashes salted with the user identifier above | To count activity per project |
-| Daily activity | Per-minute bitmaps and daily totals (minutes written and minutes read; of the minutes written, minutes on pages you newly created and on pages created by others; pages edited; pages newly created; links created) | To draw the graph and the activity overview |
+| Daily activity | Per-minute bitmaps and daily totals (minutes written and minutes read; minutes written and minutes read in each time slot (0:00–9:00, 9:00–13:00, 13:00–18:00, and 18:00–24:00); of the minutes written, minutes on pages you newly created and on pages created by others; pages edited; pages newly created; links created) | To draw the graph, the activity overview, and the card image |
 
 ## What we do not store
 
@@ -28,6 +28,8 @@ The source code and design are public on [GitHub](https://github.com/shinyaoguri
 - **Authors of the pages you wrote on, or link targets.** Whether a page you wrote on was newly created by you or created by someone else is decided inside your browser;
   only minutes and the number of links are sent
 - **Private keys.** They stay inside each device's browser and are never sent
+- **Your Cosense icon image.** To draw it in the card image, the server fetches the icon of a page in a public project from Cosense, embeds it in the image,
+  and caches it temporarily, but does not store it. Icons in private projects cannot be fetched, so those card images are drawn without an icon
 
 ## How we handle Google user data
 
@@ -80,12 +82,15 @@ They are deleted after 90 days, but the graph does not change because the daily 
 
 ## What is shared
 
-Others can see your activity graph **only when you give a share URL to someone.**
+Others can see your activity graph **only when you give a share URL to someone, or when someone sees the image placed by "Writing to your profile page" below.**
 Share URLs are derived one-way from the user identifier, and third parties cannot guess or compute them.
 
 A share URL for the graph shows only the daily total (and a color indicating whether you wrote or read more).
 **From the graph URL, the activity overview image for the same period (the ratio of creating new pages, growing your pages, engaging with others' pages, and reading) can also be opened.**
 It shows only ratios over the whole period, never daily values.
+
+**From the graph URL, the card image can also be opened.** The card image shows, for each day of the last 26 weeks, your activity in the morning (9:00–13:00),
+afternoon (13:00–18:00), and night (18:00 to 9:00 the next day) as colors. **It shows which times of day you are active.**
 
 **The URL for daily numbers (JSON) is separate from the graph URL.** The management page shows the one for your combined total, and the graph dialog opened in Cosense shows the ones for your combined total and for each project.
 Anyone you give this URL to can see **daily minutes written, minutes read, pages edited, pages newly created,
@@ -103,12 +108,26 @@ draw the image. **If you do not want to show the name, remove `?l=...` from the 
 it receives the name only to draw the image. **If you do not want to show it, remove `u=...`
 from the URL.**
 
+## Writing to your profile page
+
+The UserScript automatically writes a line with the project's card image to your page named after your username (your profile page) in each project where you installed it.
+The writing is done from your browser with the Cosense account you are logged in to, and does not go through the server.
+
+- It writes only when you have signed in and registered the device, and have installed the UserScript in that project
+- The line contains the URL of the card image, which includes the project name and your username. **In a public project, anyone who views the page can see the image,
+  and can also open the graph and the activity overview images from its URL** (the URL for daily numbers cannot be derived from it)
+- **If you delete the line, it is placed again the next time you open the project.** To stop it, remove the UserScript line from `code:script.js` on your page
+- The automatically written line is not counted as writing activity
+
 ## Disclosure to third parties
 
 We do not disclose data to third parties. We use no advertising and no analytics services.
 
 We use Cloudflare (Workers and D1) as infrastructure and Google's OpenID Connect for
 authentication. Data is not passed to anyone else.
+
+However, to draw your icon in the card image, the server asks Cosense for the icon using the project name and username in the share URL,
+and fetches the image from where the icon is hosted (such as Gyazo).
 
 ## Deleting your data
 

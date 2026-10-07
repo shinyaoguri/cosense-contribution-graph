@@ -62,6 +62,22 @@ CSP は時間とともに変わる。2023-09 に OpenAI、2024 年に AWS Bedroc
 出口が塞がれたかをクライアント JS だけで検知できる
 ([CSP3 §5.5](https://www.w3.org/TR/CSP3/) — イベント発火とレポート送信は別の条件分岐)。
 
+### 2026-10-07 の再取得と、同一オリジンの WebSocket (Issue #208)
+
+**`connect-src` は 2026-09-11 と同じだった** (並びだけ違う)。2026-10-07 07:16:59 GMT に
+`curl -I https://scrapbox.io/cosense-grass/` で取った。**`'self'` と `wss://scrapbox.io` を含む**ので、
+UserScript から scrapbox.io 自身へ WebSocket を開くのは CSP の範囲内。
+
+ログイン済みの内蔵ブラウザ (Chrome 系) のページの中で開いて確かめた (読み取りだけ。commit は送っていない)。
+
+| 試行 | 結果 |
+|---|---|
+| `new WebSocket("wss://scrapbox.io/socket.io/?EIO=4&transport=websocket")` | **約 0.5 秒で open。** CSP 違反なし。最初に `0{"sid":…,"upgrades":[],"pingInterval":25000,"pingTimeout":20000,"maxPayload":1000000}` が届く |
+| 続けて `40` を送る (既定の名前空間への接続) | `40{"sid":…}` が返る |
+| `transport=polling` で同じ URL | `400 {"code":0,"message":"Transport unknown"}`。**websocket だけを受ける** |
+
+本体がこの接続で何を送っているかは §4 の「同一オリジンの WebSocket で commit を送る経路」。
+
 ### 画像リクエストの仕様上の制約
 
 - 画像は `keepalive` を持てない。ページ破棄時に
@@ -482,10 +498,24 @@ function normalizeIconUrl(e){
   `/v1/g/demo.svg` (`Content-Type: image/svg+xml; charset=utf-8`、`width` / `height` / `viewBox` 付き)
   を `[ ]` 記法で Cosense のページに貼り、表示されることを確認した (Issue #20)
 - クエリパラメータ付きでも `[ ]` 単体記法なら展開される (実レンダリングで確認)
-- `[[ ]]` (strongImage) の正規表現にはクエリ許容部がないので、**クエリ付き URL は `[ ]` で貼る**
+- ~~`[[ ]]` (strongImage) の正規表現にはクエリ許容部がないので、**クエリ付き URL は `[ ]` で貼る**~~
+  **2026-10-07 の訂正**: `[[ ]]` の正規表現もクエリを許す (下の正規表現)。`[[ ]]` で貼ったクエリ付き URL の実レンダリングは確かめていない。
+  `[[ ]]` は本文で大きく出る (下の「本文の画像の大きさ」) ので、草は今までどおり `[ ]` で貼る
 - 拡張子のない URL も末尾に `#.png` を付ければ画像化できる
-- `webp` は [progfay/scrapbox-parser](https://github.com/progfay/scrapbox-parser) にはあるが
-  本体バンドルの該当箇所では未確認
+- ~~`webp` は [progfay/scrapbox-parser](https://github.com/progfay/scrapbox-parser) にはあるが
+  本体バンドルの該当箇所では未確認~~
+  **2026-10-07 の訂正**: `webp` は本体のパーサの画像の正規表現にある (下)。上の `normalizeIconUrl` (2026-09-12 に読んだもの) には無い
+
+**本体のパーサが画像と認識する正規表現** (2026-10-07、本体の `assets/index.js` と chunk を読んだ)。
+
+```js
+image:       /\[(https?:\/\/[^\]\s]*\.(?:png|jpe?g|gif|svg|webp)(?:\?[^\]\s]+)?)\]/i
+strongImage: 同じ形を [[ ]] で囲んだもの
+```
+
+- 拡張子の後ろに `?query` を許す。`[^\]\s]*` が `#` も飲むので、`…/perc#.svg` のような「`#` の後ろに拡張子」も画像になる
+- **本文の画像の大きさ** (2026-10-07、CSSOM から): `.line .image { max-width: 100%; max-height: 300px }`。
+  `[[ ]]` の画像は `max-width: 95%; max-height: none`
 
 ### SVG が表示されない唯一の落とし穴
 
@@ -533,12 +563,61 @@ SVG を URL で直接開くとドキュメントとして描画されるので�
 ### キャッシュ (グラフの鮮度に直結)
 
 - **Cosense 側にプロキシもサーバキャッシュもない。** `<img src>`、ページの `image` フィールド、
-  `og:image` すべて生 URL をそのまま持つ。Gyazo だけ `/thumb/1000` を付ける特別扱い
+  `og:image` すべて生 URL をそのまま持つ。~~Gyazo だけ `/thumb/1000` を付ける特別扱い~~
+  **2026-10-07 の訂正**: 特別扱いは Gyazo と Cosense のファイルだけで、形は下の「カードのサムネとプロキシ」。
+  Gyazo はカードで `/max_size/400`、本文と `og:image` で `/max_size/2000` になる
 - Service Worker は画像を **network-first** で扱う。毎回 `fetch()` してから保存し、
   キャッシュを返すのは fetch が throw したとき (オフライン等) だけ。48 時間で失効し、
   ストレージ使用量が quota の 20% を超えると画像キャッシュを全消去する
 
 つまり**鮮度は自分のサーバの `Cache-Control` で完全に制御できる**。短い `max-age` を返すこと。
+
+### ページカードのサムネの寸法と切り抜き (2026-10-07 実測、Chrome 系の内蔵ブラウザ、Issue #208)
+
+`/cosense-grass/`・`/help-jp/`・`/villagepump/` のページ一覧 (グリッド) で `getComputedStyle` と CSSOM を読み、
+本体の `assets/index.js` と chunk を読んだ。
+
+**枠の形。**
+
+- グリッドは `.page-list ul.grid { grid-template-columns: repeat(auto-fill, minmax(147px, 1fr)); gap: clamp(8px, 1.5svw, 16px) }`。
+  外側は `.container { max-width: 1200px; padding: 8px }`。**`@media` の分岐は無い**
+- カードは `.grid li { aspect-ratio: 1 / 1.1 }`。枠線はテーマで違い、`default-minimal` は 1px、`default`・`blue` は 0
+- サムネの枠 `.icon` は、カードの幅を W、枠線を b として **幅 `W − 10 − 2b`、高さ `1.1W − 5 − 2b − header`**。
+  header はタイトルが 1 / 2 / 3 行で 44 / 64 / 84px
+- W は 147〜224px。**画面幅 1141px 以上は 7 列で W = 155.43 に固定**され、枠は 145.4 × 122 (枠線ありは 143.43 × 119.97)
+- 枠の幅 ÷ 高さは、1 行のタイトルで 1.08〜1.22 (画面幅 768px 以上は 1.13〜1.22)、2 行で 1.21〜1.49、3 行で 1.36〜1.91。
+  **枠の比は一定ではない**
+- ページの関連ページの一覧は `minmax(146px, 1fr)` で、ほぼ同じ形
+
+**画像の置き方。**
+
+- `.icon img { display: block; width: 100%; margin: 0 auto }` で、高さは auto。`object-fit` は既定の `fill` で、高さが auto なので効かない
+- **画像は枠の幅に合わせ、上端をそろえ、はみ出した下を切る。** 775 × 146 の草 (`demo.svg`) は 143.43 × 27.02 で、枠の上端の細い帯になる
+- 5:4 の画像は (1280px 幅・枠線 0 で計算)、1 行のタイトルなら下に約 5.7px の余白が残り、2 行なら下の 12%、3 行なら 29% が切れる
+- **画像のあるカードは説明文を出さない**
+- プロジェクトの CSS で上書きできる。`/villagepump/` は `object-fit: cover` にしている
+
+### サムネに選ばれる画像 (2026-10-07、本体のバンドルと `/api/pages` から、Issue #208)
+
+- 本体の `getPageMetadataFromLines` が本文を上から走査し、**最初の画像**をページの `image` にする。
+  タイトル行・コードブロック・テーブルの中は除く
+- 行の途中の画像、`[[ ]]` の画像、**リンク付きの画像 (imageLink、`[画像の URL リンク先]`) の画像の側**も数える
+- YouTube は `i.ytimg.com/vi/{id}/mqdefault.jpg` になる
+- **アイコン記法は候補にならない。** `[shokai.icon]` だけのページは `image: null`
+- API の `image` の形: Gyazo は `…/raw`、Cosense のファイルは `scrapbox.io/files/{id}.png`、外部 URL は元のまま (`?query` も `#.svg` も残る)。
+  `/help-jp/` の 147 ページで画像のあるページは 80 (Gyazo 55、Cosense のファイル 24、外部 1)
+- **外部の SVG がサムネになっている実例がある。** `/villagepump/` の `icon.soui.dev/…svg`、`/customize/` の `idy.vercel.app/perc#.svg`、
+  `img.shields.io/…svg?…`
+- `image` はページを保存したときに決まると推測する (本体がメタデータを計算して commit に入れるため。§4 の WebSocket の節)。
+  URL を固定して中身を配信元で更新するなら、ページを編集し直さなくてもサムネは新しくなる
+
+### カードのサムネとプロキシ (2026-10-07、Issue #208)
+
+- カードの `src` は、Gyazo の `/raw` を `/max_size/400` に替えるのと、`scrapbox.io/files/…` に `?type=thumbnail` を付けるだけ。
+  **それ以外の URL はプロキシを通らず、元の URL のまま `<img loading="lazy">` になる**
+- `og:image` も外部の URL は元のまま。Gyazo は `/max_size/2000`
+- `grass.soui.dev/v1/g/demo.svg` の応答は `cache-control: public, max-age=900`。**サムネが遅れる要因は配信元の `max-age` だけ**
+  (Cosense の Service Worker は上のとおり network-first)
 
 ### UserScript のダイアログと共有 SVG の `<img>` (2026-09-15 実測)
 
@@ -626,6 +705,11 @@ SVG を URL で直接開くとドキュメントとして描画されるので�
 - `lines[]` の各要素に `userId` / `created` / `updated` がある
 - 未ドキュメントの `/api/pages/v2/:project/:title` もあり、`relatedPages` を含まないので軽い。
   変更リスクは v1 より高いと見るべき
+
+#### `/api/pages/:project/:title/icon` (2026-10-07、Issue #208)
+
+- **302 でそのページの `image` へ転送する。** Gyazo の画像は `/max_size/400` になる。画像の無いページは 404
+- `[user.icon]` の記法が表示するのと同じもの。公開プロジェクトなら未認証で引ける。**非公開プロジェクトは未認証では引けないと見ている** (推測。非公開のページは未認証では読めないので。直接は確かめていない)
 
 #### `/api/pages/v2/:project/:title` の `user` は作成者 (2026-09-26 実測、Issue #150)
 
@@ -740,6 +824,38 @@ Personal Access Token は全ユーザーが `https://scrapbox.io/settings/person
 **配信される script.js には末尾の改行が無い** (2026-09-15 実測、Issue #105)。Cosense はページを
 行の配列で持つため。手元のバンドル (esbuild の出力は改行で終わる) とバイト単位で比べるときは、
 **末尾の改行 1 つを落としてから**比べる。落とさないと、どれだけ正しく貼っても永久に「違う」になる。
+
+### 同一オリジンの WebSocket で commit を送る経路 (2026-10-07、本体のバンドルから読んだ。commit は送っていない、Issue #208)
+
+UserScript から**開いていないページ**へ書く経路を探した。§1 の 2026-10-07 の実測のとおり、`wss://scrapbox.io` の WebSocket は CSP を通る。
+
+**本体の接続。**
+
+- `io(location.origin, { reconnectionDelay: 5000, transports: ["websocket"] })`。**トークンは付けない** (認証は Cookie だけ。CSRF トークンも送っていない)。Engine.IO は v4 (`EIO=4`)
+- ページの保存は socket.io-request の `request("commit", commit)` で、タイムアウトは 90 秒
+- commit の形は `{kind: "page", parentId, changes, cursor: null, pageId, userId, projectId, freeze: true}`。
+  `parentId` は直前の commit の id で、`pageId` / `userId` / `projectId` と行の id は REST で引ける
+- **ページのメタデータ (`links` / `image` / `descriptions` / `linesCount` / `charsCount`) はクライアントが計算して `changes` に入れる** (本体の `Sync.setMetadata`)。
+  サーバが計算し直すかは確かめていない
+- 親が古いと `NotFastForwardError` が返る
+- `scrapbox.Page.insertLine` / `updateLine` は **Layout が `page` 以外だと何もしない** (§2 のゲッターと同じ判定)
+- 「リアルタイムの共同編集を無効にする」(`disableRealtimeCollaboration`) を選んだプロジェクトは、`POST /api/commits-without-realtime-collaboration/:project/:pageId` で保存する。CSRF トークンが要るかは確かめていない
+
+**ほかの接続からの commit の届き方。** 別の接続 (別のタブや端末) からの commit は、開いているタブに `lines:changed` の `by: "remote"` で届く (§2)。
+センサーは `edit` しか数えない (ADR-0006) ので、**UserScript が別の接続で書いた行は「書いた分」に数えられない。**
+
+**ライブラリを使うとバンドルが大きくなる。** 今のビルドと同じ設定 (esbuild 0.28.2、`iife`・`browser`・`es2023`、minify なし) で足した分を測った。
+
+| | バイト | 行 |
+|---|---|---|
+| 2026-10-06 の `dist/userscript.js` | 115,745 | 3,124 |
+| socket.io-client 4.8.4 を足した分 | +116,459 | +3,619 |
+| @cosense/std 0.31.0 の `patch` を足した分 | +181,164 | +5,357 |
+
+配布ページへの貼り付けはページが大きいほど遅く、503 が増える (上の「ops は 1 リクエスト 30KB 前後に割る」、Issue #180)。
+
+**未確認。** commit が実際に受理されるか、`room:join` が要らないか、サーバがメタデータを計算し直すか、
+`disableRealtimeCollaboration` のプロジェクト、Chrome 以外。実装の PR で作者の捨てプロジェクトに送って確かめる (§7)。
 
 ---
 
@@ -1389,6 +1505,9 @@ Microsoft は `openid profile` のみなら publisher verification は不要と�
   **REST の `user` が作成者で `created` が初回保存の時刻なことは確かめた** (§4、2026-09-26)。
   活動の概観の振り分け (ADR-0021) は作成者と作成日で決めるので、ID が変わっても判定は変わらない
 - **元に戻す / やり直しで `by` が `undefined` になるか。別のタブでの自分の編集が `remote` で届くか** (§2 の `window.scrapbox` API)
+- **UserScript が同一オリジンの WebSocket で送った commit が受理されるか** (§4 の WebSocket の節、ADR-0025)。`room:join` の要否、
+  サーバがメタデータを計算し直すか、`disableRealtimeCollaboration` のプロジェクト、Chrome 以外も。Issue #208 の UserScript の PR で作者の捨てプロジェクトに送って確かめる
+- **`<img>` で読まれた SVG が外部の画像を読まないこと** (ADR-0024 でアイコンを `data:` で埋め込む前提)。Issue #208 の図の PR で実機で確かめる
 
 設計に影響しないが残っているもの。
 
@@ -1396,7 +1515,8 @@ Microsoft は `openid profile` のみなら publisher verification は不要と�
 - `/api/commits` のレート制限
 - ページリネーム時の一括リンク更新がどのユーザーの commit として記録されるか
 - `page-edit-for-ai` が Cookie + `X-CSRF-TOKEN` でも通るか (CLI は PAT ヘッダのみ送っている)
-- `[[ ]]` 記法とクエリ付き URL の組み合わせの実挙動 (`[ ]` を使うので回避している)
+- `[[ ]]` 記法とクエリ付き URL の組み合わせの実挙動 (`[ ]` を使うので回避している)。
+  **2026-10-07 に、正規表現はクエリを許すと分かった** (§3)。実レンダリングは見ていない
 - brand verification をせずに production で公開した場合、同意画面に実際に何が表示されるか
 
 ---
