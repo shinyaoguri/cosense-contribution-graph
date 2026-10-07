@@ -401,7 +401,7 @@ Ed25519 はブラウザ普及率 88% なので単独採用しない。
 
 ### 時間帯の区間
 
-**2026-10-07 に決めた。段階 10 で実装予定** (ADR-0024、#208)。カードの図 (§8) の、曜日 × 時間帯の草のために、1 日の分を 4 つの区間に分けて数える。
+**2026-10-07 に決め、#209 で実装した** (ADR-0024、#208、`src/worker/segments.ts`)。カードの図 (§8) の、曜日 × 時間帯の草のために、1 日の分を 4 つの区間に分けて数える。
 
 | 区間 | 時刻 (端末のローカル時刻) | 分 | 書いた分 | 読んだだけの分 |
 |---|---|---|---|---|
@@ -475,8 +475,8 @@ CREATE TABLE daily (
   wc INTEGER NOT NULL DEFAULT 0,       -- 作る (分)。ADR-0021、migrations/0005 (#151)
   wo INTEGER NOT NULL DEFAULT 0,       -- 関わる (分)。同上
   links INTEGER NOT NULL DEFAULT 0,    -- 作ったリンクの件数。同上
-  sw0 INTEGER, sw1 INTEGER, sw2 INTEGER, sw3 INTEGER,  -- 区間ごとの書いた分 (§4)。NULL = 内訳なし。ADR-0024、段階 10 で実装予定 (#208)
-  sr0 INTEGER, sr1 INTEGER, sr2 INTEGER, sr3 INTEGER,  -- 区間ごとの読んだだけの分。同上
+  sw0 INTEGER, sw1 INTEGER, sw2 INTEGER, sw3 INTEGER,  -- 区間ごとの書いた分 (§4)。NULL = 内訳なし。ADR-0024、migrations/0006 (#208)
+  sr0 INTEGER, sr1 INTEGER, sr2 INTEGER, sr3 INTEGER,  -- 区間ごとの読んだだけの分 (r & ~w)。同上
   PRIMARY KEY (uid, ph, day)
 ) WITHOUT ROWID;
 
@@ -529,12 +529,21 @@ total' = max(w_old + r_old, w_new + r_new)
 r'     = total' − w'
 pages' = max(pages_old, pages_new)、created も同じ
 wc'    = max(wc_old, wc_new)、wo と links も同じ (ADR-0021)
+sw_k'  = max(sw_k_old, sw_k_new)                          区間 k = 0..3 (#208)
+sr_k'  = max(sw_k_old + sr_k_old, sw_k_new + sr_k_new) − sw_k'
 ```
+
+**時間帯の区間** (2026-10-07、Issue #208、`migrations/0006_daily_segments.sql`)。暦の日 (クライアントのローカル日付) を
+0–9 / 9–13 / 13–18 / 18–24 時の 4 区間に分け、マージした後のビットマップから区間ごとの `popcount(w)` と `popcount(r & ~w)` を数える
+(`src/worker/segments.ts`)。区間の和は w / r に一致する。夜 (18–9) は描画するときに「D の区間 3 + D+1 の区間 0」として組むので、
+受け口はほかの日の行を書かない。**保存済みが NULL (列を足す前の行) なら max を取らずに新しい値を書く** (SQLite の `max` は
+引数に NULL があると NULL を返すので、SQL では `CASE` で分ける)。既存の行は Cron が daybits の残る 90 日分だけ遡って埋め
+(1 回 500 行まで)、それより古い行は NULL のままになる。
 
 `wc` / `wo` / `links` はビットマップを持たない (送るのは数だけ) ので、`pages` / `created` と同じく max でしか守れない。
 複数端末では少なめに出る (Issue #71)。**`wc + wo` は `w` を超えうる** (§4)。
 
-**時間帯の区間 (§4) も、区間ごとに w と合計を max で守る** (ADR-0024。段階 10 で実装予定、#208)。
+**時間帯の区間 (§4) も、区間ごとに w と合計を max で守る** (ADR-0024。#209 で実装、#208)。
 
 ```
 swN'     = max(swN_old, swN_new)
@@ -656,7 +665,7 @@ callback の手順。**cookie と state が通るまで Google に fetch しな�
 3. **`t` の窓、鍵、署名を見る (403)。** 鍵は `keys` から読むが、ここまで書き込まない。無効な署名は書き込みに近づかせない
 4. `graphs`・`daybits`・`daily` を 1 回の batch でまとめて SELECT する (`(ph, day) IN (VALUES ...)`)
 5. Worker 内で OR してから popcount。`r_effective = r & ~w`。`daily` は w と合計を max で守る (§5)。
-   **時間帯の区間 (§4) もここでマージした後のビットマップから数える** (ADR-0024。段階 10 で実装予定、#208)。ビーコンの形は変えない
+   **時間帯の区間 (§4) もここでマージした後のビットマップから数える** (ADR-0024。#209 で実装、#208)。ビーコンの形は変えない
 6. **変化したエントリだけを書く。** 無い `graphs` の INSERT、楽観的な `daybits` の書き込み (§5)、`daily` の UPSERT を 1 回の batch で送る。
    変化が無ければ書き込みの batch を送らない (no-op な UPDATE の課金に依存しない)
 7. **200 と透過 GIF** を返す。**幅は 16 + ビット (1 = 書いた)** (2026-09-14 改訂)
@@ -1017,7 +1026,7 @@ X-Content-Type-Options: nosniff
   境界は UTC の今日の 90 日前で、その日は残す
 - 使われずに期限が切れた登録トークン (`enroll_tokens`) を削除する (2026-09-14、Issue #61)。使われたものは受け口がその場で消す
 - 30 日以上送信のない `uid` をログ出力する。**`users.last_seen` が要るので段階 4 以降**
-- **時間帯の区間 (§4) が NULL で、`daybits` が残っている `daily` の行を遡って埋める** (ADR-0024。段階 10 で実装予定、#208)。
+- **時間帯の区間 (§4) が NULL で、`daybits` が残っている `daily` の行を遡って埋める** (ADR-0024。#209 で実装、`backfillDailySegments`。1 回 500 行まで、#208)。
   1 回あたりの行数に上限を設け、書き込みの予算 (§11) を守る
 
 ---

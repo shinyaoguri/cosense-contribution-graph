@@ -21,8 +21,9 @@ import { publicIdOf } from "../shared/ids.ts";
 import { verify } from "../shared/sign.ts";
 import { acceptsDay } from "./days.ts";
 import type { ResolveKey } from "./keys.ts";
-import { type DailyValues, mergeEntry, type StoredBits } from "./merge.ts";
+import { type DailyValues, type Merged, mergeEntry, type StoredBits } from "./merge.ts";
 import { gifResponse, plainResponse } from "./responses.ts";
+import { quadOf, type SegmentCounts } from "./segments.ts";
 
 /** 署名した時刻 `t` とサーバ時刻のずれの上限 (design §3)。 */
 export const REPLAY_WINDOW_SECONDS = 300;
@@ -122,7 +123,7 @@ async function record(db: D1Database, beacon: Beacon): Promise<number | "conflic
       .bind(uid, ...pairs),
     db
       .prepare(
-        `SELECT ph, day, w, r, pages, created, wc, wo, links FROM daily WHERE uid = ? AND (ph, day) IN (VALUES ${rowValues})`,
+        `SELECT ph, day, w, r, pages, created, wc, wo, links, ${SEGMENT_COLUMNS} FROM daily WHERE uid = ? AND (ph, day) IN (VALUES ${rowValues})`,
       )
       .bind(uid, ...pairs),
   ]);
@@ -145,6 +146,7 @@ async function record(db: D1Database, beacon: Beacon): Promise<number | "conflic
         wc: Number(row.wc),
         wo: Number(row.wo),
         links: Number(row.links),
+        segments: segmentsFrom(row),
       },
     ]),
   );
@@ -221,16 +223,25 @@ function bitsStatement(
  * daily の UPSERT。値は Worker で計算済みだが、**衝突したときに備えて SQL でも同じ規則で守る**
  * (`merge.ts`)。`DO UPDATE SET` の右辺の `daily.*` は更新前の値を指す。
  * 1 引数の `max(x)` は集約関数になるので、2 引数で書いてテーブル名で修飾する (research §5)。
+ *
+ * 時間帯の区間も区間ごとに同じ式で守る。**SQLite の `max` は引数に NULL があると NULL を返す**ので、
+ * 保存済みが NULL (内訳なし) なら max を取らずに excluded を使う。excluded は Worker が数えた値でいつも NULL でない。
+ * 8 列はそろって NULL かそろって値を持つので、`sw<k>` で見分ければ足りる。
  */
 function dailyStatement(
   db: D1Database,
   uid: string,
   entry: Entry,
-  daily: DailyValues,
+  daily: Merged["daily"],
 ): D1PreparedStatement {
+  const segmentUpdates = SEGMENTS.flatMap((k) => [
+    `sw${k} = CASE WHEN daily.sw${k} IS NULL THEN excluded.sw${k} ELSE max(daily.sw${k}, excluded.sw${k}) END`,
+    `sr${k} = CASE WHEN daily.sw${k} IS NULL THEN excluded.sr${k} ELSE max(daily.sw${k} + daily.sr${k}, excluded.sw${k} + excluded.sr${k}) - max(daily.sw${k}, excluded.sw${k}) END`,
+  ]);
   return db
     .prepare(
-      `INSERT INTO daily (uid, ph, day, w, r, pages, created, wc, wo, links) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO daily (uid, ph, day, w, r, pages, created, wc, wo, links, ${SEGMENT_COLUMNS})
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (uid, ph, day) DO UPDATE SET
          w = max(daily.w, excluded.w),
          r = max(daily.w + daily.r, excluded.w + excluded.r) - max(daily.w, excluded.w),
@@ -238,7 +249,8 @@ function dailyStatement(
          created = max(daily.created, excluded.created),
          wc = max(daily.wc, excluded.wc),
          wo = max(daily.wo, excluded.wo),
-         links = max(daily.links, excluded.links)`,
+         links = max(daily.links, excluded.links),
+         ${segmentUpdates.join(",\n         ")}`,
     )
     .bind(
       uid,
@@ -251,11 +263,31 @@ function dailyStatement(
       daily.wc,
       daily.wo,
       daily.links,
+      ...daily.segments.w,
+      ...daily.segments.r,
     );
 }
 
-/** D1 の BLOB を 180 バイトのビットマップにする。形が違えば throw (500 になる)。 */
-function bitmapFrom(value: unknown): Bitmap {
+const SEGMENTS = [0, 1, 2, 3] as const;
+
+/** daily の時間帯の列。並びは `sw0..sw3, sr0..sr3` (`SegmentCounts` の w, r の順)。 */
+const SEGMENT_COLUMNS = [...SEGMENTS.map((k) => `sw${k}`), ...SEGMENTS.map((k) => `sr${k}`)].join(
+  ", ",
+);
+
+/** daily の行から時間帯の内訳を読む。`sw0` が NULL なら内訳なし。 */
+function segmentsFrom(row: Record<string, unknown>): SegmentCounts | null {
+  if (row.sw0 === null || row.sw0 === undefined) {
+    return null;
+  }
+  return {
+    w: quadOf((k) => Number(row[`sw${k}`])),
+    r: quadOf((k) => Number(row[`sr${k}`])),
+  };
+}
+
+/** D1 の BLOB を 180 バイトのビットマップにする。形が違えば throw (500 になる)。Cron も使う。 */
+export function bitmapFrom(value: unknown): Bitmap {
   const bytes =
     value instanceof ArrayBuffer
       ? new Uint8Array(value)
