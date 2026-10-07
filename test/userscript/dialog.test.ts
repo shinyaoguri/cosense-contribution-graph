@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { BUTTON_CLASS, DIALOG_ATTRIBUTE, styleDialog } from "../../src/userscript/dialog.ts";
+import {
+  BUTTON_CLASS,
+  DIALOG_ATTRIBUTE,
+  DIALOG_BORDER,
+  DIALOG_PADDING,
+  styleDialog,
+} from "../../src/userscript/dialog.ts";
 
 afterEach(() => {
   document.body.replaceChildren();
@@ -25,6 +31,17 @@ describe("styleDialog (#175)", () => {
     expect(css).toContain("::backdrop");
     expect(css).toContain(`.${BUTTON_CLASS}`);
     expect(css).toContain(":focus-visible");
+  });
+
+  it("**ダイアログを border-box にする** (Cosense の Bootstrap と同じ。確認用の HTML で幅がずれないように。2026-10-07)", () => {
+    const dialog = document.createElement("dialog");
+    styleDialog(dialog);
+
+    const css = dialog.querySelector("style")?.textContent ?? "";
+    const own = css.split("\n").find((rule) => rule.startsWith(`dialog[${DIALOG_ATTRIBUTE}] {`));
+    expect(own).toContain("box-sizing: border-box;");
+    expect(own).toContain(`padding: ${DIALOG_PADDING}px;`);
+    expect(own).toContain(`border: ${DIALOG_BORDER}px solid`);
   });
 
   it("何度呼んでも <style> は 1 つ", () => {
