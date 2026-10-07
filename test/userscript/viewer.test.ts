@@ -33,6 +33,7 @@ async function enrolled(
     graphUrl: graphUrl(await publicIdOf(UID, PH_ALL)),
     overviewUrl: overviewUrl(await publicIdOf(UID, PH_ALL)),
     dataUrl: dataUrl(await publicIdOf(UID, PH_ALL), await dataKeyOf(UID, PH_ALL)),
+    cardUrl: cardUrl(await publicIdOf(UID, PH_ALL)),
     cardLine: cardLine(await publicIdOf(UID, PH_ALL)),
     totalSent,
     projects: await Promise.all(
@@ -170,6 +171,7 @@ describe("describeIntegrated", () => {
       url: status.kind === "enrolled" && status.graphUrl,
       overviewUrl: status.kind === "enrolled" && status.overviewUrl,
       dataUrl: status.kind === "enrolled" && status.dataUrl,
+      cardUrl: status.kind === "enrolled" && status.cardUrl,
       cardLine: status.kind === "enrolled" && status.cardLine,
       sent: true,
     });
@@ -180,14 +182,14 @@ describe("describeIntegrated", () => {
     ]);
   });
 
-  it("**カードは状況の値そのもの。合算はコピーする行だけで、図はプロジェクト別にだけ出す** (ADR-0025)", async () => {
+  it("**カードは状況の値そのもの。合算にも図がある** (ダイアログの囲みの主役。2026-10-07)", async () => {
     const status = await enrolled([{ name: "alpha", sent: true }]);
 
     const view = describeIntegrated(status, "alpha", NOW);
 
     if (view.kind !== "graphs" || status.kind !== "enrolled") throw new Error("graphs のはず");
     expect(view.total.cardLine).toBe(status.cardLine);
-    expect(view.total.cardUrl).toBeUndefined();
+    expect(view.total.cardUrl).toBe(status.cardUrl);
     expect(view.projects[0]?.cardUrl).toBe(status.projects[0]?.cardUrl);
     expect(view.projects[0]?.cardLine).toBe(status.projects[0]?.cardLine);
   });
