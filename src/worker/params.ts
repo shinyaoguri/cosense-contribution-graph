@@ -1,5 +1,6 @@
 import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
 import { isValidProjectName, isValidUserName } from "../shared/project-name.ts";
+import type { Lang } from "./graph/card.ts";
 import { DEFAULT_PARAMS, MAX_WEEKS, type Params } from "./graph/grid.ts";
 import { isSchemeName } from "./graph/scheme.ts";
 
@@ -76,4 +77,11 @@ export function parseYear(search: URLSearchParams): string | undefined {
   const lastDay = `${raw}-12-31`;
   // 4 桁ならここは必ず通るが、日付の組み立てが壊れていないことを往復で確かめる
   return fromEpochDay(toEpochDay(lastDay)) === lastDay ? lastDay : undefined;
+}
+
+/**
+ * カードの図のラベルの言語 (`?lang=`。ADR-0024)。**`en` のときだけ英語で、それ以外は日本語** (未知の値も 400 にしない)。
+ */
+export function parseLang(search: URLSearchParams): Lang {
+  return search.get("lang") === "en" ? "en" : "ja";
 }

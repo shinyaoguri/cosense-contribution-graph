@@ -9,27 +9,38 @@ import { PROBE_PATH } from "../shared/probe.ts";
 import { REVOKE_PATH } from "../shared/revoke.ts";
 import { type AccountDeps, handleAccount } from "./account.ts";
 import { type AuthDeps, handleAuthCallback, handleAuthStart } from "./auth.ts";
+import { cardIcon } from "./card-icon.ts";
+import { renderCard } from "./card-svg.ts";
 import {
   BACKFILL_LIMIT,
   backfillDailySegments,
   deleteExpiredEnrollTokens,
   deleteOldDaybits,
 } from "./cron.ts";
-import { DEMO_TODAY, demoData, demoOverviewDays } from "./demo.ts";
+import {
+  DEMO_CARD_LABEL,
+  DEMO_CARD_USER,
+  DEMO_ICON,
+  DEMO_TODAY,
+  demoCardDays,
+  demoData,
+  demoOverviewDays,
+} from "./demo.ts";
 import { handleEnroll, handleRevoke } from "./enroll.ts";
 import { FAVICON_CACHE_CONTROL, FAVICON_PATH, FAVICON_SVG } from "./favicon.ts";
 import { centerOf } from "./graph/balance.ts";
+import { slotPopulation } from "./graph/card.ts";
 import { DAYS } from "./graph/grid.ts";
 import { sumOverview } from "./graph/overview.ts";
 import { buildScale } from "./graph/scale.ts";
-import { renderStoredGraph, renderStoredOverview } from "./graph-data.ts";
+import { renderStoredCard, renderStoredGraph, renderStoredOverview } from "./graph-data.ts";
 import { GUIDE_CACHE_CONTROL, GUIDE_PATH, renderGuide } from "./guide-svg.ts";
 import { googleKeys } from "./idtoken.ts";
 import { handleIngest } from "./ingest.ts";
 import { type GraphData, loadGraphData } from "./json.ts";
 import { d1KeyResolver } from "./keys.ts";
 import { renderOverview } from "./overview-svg.ts";
-import { parseLabel, parseParams, parseUser, parseYear } from "./params.ts";
+import { parseLabel, parseLang, parseParams, parseUser, parseYear } from "./params.ts";
 import { handleProbe } from "./probe.ts";
 import { HOME_JA_PATH, HOME_PATH, handleHome, handlePrivacy } from "./site.ts";
 import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
@@ -39,6 +50,7 @@ import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
  *
  * 経路は `/v1/p.gif` (記録の受け口)、`/v1/enroll.gif` (デバイスの登録)、`/v1/revoke.gif` (デバイスの失効)、
  * `/account` (端末の一覧と失効・共有 URL・全削除)、`/` と `/privacy` (人が読むページ)、`/v1/g/{publicId}.svg`、
+ * `/v1/g/{publicId}/overview.svg` (活動の概観。ADR-0021)、`/v1/g/{publicId}/card.svg` (カードの図。ADR-0024)、
  * `/v1/g/{publicId}/{dataKey}.json` (日ごとの集計値。ADR-0020)、
  * `/v1/probe.gif` (送信の疎通確認)、`/v1/guide/{name}.svg` (草のダイアログの説明の図。Issue #182)、`/auth/start` と `/auth/callback` (Google サインイン)、`/favicon.svg`。
  * グラフは `demo` ならデモを、それ以外は D1 の記録から描く。
@@ -49,6 +61,9 @@ const GRAPH_PATH = /^\/v1\/g\/([^/]+)\.svg$/;
 
 /** 活動の概観 (ADR-0021)。**草と同じ publicId** から作る (草の URL を受け取った人にも見える)。 */
 const OVERVIEW_PATH = /^\/v1\/g\/([^/]+)\/overview\.svg$/;
+
+/** カードの図 (ADR-0024)。概観と同じく**草と同じ publicId** から作る。 */
+const CARD_PATH = /^\/v1\/g\/([^/]+)\/card\.svg$/;
 
 /** 日ごとの集計値。**草の URL からは導けない鍵を並べる** (ADR-0020)。 */
 const GRAPH_DATA_PATH = /^\/v1\/g\/([^/]+)\/([^/]+)\.json$/;
@@ -175,6 +190,42 @@ export default {
       return notFound();
     }
 
+    const cardId = CARD_PATH.exec(url.pathname)?.[1];
+    if (cardId === DEMO_PUBLIC_ID) {
+      return cardResponse(request, renderDemoCard(url.searchParams));
+    }
+    // 形の違う publicId は D1 を引かずに 404
+    if (cardId !== undefined && isValidPublicId(cardId)) {
+      const { theme, palette } = parseParams(url.searchParams);
+      let body: string | undefined;
+      try {
+        body = await renderStoredCard(
+          env.DB,
+          cardId,
+          {
+            theme,
+            palette,
+            lang: parseLang(url.searchParams),
+            label: parseLabel(url.searchParams),
+            user: parseUser(url.searchParams),
+          },
+          Date.now(),
+          (project, user) =>
+            cardIcon(project, user, {
+              fetch: (iconUrl, init) => fetch(iconUrl, init),
+              cache: caches.default,
+            }),
+        );
+      } catch {
+        console.log(JSON.stringify({ event: "card", status: 503 }));
+        return unavailable();
+      }
+      if (body !== undefined) {
+        return cardResponse(request, body);
+      }
+      return notFound();
+    }
+
     const publicId = GRAPH_PATH.exec(url.pathname)?.[1];
     if (publicId === DEMO_PUBLIC_ID) {
       return svgResponse(request, renderDemo(url.searchParams));
@@ -275,6 +326,32 @@ function renderDemoOverview(search: URLSearchParams): string {
 }
 
 /**
+ * カードの図のデモ (ADR-0024)。右端は `DEMO_TODAY` (`year` は受けない)。名前は既定でデモの名前を描き、
+ * アイコンは固定の画像を埋め込む (外へ取りに行かない)。
+ */
+function renderDemoCard(search: URLSearchParams): string {
+  const { theme, palette } = parseParams(search);
+  const days = demoCardDays();
+  const slots = slotPopulation(days);
+  // 内訳なしの日の色は草のデモと同じ母集団から取る
+  const { population } = demoData();
+  return renderCard({
+    today: DEMO_TODAY,
+    days,
+    slotScale: buildScale(slots.map((m) => m.w + m.r)),
+    slotCenter: centerOf(slots),
+    dayScale: buildScale(population.map((d) => d.w + d.r)),
+    dayCenter: centerOf(population),
+    theme,
+    palette,
+    lang: parseLang(search),
+    label: parseLabel(search) ?? DEMO_CARD_LABEL,
+    user: parseUser(search) ?? DEMO_CARD_USER,
+    icon: DEMO_ICON,
+  });
+}
+
+/**
  * SVG の応答ヘッダ。
  *
  * - **Content-Type が無いと Cosense で表示されない。** Cosense は拡張子で <img> にするかを決め、
@@ -285,6 +362,15 @@ const SVG_HEADERS = {
   "content-type": "image/svg+xml; charset=utf-8",
   "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'",
   "x-content-type-options": "nosniff",
+};
+
+/**
+ * カードの図の応答ヘッダ (ADR-0024 決定 5)。**埋め込んだアイコン (`data:`) のために `img-src data:` だけ足す。**
+ * 草と概観のヘッダ (`SVG_HEADERS`) は変えない
+ */
+const CARD_SVG_HEADERS = {
+  ...SVG_HEADERS,
+  "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:",
 };
 
 /**
@@ -308,6 +394,10 @@ function svgResponse(
   cacheControl = CACHE_CONTROL,
 ): Promise<Response> {
   return cachedResponse(request, body, SVG_HEADERS, cacheControl);
+}
+
+function cardResponse(request: Request, body: string): Promise<Response> {
+  return cachedResponse(request, body, CARD_SVG_HEADERS);
 }
 
 /**

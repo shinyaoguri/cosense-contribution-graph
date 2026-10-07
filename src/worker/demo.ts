@@ -4,10 +4,12 @@
  * **決定論的に作る。** 乱数を使うと ETag もテストの期待値も毎回変わる。
  */
 
-import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
+import { fromEpochDay, toEpochDay, weekdayOf } from "../shared/epoch-day.ts";
 import type { Minutes } from "./graph/balance.ts";
+import type { CardDay } from "./graph/card.ts";
 import { DAYS, MAX_WEEKS } from "./graph/grid.ts";
 import type { OverviewDay } from "./graph/overview.ts";
+import { type Quad, quadOf } from "./segments.ts";
 
 /**
  * デモの「今日」。**週の途中 (水曜) に固定する。** 日曜や土曜だと左右の列が欠けず、
@@ -98,6 +100,87 @@ export function demoOverviewDays(): ReadonlyMap<string, OverviewDay> {
     const wc = Math.floor((minutes.w * (h % 30)) / 100);
     const wo = Math.floor(((minutes.w - wc) * ((h >>> 8) % 50)) / 100);
     result.set(day, { ...minutes, wc, wo });
+  }
+  return result;
+}
+
+/**
+ * カードの図のデモで描く名前 (ADR-0024)。クエリ (`?l=` / `?u=`) があればそちらを描く。
+ * **デモは外へアイコンを取りに行かない** (`DEMO_ICON`)
+ */
+export const DEMO_CARD_LABEL = "cosense-grass";
+export const DEMO_CARD_USER = "demo";
+
+/**
+ * デモのアイコン (16 × 16 の PNG、133 バイト)。既定の配色の色を 4 × 4 に並べた小さな草。
+ * 実在の人のアイコンは使わない
+ */
+export const DEMO_ICON =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAATElEQVR42mNY+uAUHBksaoKj128/wFHxoeVwxDAINZzc+gGOUCRKo+EI2dDBqAFZ0Y352nCEHAD/H22Go8GoATmCkD2HbBCy5kGoAQAlrvXg9+2V7gAAAABJRU5ErkJggg==";
+
+/**
+ * **この日より前は内訳なし** (区間の列を足す前の日。ADR-0024 決定 2)。カードの左端の 2 列が薄く塗られ、
+ * 本番で古い日がどう見えるかをデモでも確かめられる
+ */
+const DEMO_SEGMENTS_FROM = "2026-03-30";
+
+/**
+ * 区間 (0–9 / 9–13 / 13–18 / 18–24) ごとの重み。平日は日中に書き、夜に読む。休日は夜に寄せる。
+ * 区間 0 は前の日の夜に足されるので小さめにする
+ */
+const SEGMENT_WEIGHTS = {
+  weekday: { w: [0.05, 0.4, 0.4, 0.15], r: [0.15, 0.2, 0.25, 0.4] },
+  weekend: { w: [0.1, 0.15, 0.3, 0.45], r: [0.2, 0.15, 0.25, 0.4] },
+} as const;
+
+/** `total` を重みに揺らぎを掛けて 4 区間に分ける (最大剰余法なので合計は `total` に一致する) */
+function splitTotal(total: number, weights: readonly number[], h: number): Quad {
+  // 区間ごとに 0.4〜1.6 倍の揺らぎ。h の別のバイトから取る
+  const jittered = weights.map(
+    (weight, k) => weight * (0.4 + (((h >>> (k * 8)) & 0xff) / 255) * 1.2),
+  );
+  const sum = jittered.reduce((a, b) => a + b, 0);
+  const exact = jittered.map((v) => (total * v) / sum);
+  const counts = exact.map(Math.floor);
+  const order = exact
+    .map((v, k) => ({ k, remainder: v - Math.floor(v) }))
+    .sort((a, b) => b.remainder - a.remainder || a.k - b.k);
+  let rest = total - counts.reduce((a, b) => a + b, 0);
+  for (const { k } of order) {
+    if (rest === 0) {
+      break;
+    }
+    counts[k] = (counts[k] ?? 0) + 1;
+    rest--;
+  }
+  return quadOf((k) => counts[k] ?? 0);
+}
+
+/**
+ * カードの図のデモ (ADR-0024)。概観のデモの日から、書いた分と読んだ分を 4 区間に振り分ける。
+ * **草と概観のデモデータ (`demoData` / `demoOverviewDays`) は変えない** (ゴールデンテストと ETag を保つ)。
+ * 区間の合計はその日の w / r に一致する (本番と同じ)
+ */
+export function demoCardDays(): ReadonlyMap<string, CardDay> {
+  const result = new Map<string, CardDay>();
+  for (const [day, values] of demoOverviewDays()) {
+    if (day < DEMO_SEGMENTS_FROM) {
+      result.set(day, values);
+      continue;
+    }
+    const epoch = toEpochDay(day);
+    const weekday = weekdayOf(epoch);
+    const weights =
+      weekday === 0 || weekday === 6 ? SEGMENT_WEIGHTS.weekend : SEGMENT_WEIGHTS.weekday;
+    // 草と概観の割合と相関させないよう、別の種から取る
+    const h = hash32(epoch ^ 0x27d4eb2f);
+    result.set(day, {
+      ...values,
+      segments: {
+        w: splitTotal(values.w, weights.w, h),
+        r: splitTotal(values.r, weights.r, hash32(h)),
+      },
+    });
   }
   return result;
 }

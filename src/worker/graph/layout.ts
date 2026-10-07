@@ -78,7 +78,7 @@ type Label = {
   readonly suffix?: { readonly text: string; readonly fill: string };
 };
 
-type Swatch = { readonly x: number; readonly y: number; readonly fill: string };
+export type Swatch = { readonly x: number; readonly y: number; readonly fill: string };
 
 export type GraphLayout = {
   readonly width: number;
@@ -144,11 +144,11 @@ const USER_PREFIX = "@";
  * 合算の印 (2026-09-24)。一辺 `MARK_CELL` のマスを `MARK_OFFSET` ずつずらして 3 枚重ねる。
  * **全体の一辺は格子のマス (`CELL`) と同じ**にして、凡例の行の高さに収める
  */
-const MARK_CELL = 7;
+export const MARK_CELL = 7;
 const MARK_OFFSET = 2;
-const MARK_SIZE = MARK_CELL + MARK_OFFSET * 2;
+export const MARK_SIZE = MARK_CELL + MARK_OFFSET * 2;
 /** マスが格子より小さいので、丸みも小さくする */
-const MARK_RADIUS = 1.5;
+export const MARK_RADIUS = 1.5;
 /** 印を塗る Level。奥ほど薄く、手前ほど濃い。**白の縁取りは使わない** (ダークで浮く)。濃淡の差で重なりを見せる */
 const MARK_LEVELS = [1, 2, 3] as const;
 /** 印と後ろの名前の間 */
@@ -253,9 +253,9 @@ function projectLine(
 /**
  * 合算の印 (2026-09-24)。**マスを 3 枚ずらして重ね、「複数の草を束ねた草」を絵で示す。**
  * 奥 (右上) を薄く、手前 (左下) を濃く。色はスキームから量の帯と同じ取り方 (バランス 0) で取るので、
- * 配色とテーマに追従する。`(x, y)` は印の左上
+ * 配色とテーマに追従する。`(x, y)` は印の左上。カードの図 (`card.ts`) の合算の印も同じものを使う
  */
-function layoutMark(scheme: ColorScheme, theme: Theme, x: number, y: number): Swatch[] {
+export function layoutMark(scheme: ColorScheme, theme: Theme, x: number, y: number): Swatch[] {
   return MARK_LEVELS.map((level, i) => {
     const depth = MARK_LEVELS.length - 1 - i;
     return {
