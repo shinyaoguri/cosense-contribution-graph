@@ -2,6 +2,7 @@ import { createScheduledController, env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { bitmapOf } from "../../src/shared/bits.ts";
 import { PH_ALL } from "../../src/shared/ids.ts";
+import { backfillDailySegments } from "../../src/worker/cron.ts";
 import worker from "../../src/worker/index.ts";
 
 // D1 はファイル内で共有されるので、Cron のテストは受け口のテストと分けて置く
@@ -68,5 +69,106 @@ describe("Cron", () => {
       "SELECT token_hash FROM enroll_tokens ORDER BY token_hash",
     ).all();
     expect(results.map((row) => row.token_hash)).toEqual(["edge", "valid"]);
+  });
+});
+
+describe("Cron — 時間帯の区間を遡って埋める", () => {
+  const at = (hour: number, minute: number) => hour * 60 + minute;
+  const DAY = "2026-09-10";
+
+  /** 区間が NULL の daily と、あれば daybits を入れる。 */
+  async function insertRow(uid: string, bits?: { w: number[]; r: number[] }) {
+    const statements = [
+      env.DB.prepare("INSERT INTO daily (uid, ph, day, w, r) VALUES (?, ?, ?, 1, 0)").bind(
+        uid,
+        PH_ALL,
+        DAY,
+      ),
+    ];
+    if (bits) {
+      statements.push(
+        env.DB.prepare(
+          "INSERT INTO daybits (uid, ph, day, wbits, rbits) VALUES (?, ?, ?, ?, ?)",
+        ).bind(uid, PH_ALL, DAY, bitmapOf(bits.w), bitmapOf(bits.r)),
+      );
+    }
+    await env.DB.batch(statements);
+  }
+
+  async function segmentsOf(uid: string) {
+    const row = await env.DB.prepare(
+      "SELECT sw0, sw1, sw2, sw3, sr0, sr1, sr2, sr3 FROM daily WHERE uid = ? AND ph = ? AND day = ?",
+    )
+      .bind(uid, PH_ALL, DAY)
+      .first<Record<string, number | null>>();
+    return (
+      row && { w: [row.sw0, row.sw1, row.sw2, row.sw3], r: [row.sr0, row.sr1, row.sr2, row.sr3] }
+    );
+  }
+
+  const NONE = { w: [null, null, null, null], r: [null, null, null, null] };
+
+  it("**区間が NULL で daybits がある行だけを埋める。** daybits の無い行と、値がある行は変えない", async () => {
+    await insertRow("backfill-null", { w: [at(10, 0), at(10, 1)], r: [at(10, 1), at(20, 0)] });
+    await insertRow("backfill-no-bits");
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO daily (uid, ph, day, w, r, sw0, sw1, sw2, sw3, sr0, sr1, sr2, sr3) VALUES (?, ?, ?, 1, 0, 9, 9, 9, 9, 9, 9, 9, 9)",
+      ).bind("backfill-filled", PH_ALL, DAY),
+      env.DB.prepare(
+        "INSERT INTO daybits (uid, ph, day, wbits, rbits) VALUES (?, ?, ?, ?, ?)",
+      ).bind("backfill-filled", PH_ALL, DAY, bitmapOf([at(1, 0)]), bitmapOf([])),
+    ]);
+
+    const controller = createScheduledController({ scheduledTime: NOW, cron: "17 3 * * *" });
+    await worker.scheduled(controller, env);
+
+    expect(await segmentsOf("backfill-null")).toEqual({ w: [0, 2, 0, 0], r: [0, 0, 0, 1] });
+    expect(await segmentsOf("backfill-no-bits")).toEqual(NONE);
+    expect(await segmentsOf("backfill-filled")).toEqual({ w: [9, 9, 9, 9], r: [9, 9, 9, 9] });
+  });
+
+  it("**1 回に埋めるのは上限の行数まで**で、次の回に残りを埋める", async () => {
+    const uids = ["backfill-limit-a", "backfill-limit-b", "backfill-limit-c"];
+    for (const uid of uids) {
+      await insertRow(uid, { w: [at(15, 0)], r: [] });
+    }
+
+    expect(await backfillDailySegments(env.DB, 2)).toBe(2);
+    const filled = async () =>
+      (await Promise.all(uids.map(segmentsOf))).filter((s) => s?.w[0] !== null).length;
+    expect(await filled()).toBe(2);
+
+    expect(await backfillDailySegments(env.DB, 2)).toBe(1);
+    expect(await filled()).toBe(3);
+    expect(await backfillDailySegments(env.DB, 2)).toBe(0);
+  });
+
+  it("**読んでから書くまでに受け口が埋めた行は、上書きしない**", async () => {
+    await insertRow("backfill-race", { w: [at(10, 0)], r: [] });
+    // UPDATE の直前に、受け口が新しい値で埋める
+    const db = {
+      prepare: (query: string) => {
+        const statement = env.DB.prepare(query);
+        if (!query.trimStart().startsWith("UPDATE")) {
+          return statement;
+        }
+        return {
+          bind: (...values: unknown[]) => ({
+            run: async () => {
+              await env.DB.prepare(
+                "UPDATE daily SET sw0 = 0, sw1 = 2, sw2 = 0, sw3 = 0, sr0 = 0, sr1 = 0, sr2 = 0, sr3 = 0 WHERE uid = ?",
+              )
+                .bind("backfill-race")
+                .run();
+              return statement.bind(...values).run();
+            },
+          }),
+        };
+      },
+    } as unknown as D1Database;
+
+    expect(await backfillDailySegments(db, 500)).toBe(0);
+    expect(await segmentsOf("backfill-race")).toEqual({ w: [0, 2, 0, 0], r: [0, 0, 0, 0] });
   });
 });

@@ -61,6 +61,34 @@ async function dailyOf(uid: string, ph: string, day = TODAY): Promise<DailyRow |
     .first<DailyRow>();
 }
 
+type SegmentsRow = {
+  sw0: number | null;
+  sw1: number | null;
+  sw2: number | null;
+  sw3: number | null;
+  sr0: number | null;
+  sr1: number | null;
+  sr2: number | null;
+  sr3: number | null;
+};
+
+/** daily の時間帯の区間を `{ w: [...], r: [...] }` で読む。行が無ければ null。 */
+async function segmentsOf(uid: string, ph: string, day = TODAY) {
+  const row = await env.DB.prepare(
+    "SELECT sw0, sw1, sw2, sw3, sr0, sr1, sr2, sr3 FROM daily WHERE uid = ? AND ph = ? AND day = ?",
+  )
+    .bind(uid, ph, day)
+    .first<SegmentsRow>();
+  return (
+    row && {
+      w: [row.sw0, row.sw1, row.sw2, row.sw3],
+      r: [row.sr0, row.sr1, row.sr2, row.sr3],
+    }
+  );
+}
+
+const at = (hour: number, minute: number) => hour * 60 + minute;
+
 async function daybitsOf(uid: string, ph: string, day = TODAY) {
   const row = await env.DB.prepare(
     "SELECT wbits, rbits FROM daybits WHERE uid = ? AND ph = ? AND day = ?",
@@ -266,6 +294,87 @@ describe("GET /v1/p.gif — 記録する", () => {
     expect(await gifWidth(res)).toBe(17);
     // 読み 3 文、書き 3 文 (PH_B の graphs・daybits・daily)
     expect(batches).toEqual([3, 3]);
+  });
+});
+
+describe("GET /v1/p.gif — 時間帯の区間", () => {
+  it("**daily に区間ごとの w と r (r & ~w) を書く**", async () => {
+    const uid = randomUid();
+    await send(
+      await signer.url(uid, [
+        entry({
+          wbits: bitmapOf([at(8, 59), at(9, 0)]),
+          rbits: bitmapOf([at(9, 0), at(12, 59), at(13, 0), at(18, 0)]),
+        }),
+      ]),
+    );
+
+    expect(await segmentsOf(uid, PH_ALL)).toEqual({ w: [1, 1, 0, 0], r: [0, 1, 1, 1] });
+  });
+
+  it("2 回目のビーコンで OR した分だけ区間も増える", async () => {
+    const uid = randomUid();
+    await send(await signer.url(uid, [entry({ wbits: bitmapOf([at(10, 0)]) })]));
+    await send(await signer.url(uid, [entry({ wbits: bitmapOf([at(10, 0), at(22, 0)]) })]));
+
+    expect(await segmentsOf(uid, PH_ALL)).toEqual({ w: [0, 1, 0, 1], r: [0, 0, 0, 0] });
+  });
+
+  it("**内訳の無い行 (列を足す前の行) は、ビットマップが同じでも次のビーコンで埋まる**", async () => {
+    const uid = randomUid();
+    const wbits = bitmapOf([at(14, 0)]);
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO daybits (uid, ph, day, wbits, rbits) VALUES (?, ?, ?, ?, ?)",
+      ).bind(uid, PH_ALL, TODAY, wbits, bitmapOf([])),
+      env.DB.prepare("INSERT INTO daily (uid, ph, day, w, r) VALUES (?, ?, ?, 1, 0)").bind(
+        uid,
+        PH_ALL,
+        TODAY,
+      ),
+    ]);
+    expect(await segmentsOf(uid, PH_ALL)).toEqual({
+      w: [null, null, null, null],
+      r: [null, null, null, null],
+    });
+
+    const res = await send(await signer.url(uid, [entry({ wbits })]));
+
+    expect(await gifWidth(res)).toBe(17);
+    expect(await segmentsOf(uid, PH_ALL)).toEqual({ w: [0, 0, 1, 0], r: [0, 0, 0, 0] });
+  });
+
+  it("**読んでから書くまでに別の送信が daily を作っても、SQL の側で区間ごとに max で守る**", async () => {
+    const uid = randomUid();
+    // 割り込んだ送信が、区間 0 に 5 分書いた行を先に作る (daybits は作らないので、こちらの INSERT は通る)
+    const { db } = spyDb(async () => {
+      await env.DB.prepare(
+        "INSERT INTO daily (uid, ph, day, w, r, sw0, sw1, sw2, sw3, sr0, sr1, sr2, sr3) VALUES (?, ?, ?, 5, 1, 5, 0, 0, 0, 0, 1, 0, 0)",
+      )
+        .bind(uid, PH_ALL, TODAY)
+        .run();
+    });
+    await send(
+      await signer.url(uid, [
+        entry({ wbits: bitmapOf([at(1, 0), at(10, 0)]), rbits: bitmapOf([at(19, 0)]) }),
+      ]),
+      { db },
+    );
+
+    expect(await segmentsOf(uid, PH_ALL)).toEqual({ w: [5, 1, 0, 0], r: [0, 0, 0, 1] });
+    expect(await dailyOf(uid, PH_ALL)).toMatchObject({ w: 5, r: 1 });
+  });
+
+  it("**割り込んだ行の内訳が NULL なら、SQL の側でも新しい値で埋める**", async () => {
+    const uid = randomUid();
+    const { db } = spyDb(async () => {
+      await env.DB.prepare("INSERT INTO daily (uid, ph, day, w, r) VALUES (?, ?, ?, 5, 0)")
+        .bind(uid, PH_ALL, TODAY)
+        .run();
+    });
+    await send(await signer.url(uid, [entry({ wbits: bitmapOf([at(10, 0)]) })]), { db });
+
+    expect(await segmentsOf(uid, PH_ALL)).toEqual({ w: [0, 1, 0, 0], r: [0, 0, 0, 0] });
   });
 });
 
