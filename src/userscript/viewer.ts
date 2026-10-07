@@ -34,8 +34,8 @@ export type GraphEntry = {
   readonly dataUrl: string;
   /** Cosense に貼るカードの行 (ADR-0025)。プロジェクト別はプロフィールページに自動で貼るものと同じ */
   readonly cardLine: string;
-  /** カードの図 (ADR-0024)。**プロジェクト別にだけある** (合算はコピーだけ出す) */
-  readonly cardUrl?: string;
+  /** カードの図 (ADR-0024)。ダイアログの囲みの主役 (合算にもある。2026-10-07) */
+  readonly cardUrl: string;
   /**
    * このブラウザから 1 件でも送れたか。false なら草はまだ無いかもしれない (ほかの端末から送っていればある)。
    * ~~押されるまで画像を読まない~~ **2026-09-24 から最初から読み**、読めなかったときの文言の言い分けにだけ使う
@@ -164,6 +164,7 @@ export function describeIntegrated(
           url: status.graphUrl,
           overviewUrl: status.overviewUrl,
           dataUrl: status.dataUrl,
+          cardUrl: status.cardUrl,
           cardLine: status.cardLine,
           sent: status.totalSent,
         },

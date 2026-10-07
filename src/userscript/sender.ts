@@ -86,6 +86,8 @@ export type SendStatus =
       readonly overviewUrl: string;
       /** 合算の日ごとの集計値の JSON (ADR-0020)。**渡すと内訳まで読める**ので、ダイアログにだけ出す */
       readonly dataUrl: string;
+      /** 合算のカードの図 (ADR-0024)。ダイアログに出す。**プロフィールページには貼らない** (ADR-0025) */
+      readonly cardUrl: string;
       /** 合算のカードの図を Cosense に貼る行 (ADR-0025)。リンク先は付かない */
       readonly cardLine: string;
       /**
@@ -221,6 +223,7 @@ export function createSender(deps: SenderDependencies): Sender {
         graphUrl: graphUrl(total.publicId, { user }),
         overviewUrl: overviewUrl(total.publicId),
         dataUrl: dataUrl(total.publicId, await dataKeyOf(uid, total.ph)),
+        cardUrl: cardUrl(total.publicId, { user }),
         cardLine: cardLine(total.publicId, { user }),
         totalSent: sentPhs.has(PH_ALL),
         projects,

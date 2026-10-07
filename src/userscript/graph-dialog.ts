@@ -13,8 +13,8 @@
  * - **同期の状態と「今すぐ送る」を合算の草の直後に置く** (Issue #102)。押した後は
  *   **ダイアログを開き直さず、状態行と表示中の画像だけ差し替える** (開き直すと畳みが戻り、画像を全部取り直す)
  * - **草の URL はコンソールにもログにも出さない** (publicId が分かると誰でも見られる)
- * - **「共有する」の欄にカードの行を置く** (ADR-0024・0025)。プロジェクト別は図 (半分の大きさ) と「Cosense に貼る行をコピー」、
- *   合算はコピーだけ。行はプロフィールページに自動で貼るものと同じ形 (`worker-origin.ts` の `cardLine`)
+ * - **囲みの主役はカード** (ADR-0024・0025。2026-10-07)。左にカードを大きく置き、右の列に草と概観を縮めて置き、
+ *   その横にコピーの格子を並べる。合算にもカードを出す。貼る行はプロフィールページに自動で貼るものと同じ形 (`worker-origin.ts` の `cardLine`)
  * - **「設定」はここから開く** (Issue #95)。ページメニューはこのダイアログの 1 項目だけにしたので、
  *   設定への入口はここが唯一。サインインは設定のダイアログの中のクリックで始まるので、
  *   ポップアップを開く同期区間は分断されない
@@ -77,23 +77,38 @@ const ICONS = {
   ],
 } as const satisfies Record<string, readonly (readonly [string, Record<string, string>])[]>;
 
-/** 概観と「共有する」の欄の間。狭い画面で折り返したときは縦の間隔になる */
+/** カードと右の列の間、概観とコピーの格子の間。狭い画面で折り返したときは縦の間隔になる */
 const ROW_GAP = 16;
 
-/** 53 週の既定の SVG の寸法 (design §8)。先に確保して、読み込みでダイアログの大きさが変わらないようにする */
+/** 53 週の既定の SVG の寸法 (design §8) */
 export const GRAPH_WIDTH = 775;
 export const GRAPH_HEIGHT = 146;
 
-/** 活動の概観の SVG の寸法 (design §8、ADR-0021)。草と同じく先に確保する */
+/** 活動の概観の SVG の寸法 (design §8、ADR-0021) */
 export const OVERVIEW_WIDTH = 300;
 export const OVERVIEW_HEIGHT = 220;
 
+/** カードの図の SVG の寸法 (design §8、ADR-0024) */
+export const CARD_WIDTH = 500;
+export const CARD_HEIGHT = 400;
+
 /**
- * カードの図をダイアログに出す寸法 (ADR-0024)。図は 500 × 400 で、**半分の大きさで出す** —
- * 「共有する」の欄 (最小 280px) に収まり、ページカードのサムネ (約 145 × 122) より大きく見える
+ * 囲みの中に出す寸法 (2026-10-07)。**カードを主役に左へ大きく置き、右の列に草と概観を縮めて置く**。
+ * 右の列の高さ (草 + `INNER_GAP` + 概観) をカードの高さにそろえ、囲みの高さをカードで決める (右に空きを作らない)。
+ * 縦横比は元の図のまま (どれも viewBox 付きの SVG なので、属性で縮めるだけで崩れない)。
+ * 先に確保して、読み込みでダイアログの大きさが変わらないようにする
  */
-export const CARD_WIDTH = 250;
-export const CARD_HEIGHT = 200;
+export const SHOWN = {
+  /** 500 × 400 の 0.6 倍。ページカードのサムネ (約 145 × 122) より大きく見える */
+  card: { width: 300, height: 240 },
+  /** 775 × 146 の約 0.66 倍。月や曜日の文字は小さくなるが、全体はコピーした URL で見る */
+  graph: { width: 513, height: 97 },
+  /** 300 × 220 の約 0.61 倍。軸の外の余白が広いので、この大きさでも読める */
+  overview: { width: 184, height: 135 },
+} as const;
+
+/** 囲みの外寸の幅。カード・間・右の列に、囲みの内側の余白と枠線 (1px) を足す。ダイアログの幅をこれに合わせる */
+const BLOCK_WIDTH = SHOWN.card.width + ROW_GAP + SHOWN.graph.width + 2 * (INNER_PADDING + 1);
 
 /**
  * コピーするものの種類ごとのボタンの文言と、コピーできないときの欄の名乗りの末尾。
@@ -246,6 +261,8 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     }
     img.setAttribute("referrerpolicy", "no-referrer");
     img.style.maxWidth = "none";
+    // 行の基線の下に隙間を作らない (右の列の高さをカードにそろえるため。`SHOWN`)
+    img.style.display = "block";
     return img;
   };
 
@@ -274,7 +291,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     // 狭い画面では横にスクロールする (style 属性は Cosense の CSP で許されている。research §1)
     frame.style.overflowX = "auto";
     const make = (lazy: boolean) =>
-      imageElement({ width: GRAPH_WIDTH, height: GRAPH_HEIGHT, alt: `${entry.label} の草` }, lazy);
+      imageElement({ ...SHOWN.graph, alt: `${entry.label} の草` }, lazy);
     const fail = () => {
       frame.replaceChildren(
         element(
@@ -293,20 +310,22 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     return frame;
   };
 
+  /** 読めずに空になっても、まわりの位置が動かないよう大きさを取っておく枠 (概観とカード) */
+  const reservedFrame = (size: { readonly width: number; readonly height: number }) => {
+    const frame = element("div");
+    frame.style.flex = `0 0 ${size.width}px`;
+    frame.style.minHeight = `${size.height}px`;
+    return frame;
+  };
+
   /**
    * 活動の概観 (ADR-0021)。草の下に置く。**読めなければ何も出さない** — 読めない理由は草の側で言っている
    * (概観は草と同じ publicId なので、草が読めれば概観も読める)
    */
   const overview = (entry: GraphEntry) => {
-    const frame = element("div");
-    // 画像が読めずに消えても、欄の位置が動かないよう幅を取っておく
-    frame.style.flex = `0 0 ${OVERVIEW_WIDTH}px`;
-    frame.style.minHeight = `${OVERVIEW_HEIGHT}px`;
+    const frame = reservedFrame(SHOWN.overview);
     const make = (lazy: boolean) =>
-      imageElement(
-        { width: OVERVIEW_WIDTH, height: OVERVIEW_HEIGHT, alt: `${entry.label} の活動の概観` },
-        lazy,
-      );
+      imageElement({ ...SHOWN.overview, alt: `${entry.label} の活動の概観` }, lazy);
     const fail = () => {
       frame.replaceChildren();
     };
@@ -319,15 +338,13 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
   };
 
   /**
-   * カードの図 (ADR-0024)。「共有する」の欄のカードの行に置く。**読めなければ何も出さない** (概観と同じ。理由は草の側で言う)。
+   * カードの図 (ADR-0024)。囲みの左に主役として置く。**読めなければ何も出さない** (概観と同じ。理由は草の側で言う)。
    * 期間は付けない (図は直近 26 週で決まっている)
    */
-  const card = (label: string, url: string) => {
-    const frame = element("div");
-    // 欄の幅いっぱいの 1 行を取り、コピーのボタンをその下へ送る
-    frame.style.flex = "0 0 100%";
-    const make = (lazy: boolean) =>
-      imageElement({ width: CARD_WIDTH, height: CARD_HEIGHT, alt: `${label} のカード` }, lazy);
+  const card = (entry: GraphEntry) => {
+    const { label, cardUrl: url } = entry;
+    const frame = reservedFrame(SHOWN.card);
+    const make = (lazy: boolean) => imageElement({ ...SHOWN.card, alt: `${label} のカード` }, lazy);
     const fail = () => {
       frame.replaceChildren();
     };
@@ -371,7 +388,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
 
   /**
    * 期間の選択 (#177)。「直近 1 年」と、去年から `FIRST_YEAR` までの各年。**過去の年が無ければ出さない**。
-   * 選ぶと、すべての囲みの草と概観、「URL をコピー」でコピーする URL が `?year=` 付きに替わる
+   * 選ぶと、すべての囲みの草と概観、「URL をコピー」でコピーする URL が `?year=` 付きに替わる (カードは替わらない)
    */
   const periodPicker = (): HTMLElement[] => {
     const lastYear = new Date((deps.now ?? Date.now)()).getFullYear() - 1;
@@ -466,11 +483,9 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     readonly periodic?: boolean;
     /** 既定は `url` */
     readonly kind?: keyof typeof COPY_KINDS;
-    /** ボタンの上に置く図 (カード) */
-    readonly figure?: HTMLElement;
   }) => {
     const kind = COPY_KINDS[target.kind ?? "url"];
-    // 名前と操作の 2 つのセルを返す。並べる側 (`share`) の格子で名前の列の幅がそろう
+    // 名前と操作の 2 つのセルを返す。並べる側 (`shareGrid`) の格子で名前の列の幅がそろう
     const name = element("span", target.name);
     const line = element("div");
     line.style.display = "flex";
@@ -525,9 +540,6 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     });
     copy.prepend(copyIcon);
     copy.setAttribute("aria-label", `${target.what}の ${kind.button}`);
-    if (target.figure !== undefined) {
-      line.append(target.figure);
-    }
     // コピーを先に置き、行ごとの「URL をコピー」の位置をそろえる
     line.append(copy);
     if (target.open) {
@@ -553,52 +565,54 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     return link;
   };
 
-  /** 草・活動の概観・日ごとの数値の URL を並べる欄。概観の右 (狭い画面では下) に置く */
-  const share = (entry: GraphEntry) => {
-    const panel = element("div");
-    // 概観の右の空きを埋め、狭くなったら概観の下へ折り返す
-    panel.style.flex = "1 1 280px";
-    panel.style.minWidth = "0";
-    const heading = element("p", "共有する");
-    heading.style.margin = `0 0 ${INNER_GAP}px`;
-    heading.style.fontWeight = "bold";
+  /**
+   * 草・概観・カード・日ごとの数値のコピーを並べる格子。概観の右 (狭い画面では下) に置く。
+   * **概観の高さに収まるよう、行の間を詰め、名前を短くする** (2026-10-07)。何の URL かはボタンの `aria-label` が言う。
+   * 「共有する」の見出しは高さを食うので外した。日ごとの数値の注意は囲みの下端の 1 行 (`dataNote`) にする
+   */
+  const shareGrid = (entry: GraphEntry) => {
     const rows = element("div");
     rows.style.display = "grid";
     rows.style.gridTemplateColumns = "max-content minmax(0, 1fr)";
     rows.style.alignItems = "center";
-    rows.style.gap = `${INNER_GAP}px 12px`;
-    const note = element(
-      "p",
-      "日ごとの数値の URL を渡すと、書いた分・読んだ分などの日ごとの内訳まで読めます。草や活動の概観の URL からは作れない、別の URL です。期間によらず全期間の値です。",
-    );
-    note.style.margin = `${INNER_GAP * 1.5}px 0 0`;
-    note.style.fontSize = "smaller";
-    note.style.color = MUTED_TEXT_COLOR;
+    rows.style.gap = "4px 12px";
     rows.append(
       ...copyLine({ name: "草", url: entry.url, what: `${entry.label} の草`, periodic: true }),
       ...copyLine({
-        name: "活動の概観",
+        name: "概観",
         url: entry.overviewUrl,
         what: `${entry.label} の活動の概観`,
         periodic: true,
       }),
-      // プロジェクト別は図も出す。合算はコピーだけ (ADR-0025。合算のカードはプロフィールページに貼らない)
       ...copyLine({
         name: "カード",
         url: entry.cardLine,
         what: `${entry.label} のカード`,
         kind: "line",
-        ...(entry.cardUrl !== undefined ? { figure: card(entry.label, entry.cardUrl) } : {}),
       }),
       ...copyLine({
-        name: "日ごとの数値 (JSON)",
+        name: "数値 (JSON)",
         url: entry.dataUrl,
         what: `${entry.label} の日ごとの数値`,
         open: true,
       }),
     );
-    panel.append(heading, rows, note);
-    return panel;
+    return rows;
+  };
+
+  /**
+   * 日ごとの数値の URL を渡すと何が読めるかの注意 (ADR-0020 の 2026-09-26 の改訂)。**その場に添える** —
+   * 草の URL と同じ気軽さで渡されないように。囲みの下端に 1 行で置く (2026-10-07。格子の横には入らない)
+   */
+  const dataNote = () => {
+    const note = element(
+      "p",
+      "数値 (JSON) の URL を渡すと、日ごとの内訳まで読めます (草や概観の URL からは作れない別の URL で、期間によらず全期間の値)。",
+    );
+    note.style.margin = `${INNER_GAP}px 0 0`;
+    note.style.fontSize = "smaller";
+    note.style.color = MUTED_TEXT_COLOR;
+    return note;
   };
 
   /**
@@ -607,6 +621,9 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
    * 囲まずに縦へ並べると、コピーボタンが上の画像のものか下の画像のものか読み取れない。
    * **共通領域** (同じ囲みの中は 1 つのまとまり) と**近接** (枠の内側 < 枠と枠の間) の両方で示す。
    * 片方だけに頼らないのは、枠線が見えにくい環境でも間隔でまとまりが読めるようにするため。
+   *
+   * **中はカードが主役** (2026-10-07)。左にカード、右の列に草と、その下に概観とコピーの格子を置く (`SHOWN`)。
+   * 狭い画面では、カードの下に右の列が、概観の下にコピーの格子が折り返す
    */
   const graph = (entry: GraphEntry) => {
     const block = element("section");
@@ -616,17 +633,31 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     block.style.margin = `${OUTER_GAP}px 0`;
     const heading = element("h4", entry.label);
     heading.style.margin = `0 0 ${INNER_GAP}px`;
-    // 草を先に作る (送った後の取り直しを、草 → 概観の順にする)
+    // 作る順が送った後の取り直しの順になる (草 → 概観 → カード)
     const grass = image(entry);
-    // 草の下の 1 行に、概観と「共有する」の欄を並べる (#164)。草の幅の右側が空かないように
+    const radar = overview(entry);
+    const figure = card(entry);
+    const lower = element("div");
+    lower.style.display = "flex";
+    lower.style.flexWrap = "wrap";
+    lower.style.alignItems = "center";
+    lower.style.gap = `${ROW_GAP}px`;
+    lower.append(radar, shareGrid(entry));
+    const column = element("div");
+    column.style.display = "flex";
+    column.style.flexDirection = "column";
+    column.style.gap = `${INNER_GAP}px`;
+    // 狭くなったらカードの下へ折り返し、それでも足りなければ草が横にスクロールする
+    column.style.flex = `0 1 ${SHOWN.graph.width}px`;
+    column.style.minWidth = "0";
+    column.append(grass, lower);
     const row = element("div");
     row.style.display = "flex";
     row.style.flexWrap = "wrap";
-    row.style.alignItems = "center";
+    row.style.alignItems = "flex-start";
     row.style.gap = `${ROW_GAP}px`;
-    row.style.marginTop = `${INNER_GAP}px`;
-    row.append(overview(entry), share(entry));
-    block.append(heading, grass, row);
+    row.append(figure, column);
+    block.append(heading, row, dataNote());
     return block;
   };
 
@@ -799,7 +830,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
       ...guideSection(
         "カードと自分のページ",
         undefined,
-        "「共有する」の「カード」は、曜日 × 時間帯の草と活動の割合を 1 枚にした図です。「Cosense に貼る行をコピー」で、押すとそのプロジェクトへ飛ぶ画像の行をコピーできます。",
+        "各囲みの左のカードは、曜日 × 時間帯の草と活動の割合を 1 枚にした図です。「Cosense に貼る行をコピー」で、この図を出す画像の行をコピーできます。",
         "cosense-grass を読み込んでいるプロジェクトでは、自分のページ (ユーザー名のページ) の読み込みのコードの下に、そのプロジェクトのカードの行を自動で貼ります。消しても次に開いたときに貼り直します。止めるには、自分のページから読み込みの 1 行を外してください。",
       ),
       ...guideSection("送るもの", undefined),
@@ -886,9 +917,9 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
       period = undefined;
       const node = element("dialog");
       styleDialog(node);
-      // 長い説明文で画面の幅いっぱいに広がらないよう、草の幅に余白を足したところで止める
+      // 長い説明文で画面の幅いっぱいに広がらないよう、囲みの幅 (`BLOCK_WIDTH`) で止める
       // 画面側の上限は既定 (`calc(100% - 6px - 2em)`) のまま。これより大きいと、余白と枠のぶん画面からはみ出す (#164)
-      node.style.maxWidth = `min(${GRAPH_WIDTH + 80}px, calc(100% - 6px - 2em))`;
+      node.style.maxWidth = `min(${BLOCK_WIDTH}px, calc(100% - 6px - 2em))`;
       for (const type of STOPPED_EVENTS) {
         node.addEventListener(type, (event) => event.stopPropagation());
       }

@@ -433,7 +433,9 @@ describe("createSender — status", () => {
     expect(after.projects[0]?.cardUrl).toBe(
       after.projects[0]?.graphUrl.replace(/\.svg\?/, "/card.svg?"),
     );
-    expect(after.cardLine).toBe(`[${after.graphUrl.replace(/\.svg$/, "/card.svg")}]`);
+    // 合算のカードも草と同じ publicId (ダイアログに出す。2026-10-07)
+    expect(after.cardUrl).toBe(after.graphUrl.replace(/\.svg$/, "/card.svg"));
+    expect(after.cardLine).toBe(`[${after.cardUrl}]`);
     expect(after.backoffUntil).toBeUndefined();
   });
 

@@ -13,6 +13,7 @@ import {
   OVERVIEW_WIDTH,
   RECENT_PERIOD_LABEL,
   type SendNowResult,
+  SHOWN,
 } from "../../src/userscript/graph-dialog.ts";
 import { MENU_TITLE, SETTINGS_LABEL } from "../../src/userscript/settings.ts";
 import {
@@ -86,6 +87,7 @@ function graphs(
       url: url("aa"),
       overviewUrl: overviewOf("aa"),
       dataUrl: dataOf("aa"),
+      cardUrl: cardOf("aa"),
       cardLine: lineOf("aa"),
       sent: totalSent,
     },
@@ -249,8 +251,7 @@ describe("createGraphDialog", () => {
     const images = [...(t.find()?.querySelectorAll<HTMLImageElement>(GRASS) ?? [])];
     expect(images.map((img) => img.getAttribute("src"))).toEqual([url("aa"), url("b0")]);
     for (const img of images) {
-      expect(img.width).toBe(GRAPH_WIDTH);
-      expect(img.height).toBe(GRAPH_HEIGHT);
+      expect([img.width, img.height]).toEqual([SHOWN.graph.width, SHOWN.graph.height]);
       expect(img.getAttribute("loading")).toBe("lazy");
       expect(img.getAttribute("referrerpolicy")).toBe("no-referrer");
       expect(img.alt).toMatch(/の草$/);
@@ -338,31 +339,35 @@ describe("createGraphDialog", () => {
     expect(t.find()?.textContent).toContain("日ごとの内訳まで読めます");
   });
 
-  it("**「共有する」にカードの行を置く。プロジェクト別は図を半分の大きさで出し、合算はコピーだけ** (ADR-0024・0025)", () => {
+  it("**囲みの主役はカード。合算にもプロジェクト別にも図を出す** (ADR-0024・0025、2026-10-07)", () => {
     const t = setup();
     t.open(graphs([{ label: "alpha", sent: true }]));
 
     const images = [...(t.find()?.querySelectorAll<HTMLImageElement>(CARD) ?? [])];
     expect(images.map((img) => [img.getAttribute("src"), img.alt])).toEqual([
+      [cardOf("aa"), `${TOTAL_LABEL} のカード`],
       [cardOf("b0"), "alpha のカード"],
     ]);
     for (const img of images) {
-      expect([img.width, img.height]).toEqual([CARD_WIDTH, CARD_HEIGHT]);
-      expect([CARD_WIDTH * 2, CARD_HEIGHT * 2]).toEqual([500, 400]);
+      expect([img.width, img.height]).toEqual([SHOWN.card.width, SHOWN.card.height]);
       expect(img.getAttribute("loading")).toBe("lazy");
       expect(img.getAttribute("referrerpolicy")).toBe("no-referrer");
     }
-    // 合算の囲みには図が無く、コピーだけある
-    const [total, project] = t.sections().filter((node) => node.style.border !== "");
-    expect(total?.querySelectorAll(CARD)).toHaveLength(0);
-    expect(project?.querySelectorAll(CARD)).toHaveLength(1);
+    // 囲みごとに 1 枚ずつ、貼る行のコピーと同じ囲みにある
+    const blocks = t.sections().filter((node) => node.style.border !== "");
+    for (const block of blocks) {
+      expect(block.querySelectorAll(CARD)).toHaveLength(1);
+    }
     expect(
       t
         .buttons(PASTE_LINE)
-        .map((b) => [b.closest("section") === total, b.getAttribute("aria-label")]),
+        .map((b) => [
+          blocks.indexOf(b.closest("section") as HTMLElement),
+          b.getAttribute("aria-label"),
+        ]),
     ).toEqual([
-      [true, `${TOTAL_LABEL} のカードの Cosense に貼る行をコピー`],
-      [false, "alpha のカードの Cosense に貼る行をコピー"],
+      [0, `${TOTAL_LABEL} のカードの Cosense に貼る行をコピー`],
+      [1, "alpha のカードの Cosense に貼る行をコピー"],
     ]);
   });
 
@@ -378,14 +383,19 @@ describe("createGraphDialog", () => {
     expect(t.copied).toEqual([lineOf("aa"), lineOf("b0", "p0")]);
   });
 
-  it("**カードの図が読めなければ図だけ消し、コピーは残す**", () => {
+  it("**カードの図が読めなければ図だけ消し、枠の大きさとコピーは残す** (まわりの位置が動かない)", () => {
     const t = setup();
-    t.open(graphs([{ label: "alpha", sent: true }]));
+    t.open(graphs([]));
 
-    t.find()?.querySelector<HTMLImageElement>(CARD)?.dispatchEvent(new Event("error"));
+    const img = t.find()?.querySelector<HTMLImageElement>(CARD);
+    const frame = img?.parentElement;
+    img?.dispatchEvent(new Event("error"));
 
     expect(t.find()?.querySelectorAll(CARD)).toHaveLength(0);
-    expect(t.buttons(PASTE_LINE)).toHaveLength(2);
+    expect(frame?.isConnected).toBe(true);
+    expect(frame?.style.flex).toBe(`0 0 ${SHOWN.card.width}px`);
+    expect(frame?.style.minHeight).toBe(`${SHOWN.card.height}px`);
+    expect(t.buttons(PASTE_LINE)).toHaveLength(1);
   });
 
   it("**行をコピーできなければ、選べる欄に行を出す**", async () => {
@@ -410,21 +420,54 @@ describe("createGraphDialog", () => {
     expect(text).toContain("読み込みの 1 行を外して");
   });
 
-  it("**概観と「共有する」の欄を草の下の 1 行に並べ、狭ければ折り返す** (右側を空けない。#164)", () => {
+  it("**左にカード、右の列に草と、その下に概観とコピーの格子を並べ、狭ければ折り返す** (2026-10-07)", () => {
     const t = setup();
     t.open(graphs([]));
 
-    const overview = t.find()?.querySelector<HTMLImageElement>(OVERVIEW)?.parentElement;
-    const row = overview?.parentElement;
+    const block = t.sections().find((node) => node.style.border !== "");
+    const card = block?.querySelector(CARD)?.parentElement;
+    const row = card?.parentElement;
+    expect(row?.parentElement).toBe(block);
     expect(row?.style.display).toBe("flex");
     expect(row?.style.flexWrap).toBe("wrap");
-    expect(row?.children).toHaveLength(2);
-    expect(row?.children[1]?.textContent).toContain("共有する");
-    // 草の後ろにある
-    const grass = t.find()?.querySelector(GRASS);
+    // カードが先頭で、その右の列に草 → (概観 + 格子)
+    expect(row?.firstElementChild).toBe(card);
+    const column = row?.children[1] as HTMLElement | undefined;
+    expect(column?.style.flexDirection).toBe("column");
+    expect(column?.firstElementChild?.querySelector(GRASS)).not.toBeNull();
+    const lower = column?.children[1] as HTMLElement | undefined;
+    expect(lower?.style.flexWrap).toBe("wrap");
+    expect(lower?.firstElementChild?.querySelector(OVERVIEW)).not.toBeNull();
     expect(
-      grass && row && grass.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+      [...(lower?.children[1]?.querySelectorAll("button") ?? [])].map((b) => b.textContent),
+    ).toEqual(["URL をコピー", "URL をコピー", PASTE_LINE, "URL をコピー"]);
+    // 「共有する」の見出しはもう無い (高さを食うため)
+    expect(block?.textContent).not.toContain("共有する");
+  });
+
+  it("**寸法: 右の列の高さをカードにそろえ、縦横比は元の図のまま。カードがいちばん大きい** (2026-10-07)", () => {
+    const gap = 8;
+    expect(SHOWN.graph.height + gap + SHOWN.overview.height).toBe(SHOWN.card.height);
+    for (const [shown, width, height] of [
+      [SHOWN.card, CARD_WIDTH, CARD_HEIGHT],
+      [SHOWN.graph, GRAPH_WIDTH, GRAPH_HEIGHT],
+      [SHOWN.overview, OVERVIEW_WIDTH, OVERVIEW_HEIGHT],
+    ] as const) {
+      expect(Math.abs(shown.height - (shown.width * height) / width)).toBeLessThan(1);
+    }
+    const area = (size: { width: number; height: number }) => size.width * size.height;
+    expect(area(SHOWN.card)).toBeGreaterThan(area(SHOWN.graph));
+    expect(area(SHOWN.card)).toBeGreaterThan(area(SHOWN.overview));
+  });
+
+  it("**日ごとの数値を渡すと何が読めるかを、囲みの下端に添える** (ADR-0020 の改訂)", () => {
+    const t = setup();
+    t.open(graphs([{ label: "alpha", sent: true }]));
+
+    const blocks = t.sections().filter((node) => node.style.border !== "");
+    for (const block of blocks) {
+      expect(block.lastElementChild?.textContent).toContain("日ごとの内訳まで読めます");
+    }
   });
 
   it("**何をどう数えて描いているかを、畳んだ説明で添える** (#164)", () => {
@@ -565,7 +608,7 @@ describe("createGraphDialog", () => {
       overviewOf("b0"),
     ]);
     for (const img of images) {
-      expect([img.width, img.height]).toEqual([OVERVIEW_WIDTH, OVERVIEW_HEIGHT]);
+      expect([img.width, img.height]).toEqual([SHOWN.overview.width, SHOWN.overview.height]);
       expect(img.getAttribute("loading")).toBe("lazy");
       expect(img.getAttribute("referrerpolicy")).toBe("no-referrer");
     }
@@ -852,10 +895,11 @@ describe("createGraphDialog", () => {
     t.buttons(SEND_NOW_LABEL)[0]?.click();
     await settle();
 
-    // 表示中の草 2 枚・概観 2 枚・カード 1 枚を、キャッシュを外すクエリ付きで取り直す
+    // 表示中の草・概観・カードを 2 枚ずつ、キャッシュを外すクエリ付きで取り直す
     expect(created.map((img) => img.getAttribute("src"))).toEqual([
       expect.stringMatching(/\/aa0+\.svg\?r=\d+$/),
       expect.stringMatching(/\/aa0+\/overview\.svg\?r=\d+$/),
+      expect.stringMatching(/\/aa0+\/card\.svg\?r=\d+$/),
       expect.stringMatching(/\/b00+\.svg\?r=\d+$/),
       expect.stringMatching(/\/b00+\/overview\.svg\?r=\d+$/),
       // カードも直近の記録で描かれるので取り直す
@@ -886,6 +930,7 @@ describe("createGraphDialog", () => {
         url: labelled,
         overviewUrl: overviewOf("aa"),
         dataUrl: dataOf("aa"),
+        cardUrl: cardOf("aa"),
         cardLine: lineOf("aa"),
         sent: true,
       },
@@ -906,6 +951,7 @@ describe("createGraphDialog", () => {
     expect(created.map((img) => img.getAttribute("src"))).toEqual([
       expect.stringMatching(/\?l=villagepump&r=\d+$/),
       expect.stringMatching(/\/overview\.svg\?r=\d+$/),
+      expect.stringMatching(/\/card\.svg\?r=\d+$/),
     ]);
   });
 
@@ -1023,6 +1069,7 @@ describe("createGraphDialog", () => {
           url: labelled,
           overviewUrl: overviewOf("aa"),
           dataUrl: dataOf("aa"),
+          cardUrl: cardOf("aa"),
           cardLine: lineOf("aa"),
           sent: true,
         },
@@ -1068,6 +1115,8 @@ describe("createGraphDialog", () => {
       expect(created.map((img) => img.getAttribute("src"))).toEqual([
         expect.stringMatching(/\/aa0+\.svg\?year=2026&r=\d+$/),
         expect.stringMatching(/\/aa0+\/overview\.svg\?year=2026&r=\d+$/),
+        // カードは期間で変わらない (直近 26 週)
+        expect.stringMatching(/\/aa0+\/card\.svg\?r=\d+$/),
       ]);
 
       vi.restoreAllMocks();
