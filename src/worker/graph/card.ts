@@ -447,17 +447,24 @@ function layoutLabels(input: CardInput, strings: Strings): CardText[] {
   const start = toEpochDay(cardStart(input.today));
   const labels: CardText[] = [];
 
-  // 月ラベル: 月の 1〜7 日が月曜の列 (その月の最初の週) にだけ出す。右端の 1 列には入らないので出さない
-  for (let column = 0; column <= CARD_WEEKS - MONTH_LABEL_COLUMNS; column++) {
-    const monday = fromEpochDay(start + column * WEEKDAYS);
-    if (Number(monday.slice(8, 10)) > WEEKDAYS) {
+  // 月ラベル: **その月の 1 日を含む列**に出す (2026-10-07、#208。月曜が 1〜7 日の列に限ると、1 日が火〜日の月は
+  // 翌週の列にずれ、今月が右端の列だと出せなかった)。まだ来ていない 1 日には出さない。
+  // ラベルは 2 列ぶんの幅が要る (`MONTH_LABEL_COLUMNS`) ので、右端の列では右端をそろえて「計」の見出しと重ねない
+  const today = toEpochDay(input.today);
+  for (let column = 0; column < CARD_WEEKS; column++) {
+    const monday = start + column * WEEKDAYS;
+    const first = Array.from({ length: WEEKDAYS }, (_, i) => monday + i).find(
+      (day) => day <= today && fromEpochDay(day).endsWith("-01"),
+    );
+    if (first === undefined) {
       continue;
     }
+    const tight = column > CARD_WEEKS - MONTH_LABEL_COLUMNS;
     labels.push({
-      x: round(ORIGIN_X + column * COLUMN_STEP),
+      x: round(tight ? GRID_RIGHT : ORIGIN_X + column * COLUMN_STEP),
       y: ORIGIN_Y - MONTH_LABEL_OFFSET,
-      text: strings.months[Number(monday.slice(5, 7)) - 1] ?? "",
-      anchor: "start",
+      text: strings.months[Number(fromEpochDay(first).slice(5, 7)) - 1] ?? "",
+      anchor: tight ? "end" : "start",
       fill: FAINT[theme],
     });
   }

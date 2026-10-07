@@ -12,21 +12,21 @@ import { sha256Hex } from "../../src/shared/hash.ts";
 const DEMO_URL = "https://example.com/v1/g/demo/card.svg";
 
 const CASES: readonly (readonly [string, string, string])[] = [
-  ["デモ (日本語・ライト)", "", "c12913127579fdb3e3761b6f26c49d5e28f0337f84f1e49138fee14ef198af72"],
+  ["デモ (日本語・ライト)", "", "ba543a4081612c76b8845c0465c4b6490336c5d385abfe3d36216ddcde05f0ae"],
   [
     "デモ (日本語・ダーク)",
     "?theme=dark",
-    "a7e0161cea386941605e02a35558f99e61974d22cd501762aeb8faff522291eb",
+    "f90788d3c65cdd8e8e1c4ec6c326477cdee8894a700c8a59d71d9503d801e054",
   ],
   [
     "デモ (英語・ライト)",
     "?lang=en",
-    "cad3c65141be636a0766a902c7fb806424df46b96254f90acefb67e1458cad51",
+    "f99b858167648f9f4ed2a7d4f561f5d9679a98830f491a38254a519841f4a1af",
   ],
   [
     "デモ (英語・ダーク)",
     "?lang=en&theme=dark",
-    "562bf452dc4500ae216d12edf7ce75d0884b3bcc787b0b1e69a19becfbfc927b",
+    "a1d2241a992dadffe97b06bbc4ea724033b19fa252f97295a7dae2dc11e0af42",
   ],
 ];
 
