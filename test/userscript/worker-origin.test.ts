@@ -82,31 +82,24 @@ describe("cardUrl と cardLine (ADR-0024・0025)", () => {
     );
   });
 
-  it("**プロジェクトのカードはリンク付きの画像の行。押すとそのプロジェクトへ飛ぶ**", () => {
+  it("**カードの行はただの画像の記法で、リンク先を付けない** (ADR-0025 決定 6 の改訂)", () => {
     expect(cardLine(ID, { project: "villagepump", user: "example-user" })).toBe(
-      `[https://grass.soui.dev/v1/g/${ID}/card.svg?l=villagepump&u=example-user https://scrapbox.io/villagepump/]`,
+      `[https://grass.soui.dev/v1/g/${ID}/card.svg?l=villagepump&u=example-user]`,
     );
-  });
-
-  it("**合算はどのプロジェクトのものでもないので、リンク先を付けない**", () => {
     expect(cardLine(ID, { user: "example-user" })).toBe(
       `[https://grass.soui.dev/v1/g/${ID}/card.svg?u=example-user]`,
     );
-    // 取り決めの外のプロジェクト名もリンクにしない (名前も描かれない)
+    // 取り決めの外のプロジェクト名は描かれないので URL にも載らない
     expect(cardLine(ID, { project: "a b" })).toBe(`[https://grass.soui.dev/v1/g/${ID}/card.svg]`);
   });
 
   it("**角括弧の中に空白・`]`・改行が入らない** (入ると Cosense の記法が切れる)", () => {
     for (const user of ["a ] b", "[x]", "山田\u3000太郎", "a\tb", "#tag", "a&b=c"]) {
       const line = cardLine(ID, { project: "p", user });
-      const [image, link, ...rest] = line.slice(1, -1).split(" ");
-      expect(rest).toEqual([]);
-      expect(link).toBe("https://scrapbox.io/p/");
+      const image = line.slice(1, -1);
       expect(image).not.toMatch(/[\s[\]]/);
-      // Cosense のパーサが画像とみなす形 (`@progfay/scrapbox-parser` の ImageNode.ts の srcFirstStrongImageRegExp)
-      expect(line).toMatch(
-        /^\[https?:\/\/[^\s\]]+\.(?:png|jpe?g|gif|svg|webp)(?:\?[^\]\s]+)?(?:\s+https?:\/\/[^\s\]]+)?\]$/i,
-      );
+      // Cosense のパーサが画像とみなす形 (`@progfay/scrapbox-parser` の ImageNode.ts)
+      expect(line).toMatch(/^\[https?:\/\/[^\s\]]+\.(?:png|jpe?g|gif|svg|webp)(?:\?[^\]\s]+)?\]$/i);
     }
   });
 });

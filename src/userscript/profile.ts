@@ -20,7 +20,7 @@
  *   最後に `linesCount` と `charsCount` を必ず足す
  * - 行の区切り (コードブロック・テーブル) は `@progfay/scrapbox-parser` の `block/Pack.ts` (`std` が使うパーサ)
  *
- * カードの行が変えうるメタデータは `image` / `descriptions` / `linesCount` / `charsCount` だけ。リンク付きの画像の行は
+ * カードの行が変えうるメタデータは `image` / `descriptions` / `linesCount` / `charsCount` だけ。画像の行は
  * リンク (`links` / `projectLinks`)・アイコン・ファイル (`scrapbox.io/files/…` ではない)・helpfeel・infobox を足さない。
  */
 import type { CommitResult } from "./cosense-socket.ts";

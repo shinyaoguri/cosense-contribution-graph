@@ -1478,7 +1478,7 @@ URL は `src/shared/links.ts` に置き、Worker のトップと共用する。�
 - プロジェクト別の囲みは、図 (`/v1/g/{publicId}/card.svg`) を **250 × 200 (図の半分)** で出し、その下に「Cosense に貼る行をコピー」を置く。
   図は概観と同じく遅延読み込みで Referer を送らず、読めなければ図だけを消す。**期間では読み直さない** (図は直近 26 週で決まっている) が、「今すぐ送る」の後の取り直しはする
 - 合算の囲みはコピーだけを出す (合算のカードはプロフィールページに貼らない)
-- コピーするのはリンク付きの画像の行 (下の「プロフィールへの自動挿入」と同じ形。`worker-origin.ts` の `cardLine`)。既存の `copyLine` を使い、
+- コピーするのはただの画像の行 `[<図の URL>]` (ADR-0025 の 2026-10-07 の改訂。下の「プロフィールへの自動挿入」と同じ形。`worker-origin.ts` の `cardLine`)。既存の `copyLine` を使い、
   ボタンの `aria-label` は「{見出し} のカードの Cosense に貼る行をコピー」
 - 畳んだ説明に「カードと自分のページ」の節を足し、自動で貼ること・消しても貼り直すこと・止め方 (import の 1 行を外す) を書いた
 
@@ -1494,10 +1494,10 @@ UserScript が、導入したプロジェクトのプロフィールページ (�
   判定は `grass.soui.dev` / `cosense-grass.soui.workers.dev` の図の URL のパターンで、完全一致にしない。あれば何もしない (普段は GET 1 回で終わる)
 - **無ければ貼る。** 位置は cosense-grass を読み込むコードブロックの最後の行の直後。無ければ最下部。**最上部には置かない**。
   利用者が動かした行は戻さず、消したら次に開いたときに貼り直す
-- 行はリンク付きの画像:
+- 行はただの画像 (ADR-0025 の 2026-10-07 の改訂。最初はリンク付きの画像だった):
 
   ```
-  [https://grass.soui.dev/v1/g/<publicId>/card.svg?l=<project>&u=<user> https://scrapbox.io/<project>/]
+  [https://grass.soui.dev/v1/g/<publicId>/card.svg?l=<project>&u=<user>]
   ```
 
 - **経路は同一オリジンの WebSocket** (`wss://scrapbox.io/socket.io/`、research §1・§4)。ライブラリを使わず、ネイティブの `WebSocket` の上に

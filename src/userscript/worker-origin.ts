@@ -92,21 +92,19 @@ export function cardUrl(publicId: string, names: Names = {}): string {
 }
 
 /**
- * Cosense に貼るカードの行 (ADR-0025 決定 6)。**リンク付きの画像**で、押すとそのプロジェクトへ飛ぶ。
+ * Cosense に貼るカードの行 (ADR-0025 決定 6 の改訂)。**ただの画像の記法** `[<図の URL>]` で、リンク先は付けない。
  *
  * ```
- * [https://grass.soui.dev/v1/g/<publicId>/card.svg?l=<project>&u=<user> https://scrapbox.io/<project>/]
+ * [https://grass.soui.dev/v1/g/<publicId>/card.svg?l=<project>&u=<user>]
  * ```
  *
- * - 合算は**どのプロジェクトのものでもない**のでリンク先を付けず、`[<図の URL>]` にする
+ * - 最初はリンク付きの画像 (`[<図の URL> https://scrapbox.io/<project>/]`) にしていたが、作者が不要と判断した (2026-10-07、#213)。
+ *   プロジェクトへのリンクは SVG の中のプロジェクト名が持つ (SVG を直接開いたときに効く)
  * - 角括弧の中に空白と `]` が入ると記法が切れる。名前は `encodeURIComponent` を通すので入らない
  *   (Cosense の記法の判定は `@progfay/scrapbox-parser` の `ImageNode.ts`。URL が `.svg` で終わり、続くクエリに空白と `]` が無いこと)
  */
 export function cardLine(publicId: string, names: Names = {}): string {
-  const image = cardUrl(publicId, names);
-  return names.project !== undefined && isValidProjectName(names.project)
-    ? `[${image} ${COSENSE_ORIGIN}/${encodeURIComponent(names.project)}/]`
-    : `[${image}]`;
+  return `[${cardUrl(publicId, names)}]`;
 }
 
 /**
