@@ -90,6 +90,18 @@ function toSvg(layout: GrassLayout): string {
     .join("");
   const nameRow = mark + project + icon + user;
 
+  // **`<img>` で貼られている間は押せない** (research §3)。気づかせるためのもので、画像そのものを開いたときに効く (ADR-0027)。
+  // `i` はフォントに頼らず点と棒で描く
+  const { help } = layout;
+  const half = help.hit / 2;
+  const helpIcon =
+    `<g data-part="help"><a href="${escapeXml(help.href)}"><title>${escapeXml(help.label)}</title>` +
+    `<rect x="${n(help.cx - half)}" y="${n(help.cy - half)}" width="${help.hit}" height="${help.hit}" fill-opacity="0"/>` +
+    `<circle cx="${help.cx}" cy="${help.cy}" r="${n(help.r - 0.5)}" fill="none" stroke="${help.stroke}"/>` +
+    `<circle cx="${help.cx}" cy="${n(help.cy - 2.4)}" r="0.85" fill="${help.stroke}"/>` +
+    `<rect x="${n(help.cx - 0.6)}" y="${n(help.cy - 0.9)}" width="1.2" height="3.7" rx="0.6" fill="${help.stroke}"/>` +
+    "</a></g>";
+
   // width / height / viewBox の 3 つを必ず出す。欠けると Cosense でサイズが崩れる (design §8)
   return (
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
@@ -101,6 +113,7 @@ function toSvg(layout: GrassLayout): string {
     (nameRow === ""
       ? ""
       : `<g data-part="name" font-family="${layout.fontFamily}">${nameRow}</g>`) +
+    helpIcon +
     "</svg>"
   );
 }

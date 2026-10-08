@@ -12,47 +12,47 @@ import { sha256Hex } from "../../src/shared/hash.ts";
 const DEMO_URL = "https://example.com/v1/g/demo/card.svg";
 
 const CASES: readonly (readonly [string, string, string])[] = [
-  ["デモ (日本語・ライト)", "", "fb1ff344fffa9057e8614b2f90527f43f00804a2622282056b770d8b1516e7f7"],
+  ["デモ (日本語・ライト)", "", "a3a061dd0239b8ca76c21cccdc58acf64496b7d39e3540b39227c058c3577099"],
   [
     "デモ (日本語・ダーク)",
     "?theme=dark",
-    "35dfd0ddf2e91eee200985bb5a41d37a21ae080b3ab15cf128fe4a20d91e4168",
+    "42e7a1739d4f6e1211da9e4ffde524d20a0fa2ad5e50f990e35510c42610cb0f",
   ],
   [
     "デモ (英語・ライト)",
     "?lang=en",
-    "27d5149928989fb22aae423fa9501c8e58ee9d8543df1dac3fcac2a5c259cf3d",
+    "441024147980cbd34220c4c63b921abdaa4e43167bf4c7f6b344becc118f3f52",
   ],
   [
     "デモ (英語・ダーク)",
     "?lang=en&theme=dark",
-    "e2a410ad4d3d3edf77c8f4acab51b4c8e96ffe4ad76794540e929a98bccf612f",
+    "ee967050206f892e03194b6bda4d6c7c54b16acd745ed2f8e86bb60f0ea23852",
   ],
-  ["半年 × 1 日", "?cell=day", "0e7ec25f13ae690133faf90fe43ca378c7d9d86ff42078fc3888c439ddde0cf7"],
+  ["半年 × 1 日", "?cell=day", "8fa2b94fae0030fdcf4463ddf8fd166560e0a92482b7af87ce663ca3af240e62"],
   [
     "1 年 × 3 分割",
     "?span=year",
-    "d97f36e1c2f67345fe80800c39618ab15139d8fc6f514971cb5bee8ca48ba694",
+    "16f49ba432ac6c8206ef0589ba0c28eb4a0138920a05ff57528945a81cba035e",
   ],
   [
     "1 年 × 1 日",
     "?span=year&cell=day",
-    "28f0251986e810d600450da0a89a42748872ca485a1581aa670b8b2b5123f981",
+    "e1349e75051c5e283c0539a4816d5594396a7c6a464d319eab3c6bfe3226b519",
   ],
   [
     "1 年 × 1 日 (ダーク・英語)",
     "?span=year&cell=day&theme=dark&lang=en",
-    "1fefce624421048ae7adecb37ee40dc5cd1005cef6d6b09a37b353f5961fa5fb",
+    "2ff89c02717e2b65b2c747606432b924063a36738856f78f850405a0fd5fa81f",
   ],
   [
     "書いた分だけ (mode=write)",
     "?mode=write",
-    "fa4c3b6bec383d3a0b684f958c2258bcd078a9f21c0d44f087415b1ce7d8b7c3",
+    "577f8d6a7b4fc87fff4cc1f5794a681699580e48bf3b065987bffd7bbb4c481a",
   ],
   [
     "過去の年 (記録の無い期間)",
     "?year=2025&cell=day",
-    "3730c68e707e4222eb59601d33379e9440d2b565cec9a983b4790e2f604115c6",
+    "484cc6365ceac7542d10be8fd0319c44c6732081e6a32255ca3e4fac7746799a",
   ],
 ];
 
