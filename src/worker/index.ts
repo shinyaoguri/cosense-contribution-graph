@@ -2,6 +2,7 @@ import { ACCOUNT_PATH, AUTH_CALLBACK_PATH, AUTH_START_PATH } from "../shared/aut
 import { INGEST_PATH } from "../shared/beacon.ts";
 import { ENROLL_PATH } from "../shared/enroll.ts";
 import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
+import { CARD_FORM } from "../shared/grass.ts";
 import { sha256Hex } from "../shared/hash.ts";
 import { isValidDataKey, isValidPublicId } from "../shared/ids.ts";
 import { PRIVACY_JA_PATH, PRIVACY_PATH } from "../shared/links.ts";
@@ -41,7 +42,7 @@ import { handleIngest } from "./ingest.ts";
 import { type GraphData, loadGraphData } from "./json.ts";
 import { d1KeyResolver } from "./keys.ts";
 import { renderOverview } from "./overview-svg.ts";
-import { parseLabel, parseLang, parseParams, parseUser, parseYear } from "./params.ts";
+import { parseGrassParams, parseLabel, parseParams, parseUser, parseYear } from "./params.ts";
 import { handleProbe } from "./probe.ts";
 import { HOME_JA_PATH, HOME_PATH, handleHome, handlePrivacy } from "./site.ts";
 import { renderGraph } from "./svg.ts";
@@ -197,16 +198,13 @@ export default {
     }
     // 形の違う publicId は D1 を引かずに 404
     if (cardId !== undefined && isValidPublicId(cardId)) {
-      const { theme, palette } = parseParams(url.searchParams);
       let body: string | undefined;
       try {
         body = await renderStoredCard(
           env.DB,
           cardId,
           {
-            theme,
-            palette,
-            lang: parseLang(url.searchParams),
+            ...parseGrassParams(url.searchParams, CARD_FORM),
             label: parseLabel(url.searchParams),
             user: parseUser(url.searchParams),
           },
@@ -327,25 +325,28 @@ function renderDemoOverview(search: URLSearchParams): string {
 }
 
 /**
- * カードの図のデモ (ADR-0024)。右端は `DEMO_TODAY` (`year` は受けない)。名前は既定でデモの名前を描き、
- * アイコンは固定の画像を埋め込む (外へ取りに行かない)。
+ * 図のデモ (ADR-0024・0026)。右端は `DEMO_TODAY` で、`year` が過去ならその年の 12/31 (記録の無い期間として空の図が出る)。
+ * 名前は既定でデモの名前を描き、アイコンは固定の画像を埋め込む (外へ取りに行かない)。
  */
 function renderDemoCard(search: URLSearchParams): string {
-  const { theme, palette } = parseParams(search);
+  const params = parseGrassParams(search, CARD_FORM);
   const days = demoCardDays();
   const slots = slotPopulation(days);
   // 内訳なしの日の色は草のデモと同じ母集団から取る
   const { population } = demoData();
   return renderGrass({
     today: DEMO_TODAY,
+    end: params.end !== undefined && params.end < DEMO_TODAY ? params.end : DEMO_TODAY,
+    form: params.form,
+    mode: params.mode,
     days,
     slotScale: buildScale(slots.map((m) => m.w + m.r)),
     slotCenter: centerOf(slots),
     dayScale: buildScale(population.map((d) => d.w + d.r)),
     dayCenter: centerOf(population),
-    theme,
-    palette,
-    lang: parseLang(search),
+    theme: params.theme,
+    palette: params.palette,
+    lang: params.lang,
     label: parseLabel(search) ?? DEMO_CARD_LABEL,
     user: parseUser(search) ?? DEMO_CARD_USER,
     icon: DEMO_ICON,

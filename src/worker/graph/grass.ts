@@ -1,20 +1,28 @@
 /**
- * 図のレイアウト (design §8、ADR-0024 決定 3・ADR-0026)。今は `/v1/g/{publicId}/card.svg` のカードを描く。
+ * 図のレイアウト (design §8、ADR-0024 決定 3・ADR-0026)。`/v1/g/{publicId}/card.svg` を描く。
  * **寸法・色・ラベルの位置を決めるだけで、SVG の文字列は作らない** (文字列にするのは `grass-svg.ts`)。
  * 草の `layout.ts` / 概観の `overview.ts` と同じ分け方。
  *
- * **形 (期間 × マス) ごとの寸法は `GEOMETRIES` の表から引く** (ADR-0026 決定 2)。段階 11 (#220) で草と概観をここへまとめ、
- * 表に 4 つの形を並べる。今は半年 × 3 分割だけ。
+ * **形 (期間 × マス) ごとの寸法は `GEOMETRIES` の表から引く** (ADR-0026 決定 2)。外寸は `src/shared/grass.ts` の `GRASS_SIZES`。
+ * 段階 11 (#220) で草と概観もここへまとめる。
  *
- * - 500 × 400。草 (曜日 × 時間帯の 21 行 × 26 週) を上に、4 軸の線をその下に、名前の行を下端に置く
- *   (カードのサムネでは下が切れうるので、大事な絵を上に寄せる)
+ * - 草を上に、4 軸の線をその下に、名前の行を下端に置く (カードのサムネでは下が切れうるので、大事な絵を上に寄せる)
+ * - マスは 1 日を朝・昼・夜の 3 マス (`slot`) か 1 マス (`day`)。期間は 26 週 (`half`) か 53 週 (`year`)
  * - **行は月曜始まり** (今の草は日曜始まり)。1 日は 朝 9–13 / 昼 13–18 / 夜 18–9 の 3 マスの縦長のタイル
  * - **夜は D の区間 3 と D+1 の区間 0 を足す** (その日の夜。design §4)。右端の日 (今日) の夜は D の区間 3 だけ
  * - 区間が NULL の日 (内訳なし) は、その日の合計の色 (今の草と同じ色) を 3 マスに薄く塗る
  */
 import { fromEpochDay, toEpochDay, weekdayOf } from "../../shared/epoch-day.ts";
+import {
+  CARD_FORM,
+  type Cell,
+  GRASS_SIZES,
+  type GrassForm,
+  SPAN_WEEKS,
+  type Span,
+} from "../../shared/grass.ts";
 import type { Quad } from "../segments.ts";
-import { type AxisDay, sumAxes } from "./axes.ts";
+import { type AxisDay, percentages, sumAxes } from "./axes.ts";
 import { balanceOf, type Minutes } from "./balance.ts";
 import { levelOf, type Scale } from "./scale.ts";
 import { type SchemeName, schemeOf, type Theme } from "./scheme.ts";
@@ -24,13 +32,13 @@ import {
   MARK_CELL,
   MARK_RADIUS,
   MARK_SIZE,
+  MUTED_COLOR,
   type Swatch,
 } from "./style.ts";
 
-/** 半年の週数 (ADR-0024 決定 3)。1 年 (53 週) は段階 11 で足す (ADR-0026) */
-export const HALF_WEEKS = 26;
-
 export type Lang = "ja" | "en";
+/** `write` はすべてのマスのバランスを 0 とみなす (Level は合計のまま。design §6) */
+export type Mode = "bi" | "write";
 
 /** その日の区間ごとの分 (`daily` の `sw0..sw3` / `sr0..sr3`)。 */
 type CardSegments = {
@@ -44,8 +52,15 @@ type CardSegments = {
 export type GrassDay = AxisDay & { readonly segments?: CardSegments };
 
 export type GrassInput = {
-  /** 右端の日 (今日) */
+  /** 実際の今日。**右端の日の夜に翌日を足すかどうかはこれで決める** (今日の夜は翌日の分がまだ無い) */
   readonly today: string;
+  /** 右端の日。既定は `today`。`?year=` ならその年の 12/31 (今日より後なら今日) */
+  readonly end?: string;
+  /** 形。既定は `card.svg` の既定 (半年 × 3 分割) */
+  readonly form?: GrassForm;
+  readonly mode?: Mode;
+  /** 記録のある最も古い日。これより前の日は塗らず点線の枠にする (Issue #80)。`ph = '*'` の全期間から取る */
+  readonly startDay?: string;
   /** 表示範囲の日ごと。範囲外のキーがあっても無視する (夜の組み立てで翌日を引くのには使う) */
   readonly days: ReadonlyMap<string, GrassDay>;
   /** 時間帯のマスの四分位。`ph = '*'` の全期間の時間帯のマスの値から取る (`slotPopulation`) */
@@ -67,8 +82,8 @@ export type GrassInput = {
   readonly total?: boolean;
 };
 
-/** 角の丸めの形。上のマスは上の角だけ、下のマスは下の角だけ丸める */
-type CellShape = "top" | "middle" | "bottom";
+/** 角の丸めの形。上のマスは上の角だけ、下のマスは下の角だけ、1 日 1 マスと点線の枠は四隅を丸める */
+type CellShape = "top" | "middle" | "bottom" | "whole";
 
 export type GrassCell = {
   readonly x: number;
@@ -77,11 +92,15 @@ export type GrassCell = {
   readonly fill: string;
   /** 内訳なしの日だけ薄くする */
   readonly opacity?: number;
+  /** マスと違う高さ。計測開始前の点線の枠は 1 日のタイルの高さになる */
+  readonly height?: number;
+  /** 計測開始前の日の点線の枠の色。あれば塗らずに枠だけを描く */
+  readonly outline?: string;
 };
 
 type GrassGridCell = GrassCell & {
   readonly day: string;
-  /** 0 朝 / 1 昼 / 2 夜 */
+  /** 0 朝 / 1 昼 / 2 夜。1 日 1 マスと点線の枠は 0 */
   readonly slot: number;
   /** その時間帯の分。内訳なしの日は undefined */
   readonly minutes?: Minutes;
@@ -93,6 +112,14 @@ type GrassText = {
   readonly text: string;
   readonly anchor: "start" | "middle" | "end";
   readonly fill: string;
+};
+
+/** 4 軸の線の下の文字。軸名と % の両方か、% だけ */
+type AxisName = {
+  readonly x: number;
+  readonly y: number;
+  readonly name?: string;
+  readonly percent: string;
 };
 
 type GrassLine = {
@@ -112,19 +139,26 @@ export type GrassLayout = {
   readonly cellRadius: number;
   /** 月 → 曜日 → 「計」の見出しの順 */
   readonly labels: readonly GrassText[];
-  /** 古い日から、1 日ごとに 朝・昼・夜 の順 */
+  /** 古い日から、1 日ごとに 朝・昼・夜 の順 (1 日 1 マスなら 1 日 1 つ) */
   readonly grid: readonly GrassGridCell[];
-  /** 「計」の列。月曜の朝から日曜の夜の順 */
+  /** 「計」の列。月曜の朝から日曜の夜の順 (1 日 1 マスなら月曜から日曜) */
   readonly sum: readonly GrassCell[];
   readonly axis: {
     readonly y: number;
     readonly strokeWidth: number;
     /** 作る・育てる・関わる・読む のうち 0 でない軸の順。全部 0 なら淡い 1 本 */
     readonly lines: readonly GrassLine[];
-    readonly names: readonly GrassText[];
+    readonly names: readonly AxisName[];
     readonly nameSize: number;
     readonly letterSpacing: string;
     readonly nameColor: string;
+    /** % の文字の大きさ・字間・色・不透明度 (よく見たら読める程度。ADR-0026 決定 5) */
+    readonly percentSize: number;
+    readonly percentSpacing: string;
+    readonly percentColor: string;
+    readonly percentOpacity: number;
+    /** 軸名と % の間 */
+    readonly percentGap: number;
   };
   readonly name: {
     readonly project?: GrassText & { readonly href: string; readonly size: number };
@@ -143,6 +177,8 @@ export type GrassLayout = {
 };
 
 // ---- 寸法 ----
+
+const round = (n: number) => Math.round(n * 100) / 100;
 
 const WEEKDAYS = 7;
 /** 「計」の列と草の右端の間 */
@@ -212,38 +248,85 @@ function geometryOf(spec: GeometrySpec): Geometry {
 
 /** 半年 × 3 分割 (ADR-0024 決定 3 のカード)。500 × 400 の座標で、作者と合意したモックの値 */
 const HALF_SLOT_COLUMN_GAP = 2.6;
-const HALF_SLOT_SLOT_GAP = 0.7;
+const SLOT_GAP = 0.7;
 /** 草の下端。マスの一辺は高さから決める: 21 マス + 日の間 6 + 切れ目 14 がここまでに収まる */
 const HALF_SLOT_GRID_BOTTOM = 304;
-const HALF_SLOT_ORIGIN_Y = 40;
+const ORIGIN_Y = 40;
+const HALF_SLOT_CELL =
+  (HALF_SLOT_GRID_BOTTOM -
+    ORIGIN_Y -
+    (WEEKDAYS - 1) * HALF_SLOT_COLUMN_GAP -
+    WEEKDAYS * (3 - 1) * SLOT_GAP) /
+  (WEEKDAYS * 3);
 
-/**
- * 形ごとの寸法の表 (ADR-0026 決定 2)。**今は半年 × 3 分割だけ**で、ほかの 3 つの形は段階 11 (#220) で足す
- */
-const GEOMETRIES = {
-  "half-slot": geometryOf({
-    width: 500,
-    height: 400,
-    weeks: HALF_WEEKS,
-    slots: 3,
-    originX: 56,
-    originY: HALF_SLOT_ORIGIN_Y,
-    cell:
-      (HALF_SLOT_GRID_BOTTOM -
-        HALF_SLOT_ORIGIN_Y -
-        (WEEKDAYS - 1) * HALF_SLOT_COLUMN_GAP -
-        WEEKDAYS * (3 - 1) * HALF_SLOT_SLOT_GAP) /
-      (WEEKDAYS * 3),
-    columnGap: HALF_SLOT_COLUMN_GAP,
-    // 日と日の間は列の間と同じにして、縦横を均等に空ける
-    dayGap: HALF_SLOT_COLUMN_GAP,
-    slotGap: HALF_SLOT_SLOT_GAP,
-    cellRadius: 2.8,
-    axisY: 324,
-    axisNameY: 334,
-    nameY: 362,
-  }),
-} as const satisfies Record<string, Geometry>;
+const HALF_SLOT = geometryOf({
+  ...GRASS_SIZES.half.slot,
+  weeks: SPAN_WEEKS.half,
+  slots: 3,
+  originX: 56,
+  originY: ORIGIN_Y,
+  cell: HALF_SLOT_CELL,
+  columnGap: HALF_SLOT_COLUMN_GAP,
+  // 日と日の間は列の間と同じにして、縦横を均等に空ける
+  dayGap: HALF_SLOT_COLUMN_GAP,
+  slotGap: SLOT_GAP,
+  cellRadius: 2.8,
+  axisY: 324,
+  axisNameY: 334,
+  // 線から 38px 下げ、名前の行の下にも余白を取る (サムネで下が切れうる。ADR-0024 の帰結)
+  nameY: 362,
+});
+
+// ほかの 3 つの形 (ADR-0026 決定 2。Issue #220 のモック)。**外寸の幅に、列と「計」の列が収まるようにマスを決める**
+/** 曜日のラベルの余白を詰めた草の左端。英語の `Mon` が入る */
+const FITTED_ORIGIN_X = 34;
+const FITTED_RIGHT_PADDING = 12;
+/** 列の間とマスの比。カードと同じ比にする */
+const GAP_RATIO = HALF_SLOT_COLUMN_GAP / HALF_SLOT_CELL;
+/** 草の下端から 4 軸の線まで */
+const AXIS_OFFSET = 20;
+/** 線から軸名のベースラインまで */
+const AXIS_NAME_OFFSET = 10;
+/** 線から名前の行のベースラインまで。カードより詰める (下が切れる心配が無い) */
+const FITTED_NAME_OFFSET = 32;
+
+function fittedGeometry(span: Span, cell: Cell, cellRadius: number): Geometry {
+  const size = GRASS_SIZES[span][cell];
+  const weeks = SPAN_WEEKS[span];
+  const slots = cell === "slot" ? 3 : 1;
+  const side =
+    (size.width - FITTED_ORIGIN_X - FITTED_RIGHT_PADDING - SUM_GAP) /
+    (weeks + 1 + (weeks - 1) * GAP_RATIO);
+  const gap = side * GAP_RATIO;
+  const tileHeight = slots * side + (slots - 1) * SLOT_GAP;
+  const axisY = round(ORIGIN_Y + WEEKDAYS * tileHeight + (WEEKDAYS - 1) * gap + AXIS_OFFSET);
+  return geometryOf({
+    ...size,
+    weeks,
+    slots,
+    originX: FITTED_ORIGIN_X,
+    originY: ORIGIN_Y,
+    cell: side,
+    columnGap: gap,
+    dayGap: gap,
+    slotGap: SLOT_GAP,
+    cellRadius,
+    axisY,
+    axisNameY: round(axisY + AXIS_NAME_OFFSET),
+    nameY: round(axisY + FITTED_NAME_OFFSET),
+  });
+}
+
+/** 形ごとの寸法の表 (ADR-0026 決定 2) */
+const GEOMETRIES: Record<Span, Record<Cell, Geometry>> = {
+  half: { slot: HALF_SLOT, day: fittedGeometry("half", "day", 3) },
+  year: { slot: fittedGeometry("year", "slot", 2.6), day: fittedGeometry("year", "day", 2.6) },
+};
+
+/** 形の寸法。テストが外寸や名前の行の位置を確かめるのに使う */
+export function geometryFor(form: GrassForm): Geometry {
+  return GEOMETRIES[form.span][form.cell];
+}
 
 const FONT_SIZE = 10;
 /** 月ラベルのベースライン (草の上端から) */
@@ -264,6 +347,11 @@ const AXIS_STROKE = 3;
 const AXIS_GAP = 3;
 const AXIS_NAME_SIZE = 7.5;
 const AXIS_LETTER_SPACING_EM = 0.25;
+/** % は軸名より一段小さく淡く (よく見たら読める程度。ADR-0026 決定 5) */
+const PERCENT_SIZE = 6.5;
+const PERCENT_LETTER_SPACING_EM = 0.03;
+const PERCENT_OPACITY = 0.8;
+const PERCENT_GAP = 4;
 
 // 名前の行
 const PROJECT_SIZE = 15;
@@ -292,6 +380,11 @@ const WIDE_EM = 1.05;
 const EMPTY_FILL: Record<Theme, readonly [string, string, string]> = {
   light: ["#f6f8fa", "#eff1f4", "#e6e9ed"],
   dark: ["#161b22", "#1b2028", "#21262d"],
+};
+/** 1 日 1 マスの空きマス。時間帯が無いので、3 分割の真ん中 (昼) の灰色を使う */
+const EMPTY_DAY_FILL: Record<Theme, string> = {
+  light: EMPTY_FILL.light[1],
+  dark: EMPTY_FILL.dark[1],
 };
 
 /** 文字色。濃 / 中 / 淡 / ごく淡 */
@@ -435,17 +528,21 @@ function truncate(text: string, size: number, max: number): string | undefined {
   return width + ellipsis <= max ? `${kept}${ELLIPSIS}` : undefined;
 }
 
-const round = (n: number) => Math.round(n * 100) / 100;
-
 // ---- 各部 ----
 
 function cellShape(g: Geometry, slot: number): CellShape {
+  if (g.slots === 1) {
+    return "whole";
+  }
   return slot === 0 ? "top" : slot === g.slots - 1 ? "bottom" : "middle";
 }
 
 function cellY(g: Geometry, row: number, slot: number): number {
   return round(g.originY + row * g.rowStep + slot * (g.cell + g.slotGap));
 }
+
+/** 右端の日。既定は今日 */
+const endOf = (input: GrassInput) => input.end ?? input.today;
 
 function layoutGrid(
   input: GrassInput,
@@ -456,8 +553,16 @@ function layoutGrid(
 } {
   const scheme = schemeOf(input.palette);
   const { theme } = input;
-  const start = toEpochDay(grassStart(input.today, g.weeks));
-  const end = toEpochDay(input.today);
+  const write = input.mode === "write";
+  // write は Level を合計のまま、バランスだけを 0 にする (design §6)
+  const color = (minutes: Minutes, scale: Scale, center: number) => {
+    const level = levelOf(minutes.w + minutes.r, scale);
+    return level === 0
+      ? undefined
+      : scheme.cell({ level, balance: write ? 0 : balanceOf(minutes, center) }, theme);
+  };
+  const start = toEpochDay(grassStart(endOf(input), g.weeks));
+  const end = toEpochDay(endOf(input));
   const sums = Array.from({ length: WEEKDAYS * g.slots }, () => 0);
   const grid: GrassGridCell[] = [];
 
@@ -466,17 +571,45 @@ function layoutGrid(
     const column = Math.floor((epoch - start) / WEEKDAYS);
     const row = mondayIndex(epoch);
     const x = round(g.originX + column * g.columnStep);
-    const slots = slotsOf(input.days, day, input.today);
     const whole = input.days.get(day);
+
+    // 計測開始前の日は塗らず、1 日のタイルに点線の枠を 1 つ描く (活動の無い日と区別する。Issue #80)
+    if (input.startDay !== undefined && day < input.startDay) {
+      grid.push({
+        x,
+        y: cellY(g, row, 0),
+        shape: "whole",
+        fill: "none",
+        height: round(g.tileHeight),
+        outline: MUTED_COLOR[theme],
+        day,
+        slot: 0,
+      });
+      continue;
+    }
+
+    if (g.slots === 1) {
+      const base = { x, y: cellY(g, row, 0), shape: cellShape(g, 0), day, slot: 0 };
+      if (whole === undefined) {
+        grid.push({ ...base, fill: EMPTY_DAY_FILL[theme] });
+        continue;
+      }
+      sums[row] = (sums[row] ?? 0) + whole.w + whole.r;
+      const minutes = { w: whole.w, r: whole.r };
+      grid.push({
+        ...base,
+        fill: color(minutes, input.dayScale, input.dayCenter) ?? EMPTY_DAY_FILL[theme],
+        minutes,
+      });
+      continue;
+    }
+
+    // slotsOf は「実際の今日」で翌日を足すかを決める。`?year=` で過去の 12/31 が右端でも、その日の夜は翌日の区間 0 を足す
+    const slots = slotsOf(input.days, day, input.today);
     // 内訳なしの日は、今の草と同じ色 (日の合計) を 3 マスに薄く塗る
     const fallback =
       slots === undefined && whole !== undefined
-        ? (() => {
-            const level = levelOf(whole.w + whole.r, input.dayScale);
-            return level === 0
-              ? undefined
-              : scheme.cell({ level, balance: balanceOf(whole, input.dayCenter) }, theme);
-          })()
+        ? color(whole, input.dayScale, input.dayCenter)
         : undefined;
 
     for (let slot = 0; slot < g.slots; slot++) {
@@ -484,11 +617,8 @@ function layoutGrid(
       const minutes = slots?.[slot];
       if (minutes !== undefined) {
         sums[row * g.slots + slot] = (sums[row * g.slots + slot] ?? 0) + minutes.w + minutes.r;
-        const level = levelOf(minutes.w + minutes.r, input.slotScale);
         const fill =
-          level === 0
-            ? (EMPTY_FILL[theme][slot] ?? "")
-            : scheme.cell({ level, balance: balanceOf(minutes, input.slotCenter) }, theme);
+          color(minutes, input.slotScale, input.slotCenter) ?? EMPTY_FILL[theme][slot] ?? "";
         grid.push({ ...base, fill, minutes });
       } else if (fallback !== undefined) {
         grid.push({ ...base, fill: fallback, opacity: NO_BREAKDOWN_OPACITY });
@@ -518,17 +648,17 @@ function layoutSum(sums: readonly number[], theme: Theme, g: Geometry): GrassCel
 
 function layoutLabels(input: GrassInput, strings: Strings, g: Geometry): GrassText[] {
   const { theme } = input;
-  const start = toEpochDay(grassStart(input.today, g.weeks));
+  const start = toEpochDay(grassStart(endOf(input), g.weeks));
   const labels: GrassText[] = [];
 
   // 月ラベル: **その月の 1 日を含む列**に出す (2026-10-07、#208。月曜が 1〜7 日の列に限ると、1 日が火〜日の月は
-  // 翌週の列にずれ、今月が右端の列だと出せなかった)。まだ来ていない 1 日には出さない。
+  // 翌週の列にずれ、今月が右端の列だと出せなかった)。右端の日より後の 1 日には出さない。
   // ラベルは 2 列ぶんの幅が要る (`MONTH_LABEL_COLUMNS`) ので、右端の列では右端をそろえて「計」の見出しと重ねない
-  const today = toEpochDay(input.today);
+  const end = toEpochDay(endOf(input));
   for (let column = 0; column < g.weeks; column++) {
     const monday = start + column * WEEKDAYS;
     const first = Array.from({ length: WEEKDAYS }, (_, i) => monday + i).find(
-      (day) => day <= today && fromEpochDay(day).endsWith("-01"),
+      (day) => day <= end && fromEpochDay(day).endsWith("-01"),
     );
     if (first === undefined) {
       continue;
@@ -566,24 +696,33 @@ function layoutLabels(input: GrassInput, strings: Strings, g: Geometry): GrassTe
 
 /**
  * 4 軸の線。草の左端から「計」の列の右端までを、0 でない軸で**全体に対する割合**で分ける。
- * 名前は区間の左端の下に置き、見積もり幅が区間に収まらなければ省く
+ * 区間の左端の下に軸名と % を置く。見積もり幅が区間に収まらなければ % だけにし、それも入らなければ省く (ADR-0026 決定 5)
  */
 function layoutAxis(input: GrassInput, strings: Strings, g: Geometry): GrassLayout["axis"] {
   const { theme } = input;
-  const start = grassStart(input.today, g.weeks);
+  const start = grassStart(endOf(input), g.weeks);
+  const end = endOf(input);
   const inRange = [...input.days]
-    .filter(([day]) => day >= start && day <= input.today)
+    .filter(([day]) => day >= start && day <= end)
     .map(([, values]) => values);
   const totals = sumAxes(inRange);
   const values = [totals.create, totals.grow, totals.join, totals.read];
+  // 端数が同じときは線の並び (作る・育てる・関わる・読む) の先を優先する
+  const percents = percentages(values);
   const sum = values.reduce((a, b) => a + b, 0);
   const inset = AXIS_STROKE / 2;
+  const percentSpacing = PERCENT_LETTER_SPACING_EM * PERCENT_SIZE;
   const base = {
     y: g.axisY,
     strokeWidth: AXIS_STROKE,
     nameSize: AXIS_NAME_SIZE,
     letterSpacing: `${AXIS_LETTER_SPACING_EM}em`,
     nameColor: FAINTEST[theme],
+    percentSize: PERCENT_SIZE,
+    percentSpacing: `${PERCENT_LETTER_SPACING_EM}em`,
+    percentColor: FAINT[theme],
+    percentOpacity: PERCENT_OPACITY,
+    percentGap: PERCENT_GAP,
   };
   if (sum === 0) {
     return {
@@ -598,7 +737,7 @@ function layoutAxis(input: GrassInput, strings: Strings, g: Geometry): GrassLayo
   const nonZero = values.flatMap((value, i) => (value > 0 ? [{ value, i }] : []));
   const available = g.sumRight - g.originX - AXIS_GAP * (nonZero.length - 1);
   const lines: GrassLine[] = [];
-  const names: GrassText[] = [];
+  const names: AxisName[] = [];
   let cursor = g.originX;
   for (const { value, i } of nonZero) {
     const length = (available * value) / sum;
@@ -610,15 +749,14 @@ function layoutAxis(input: GrassInput, strings: Strings, g: Geometry): GrassLayo
         : [cursor + length / 2, cursor + length / 2];
     lines.push({ x1: round(x1), x2: round(x2), stroke: AXIS_COLORS[theme][i] ?? "" });
     const name = strings.axes[i] ?? "";
-    const spacing = AXIS_LETTER_SPACING_EM * AXIS_NAME_SIZE;
-    if (estimateWidth(name, AXIS_NAME_SIZE, spacing) <= length) {
-      names.push({
-        x: round(cursor),
-        y: g.axisNameY,
-        text: name,
-        anchor: "start",
-        fill: FAINTEST[theme],
-      });
+    const percent = `${percents[i] ?? 0}%`;
+    const nameWidth = estimateWidth(name, AXIS_NAME_SIZE, AXIS_LETTER_SPACING_EM * AXIS_NAME_SIZE);
+    const percentWidth = estimateWidth(percent, PERCENT_SIZE, percentSpacing);
+    const position = { x: round(cursor), y: g.axisNameY };
+    if (nameWidth + PERCENT_GAP + percentWidth <= length) {
+      names.push({ ...position, name, percent });
+    } else if (percentWidth <= length) {
+      names.push({ ...position, percent });
     }
     cursor += length + AXIS_GAP;
   }
@@ -701,7 +839,7 @@ function layoutName(input: GrassInput, g: Geometry): GrassLayout["name"] {
 }
 
 export function layoutGrass(input: GrassInput): GrassLayout {
-  const g = GEOMETRIES["half-slot"];
+  const g = geometryFor(input.form ?? CARD_FORM);
   const strings = STRINGS[input.lang];
   const { grid, sums } = layoutGrid(input, g);
   return {

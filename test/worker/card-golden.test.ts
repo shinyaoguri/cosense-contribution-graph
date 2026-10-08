@@ -12,21 +12,47 @@ import { sha256Hex } from "../../src/shared/hash.ts";
 const DEMO_URL = "https://example.com/v1/g/demo/card.svg";
 
 const CASES: readonly (readonly [string, string, string])[] = [
-  ["デモ (日本語・ライト)", "", "ba543a4081612c76b8845c0465c4b6490336c5d385abfe3d36216ddcde05f0ae"],
+  ["デモ (日本語・ライト)", "", "59ee5c5e2604d749ede78390bb969b3e17c998f8d411f1e43564bbd6001673aa"],
   [
     "デモ (日本語・ダーク)",
     "?theme=dark",
-    "f90788d3c65cdd8e8e1c4ec6c326477cdee8894a700c8a59d71d9503d801e054",
+    "a4f13b9842ef1494a45d086742b5a825137e747812a4e9d08c3b9ea208198e03",
   ],
   [
     "デモ (英語・ライト)",
     "?lang=en",
-    "f99b858167648f9f4ed2a7d4f561f5d9679a98830f491a38254a519841f4a1af",
+    "30f73267b24ea26a85fd16e6b41dd613093667f18e5b4f2067b8872a3fc963f1",
   ],
   [
     "デモ (英語・ダーク)",
     "?lang=en&theme=dark",
-    "a1d2241a992dadffe97b06bbc4ea724033b19fa252f97295a7dae2dc11e0af42",
+    "bed47dcb826f0f0b7ef9e3bb6663c003a7bbb86e97ef5efe739a7c900ab999e0",
+  ],
+  ["半年 × 1 日", "?cell=day", "0e7ec25f13ae690133faf90fe43ca378c7d9d86ff42078fc3888c439ddde0cf7"],
+  [
+    "1 年 × 3 分割",
+    "?span=year",
+    "3295203ce0e7ea220116dde77eeb01491bc11c0ae09cec7a130a7c8bfe662f07",
+  ],
+  [
+    "1 年 × 1 日",
+    "?span=year&cell=day",
+    "28f0251986e810d600450da0a89a42748872ca485a1581aa670b8b2b5123f981",
+  ],
+  [
+    "1 年 × 1 日 (ダーク・英語)",
+    "?span=year&cell=day&theme=dark&lang=en",
+    "1fefce624421048ae7adecb37ee40dc5cd1005cef6d6b09a37b353f5961fa5fb",
+  ],
+  [
+    "書いた分だけ (mode=write)",
+    "?mode=write",
+    "38d55f3bfce1eb191d19f1c128f2050a7d16c2a7f2c2c176cf9b787edc30b1c3",
+  ],
+  [
+    "過去の年 (記録の無い期間)",
+    "?year=2025&cell=day",
+    "3730c68e707e4222eb59601d33379e9440d2b565cec9a983b4790e2f604115c6",
   ],
 ];
 

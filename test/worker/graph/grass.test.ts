@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { fromEpochDay, toEpochDay, weekdayOf } from "../../../src/shared/epoch-day.ts";
+import { CARD_FORM, GRASS_SIZES, SPAN_WEEKS } from "../../../src/shared/grass.ts";
 import { MAX_USER_NAME_LENGTH } from "../../../src/shared/project-name.ts";
 import { balanceOf } from "../../../src/worker/graph/balance.ts";
 import {
   estimateWidth,
   type GrassDay,
   type GrassInput,
+  geometryFor,
   grassStart,
-  HALF_WEEKS,
   layoutGrass,
   slotPopulation,
   slotsOf,
@@ -101,13 +102,13 @@ describe("草のマス", () => {
     const first = layout.grid[0];
     const last = layout.grid.at(-1);
 
-    expect(first?.day).toBe(grassStart(TODAY, HALF_WEEKS));
+    expect(first?.day).toBe(grassStart(TODAY, SPAN_WEEKS.half));
     expect(weekdayOf(toEpochDay(first?.day ?? ""))).toBe(1);
     expect(last?.day).toBe(TODAY);
-    const dayCount = toEpochDay(TODAY) - toEpochDay(grassStart(TODAY, HALF_WEEKS)) + 1;
+    const dayCount = toEpochDay(TODAY) - toEpochDay(grassStart(TODAY, SPAN_WEEKS.half)) + 1;
     expect(layout.grid).toHaveLength(dayCount * 3);
     // 26 列。月曜 (2026-09-14) の列が右端
-    expect(Math.floor(dayCount / 7)).toBe(HALF_WEEKS - 1);
+    expect(Math.floor(dayCount / 7)).toBe(SPAN_WEEKS.half - 1);
 
     // 月曜は最上段、日曜は最下段
     const monday = cellsOf(layout, day(-2));
@@ -254,14 +255,14 @@ describe("4 軸の線", () => {
     // 左端は草の左端、右端は「計」の列の右端。区間の間は 3
     expect((axis.lines[0]?.x1 ?? 0) - 1.5).toBeCloseTo(56, 1);
     expect((axis.lines[1]?.x1 ?? 0) - 1.5 - ((axis.lines[0]?.x2 ?? 0) + 1.5)).toBeCloseTo(3, 1);
-    expect(axis.names.map((n) => n.text)).toEqual(["作る", "関わる", "読む"]);
+    expect(axis.names.map((n) => n.name)).toEqual(["作る", "関わる", "読む"]);
   });
 
   it("**名前が区間の幅に収まらなければ省く**", () => {
     const axis = axisOf(1, 0, 0, 1000);
 
     expect(axis.lines).toHaveLength(2);
-    expect(axis.names.map((n) => n.text)).toEqual(["読む"]);
+    expect(axis.names.map((n) => n.name)).toEqual(["読む"]);
   });
 
   it("全部 0 なら、ごく淡い 1 本の線だけで名前は無い", () => {
@@ -274,12 +275,15 @@ describe("4 軸の線", () => {
   it("期間 (26 週) の外の日は数えない", () => {
     const days = new Map<string, GrassDay>([
       [day(-1), { w: 0, r: 10, wc: 0, wo: 0 }],
-      [fromEpochDay(toEpochDay(grassStart(TODAY, HALF_WEEKS)) - 1), { w: 50, r: 0, wc: 50, wo: 0 }],
+      [
+        fromEpochDay(toEpochDay(grassStart(TODAY, SPAN_WEEKS.half)) - 1),
+        { w: 50, r: 0, wc: 50, wo: 0 },
+      ],
     ]);
     const axis = layoutGrass(input({ days })).axis;
 
     expect(axis.lines).toHaveLength(1);
-    expect(axis.names.map((n) => n.text)).toEqual(["読む"]);
+    expect(axis.names.map((n) => n.name)).toEqual(["読む"]);
   });
 });
 
@@ -347,5 +351,183 @@ describe("名前の行", () => {
     expect(name.icon).toBeUndefined();
     expect(name.user?.text).toBe("taro");
     expect(name.user?.x ?? 0).toBeGreaterThan(56 + 11);
+  });
+});
+
+describe("形 (期間 × マス。ADR-0026)", () => {
+  const forms = [
+    { span: "half", cell: "slot" },
+    { span: "half", cell: "day" },
+    { span: "year", cell: "slot" },
+    { span: "year", cell: "day" },
+  ] as const;
+
+  it.each(forms)(
+    "$span × $cell: 外寸は GRASS_SIZES どおりで、草・線・名前の行が外寸に収まる",
+    (form) => {
+      const days = new Map<string, GrassDay>([
+        [day(-1), withSegments([1, 2, 3, 4], [5, 6, 7, 8], { wc: 2, wo: 1 })],
+      ]);
+      const layout = layoutGrass(input({ form, days, label: "p", user: "taro" }));
+      const g = geometryFor(form);
+
+      expect({ width: layout.width, height: layout.height }).toEqual(
+        GRASS_SIZES[form.span][form.cell],
+      );
+      const start = grassStart(TODAY, SPAN_WEEKS[form.span]);
+      const dayCount = toEpochDay(TODAY) - toEpochDay(start) + 1;
+      expect(layout.grid).toHaveLength(dayCount * (form.cell === "slot" ? 3 : 1));
+      expect(layout.grid[0]?.day).toBe(start);
+      // 列は週数ちょうど。右端の列は今日 (水曜) で欠ける
+      expect(new Set(layout.grid.map((c) => c.x)).size).toBe(SPAN_WEEKS[form.span]);
+      expect(layout.sum).toHaveLength(form.cell === "slot" ? 21 : 7);
+      const right = Math.max(...layout.sum.map((c) => c.x)) + layout.cellWidth;
+      expect(right).toBeLessThanOrEqual(layout.width);
+      const bottom = Math.max(...layout.grid.map((c) => c.y)) + layout.cellHeight;
+      expect(bottom).toBeLessThan(layout.axis.y);
+      // 名前の行のベースラインの下に、ユーザー名の下がり (約 3px) が入る余白がある
+      expect(layout.name.project?.y ?? 0).toBe(g.nameY);
+      expect(g.nameY + 3).toBeLessThan(layout.height);
+    },
+  );
+
+  it("**1 日 1 マスは日の合計を日の四分位で塗り、四隅を丸める**。計の列は曜日ごとの 7 マス", () => {
+    const whole: GrassDay = { w: 20, r: 5, wc: 0, wo: 0 };
+    const layout = layoutGrass(
+      input({
+        form: { span: "year", cell: "day" },
+        days: new Map([[day(-2), whole]]),
+        dayCenter: 0.3,
+      }),
+    );
+
+    const [cell] = cellsOf(layout, day(-2));
+    expect(cell?.shape).toBe("whole");
+    expect(cell?.fill).toBe(
+      scheme.cell({ level: levelOf(25, SCALE), balance: balanceOf(whole, 0.3) }, "light"),
+    );
+    expect(cell?.minutes).toEqual({ w: 20, r: 5 });
+    // 記録の無い日は 3 分割の昼の灰色
+    expect(cellsOf(layout, day(-1)).map((c) => c.fill)).toEqual(["#eff1f4"]);
+    // 月曜始まり。2026-09-14 (月) が 1 行目
+    expect(cellsOf(layout, "2026-09-14")[0]?.y).toBe(40);
+    // 曜日ごとの合計。最大の曜日 (day(-2) = 月曜) が最も濃い
+    expect(layout.sum[weekdayOf(toEpochDay(day(-2))) - 1]?.fill).toBe("rgba(87,96,106,0.88)");
+    expect(layout.sum.every((c) => c.shape === "whole")).toBe(true);
+  });
+
+  it("**半年 × 1 日は正方形のマスを大きくする** (3 分割の約 1.2 倍)", () => {
+    const slot = layoutGrass(input());
+    const dayLayout = layoutGrass(input({ form: { span: "half", cell: "day" } }));
+
+    expect(dayLayout.cellWidth).toBe(dayLayout.cellHeight);
+    expect(dayLayout.cellWidth / slot.cellWidth).toBeGreaterThan(1.15);
+  });
+
+  it("**mode=write はどのマスもバランスを 0 にする** (Level は合計のまま)", () => {
+    const days = new Map<string, GrassDay>([
+      [day(-3), withSegments([0, 25, 0, 0], [0, 0, 0, 0])],
+      [day(-2), { w: 0, r: 25, wc: 0, wo: 0 }],
+    ]);
+    const level4 = scheme.cell({ level: levelOf(25, SCALE), balance: 0 }, "light");
+
+    const slot = layoutGrass(input({ days, mode: "write" }));
+    expect(cellsOf(slot, day(-3))[0]?.fill).toBe(level4);
+    // 内訳なしの日の薄い塗りも同じ
+    expect(cellsOf(slot, day(-2))[0]?.fill).toBe(level4);
+
+    const dayLayout = layoutGrass(
+      input({ days, mode: "write", form: { span: "half", cell: "day" } }),
+    );
+    expect(cellsOf(dayLayout, day(-2))[0]?.fill).toBe(level4);
+    // bi なら読み寄りの色になり、write と違う
+    expect(
+      cellsOf(layoutGrass(input({ days, form: { span: "half", cell: "day" } })), day(-2))[0]?.fill,
+    ).not.toBe(level4);
+  });
+
+  it.each(forms)("$span × $cell: **計測開始前の日は 1 日に 1 つの点線の枠** (塗らない)", (form) => {
+    const layout = layoutGrass(input({ form, startDay: day(-1) }));
+    const g = geometryFor(form);
+
+    const before = cellsOf(layout, day(-2));
+    expect(before).toHaveLength(1);
+    expect(before[0]).toMatchObject({ shape: "whole", fill: "none", outline: "#d0d7de" });
+    expect(before[0]?.height).toBeCloseTo(g.tileHeight, 1);
+    // 開始日からは塗る
+    expect(cellsOf(layout, day(-1))).toHaveLength(form.cell === "slot" ? 3 : 1);
+    expect(cellsOf(layout, day(-1)).every((c) => c.outline === undefined)).toBe(true);
+  });
+
+  it("**右端 (`end`) が過去の 12/31 でも、その日の夜は翌日の区間 0 を足す** (実際の今日で決める)", () => {
+    const days = new Map<string, GrassDay>([
+      ["2025-12-31", withSegments([0, 0, 0, 4], [0, 0, 0, 0])],
+      ["2026-01-01", withSegments([30, 0, 0, 0], [0, 0, 0, 0])],
+    ]);
+    const layout = layoutGrass(
+      input({ days, end: "2025-12-31", form: { span: "year", cell: "slot" }, slotScale: SCALE }),
+    );
+
+    expect(layout.grid.at(-1)?.day).toBe("2025-12-31");
+    expect(cellsOf(layout, "2025-12-31")[2]?.minutes).toEqual({ w: 34, r: 0 });
+    // 翌年の日は描かない
+    expect(cellsOf(layout, "2026-01-01")).toEqual([]);
+    // 1 年の左端は 12/31 の週の月曜から 52 週前の月曜 (2024-12-30)。1 月 1 日は含まれる
+    expect(layout.grid[0]?.day).toBe("2024-12-30");
+    // 月ラベルは 1 月 (左端の列) から 12 月まで
+    const months = layout.labels.filter((l) => l.text.endsWith("月") && l.text.length > 1);
+    expect(months.map((l) => l.text)).toEqual([
+      "1月",
+      "2月",
+      "3月",
+      "4月",
+      "5月",
+      "6月",
+      "7月",
+      "8月",
+      "9月",
+      "10月",
+      "11月",
+      "12月",
+    ]);
+  });
+});
+
+describe("4 軸の % (ADR-0026 決定 5)", () => {
+  const axisOf = (create: number, grow: number, join: number, read: number, form = CARD_FORM) =>
+    layoutGrass(
+      input({
+        form,
+        days: new Map<string, GrassDay>([
+          [day(-1), { w: create + grow + join, r: read, wc: create, wo: join }],
+        ]),
+      }),
+    ).axis;
+
+  it("**軸名の右に % を添える。% は合計 100 の整数**", () => {
+    const axis = axisOf(100, 0, 100, 200);
+
+    expect(axis.names.map((n) => [n.name, n.percent])).toEqual([
+      ["作る", "25%"],
+      ["関わる", "25%"],
+      ["読む", "50%"],
+    ]);
+    expect(axis.percentSize).toBeLessThan(axis.nameSize);
+    expect(axis.percentOpacity).toBeLessThan(1);
+  });
+
+  it("**軸名が入らない区間は % だけ、% も入らない区間は何も出さない**", () => {
+    // 作る 6% は 26 px ほどで「作る 6%」は入らない。0.5% は 2 px ほどで「1%」も入らない
+    const axis = axisOf(30, 5, 0, 465);
+
+    expect(axis.names.map((n) => [n.name, n.percent])).toEqual([
+      [undefined, "6%"],
+      ["読む", "93%"],
+    ]);
+    expect(axis.lines).toHaveLength(3);
+  });
+
+  it("端数が同じなら線の並び (作る・育てる・関わる・読む) の先に 1 を足す", () => {
+    expect(axisOf(1, 1, 1, 0).names.map((n) => n.percent)).toEqual(["34%", "33%", "33%"]);
   });
 });

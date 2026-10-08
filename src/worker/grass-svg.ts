@@ -10,7 +10,7 @@ import { escapeXml } from "./xml.ts";
 
 const n = (v: number) => Math.round(v * 100) / 100;
 
-/** 角を丸めたマスの path。上のマスは上の角だけ、下のマスは下の角だけ、真ん中は四角 */
+/** 角を丸めたマスの path。上のマスは上の角だけ、下のマスは下の角だけ、真ん中は四角。四隅を丸めるマスは `<rect>` にする */
 function cellPath(cell: GrassCell, w: number, h: number, r: number): string {
   const { x, y } = cell;
   if (cell.shape === "top") {
@@ -24,8 +24,17 @@ function cellPath(cell: GrassCell, w: number, h: number, r: number): string {
 
 function toSvg(layout: GrassLayout): string {
   const { width, height } = layout;
-  const cell = (c: GrassCell) =>
-    `<path d="${cellPath(c, layout.cellWidth, layout.cellHeight, layout.cellRadius)}" fill="${c.fill}"${c.opacity === undefined ? "" : ` fill-opacity="${c.opacity}"`}/>`;
+  const cell = (c: GrassCell) => {
+    const height = c.height ?? layout.cellHeight;
+    // 計測開始前の日は塗らず、点線の枠だけ (Issue #80)
+    const paint =
+      c.outline === undefined
+        ? `fill="${c.fill}"${c.opacity === undefined ? "" : ` fill-opacity="${c.opacity}"`}`
+        : `fill="none" stroke="${c.outline}" stroke-dasharray="1 1"`;
+    return c.shape === "whole"
+      ? `<rect x="${c.x}" y="${c.y}" width="${layout.cellWidth}" height="${height}" rx="${layout.cellRadius}" ${paint}/>`
+      : `<path d="${cellPath(c, layout.cellWidth, height, layout.cellRadius)}" ${paint}/>`;
+  };
   const text = (t: { x: number; y: number; text: string; anchor: string; fill: string }) =>
     `<text x="${t.x}" y="${t.y}"${t.anchor === "start" ? "" : ` text-anchor="${t.anchor}"`} fill="${t.fill}">${escapeXml(t.text)}</text>`;
 
@@ -36,10 +45,16 @@ function toSvg(layout: GrassLayout): string {
         `<line x1="${line.x1}" y1="${axis.y}" x2="${line.x2}" y2="${axis.y}" stroke="${line.stroke}"/>`,
     )
     .join("");
+  // % は軸名より一段小さく淡く (よく見たら読める程度。ADR-0026 決定 5)。軸名が入らない区間は % だけ
+  const percentAttrs = `font-size="${axis.percentSize}" letter-spacing="${axis.percentSpacing}" fill="${axis.percentColor}" fill-opacity="${axis.percentOpacity}"`;
+  const axisName = (a: (typeof axis.names)[number]) =>
+    a.name === undefined
+      ? `<text x="${a.x}" y="${a.y}" ${percentAttrs}>${a.percent}</text>`
+      : `<text x="${a.x}" y="${a.y}">${escapeXml(a.name)}<tspan dx="${axis.percentGap}" ${percentAttrs}>${a.percent}</tspan></text>`;
   const axisNames =
     axis.names.length === 0
       ? ""
-      : `<g data-part="axis-names" font-family="${layout.fontFamily}" font-size="${axis.nameSize}" letter-spacing="${axis.letterSpacing}">${axis.names.map(text).join("")}</g>`;
+      : `<g data-part="axis-names" font-family="${layout.fontFamily}" font-size="${axis.nameSize}" letter-spacing="${axis.letterSpacing}" fill="${axis.nameColor}">${axis.names.map(axisName).join("")}</g>`;
 
   const project =
     name.project === undefined
