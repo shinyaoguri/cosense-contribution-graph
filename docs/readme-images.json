@@ -5,16 +5,16 @@
       "path": "/v1/g/demo/card.svg",
       "alt": "直近 26 週の図の例 (デモ)",
       "width": 532,
-      "sha256": "a3a061dd0239b8ca76c21cccdc58acf64496b7d39e3540b39227c058c3577099",
-      "url": "https://i.gyazo.com/d51c609a7f306179957ac296124f0de5.png"
+      "sha256": "137b7ddbe2abf51739d3063070c89b44cdb2bfa9fa4741630baea67c81afa0e3",
+      "url": "https://i.gyazo.com/88ca27a8813742f4349f243cdd5c22e6.png"
     },
     {
       "name": "demo-grass",
       "path": "/v1/g/demo.svg",
       "alt": "1 年分の草の例 (デモ)",
       "width": 807,
-      "sha256": "e1349e75051c5e283c0539a4816d5594396a7c6a464d319eab3c6bfe3226b519",
-      "url": "https://i.gyazo.com/9ef9e0d54591e76c82e64bcb4a2a97fd.png"
+      "sha256": "219ae70993e6863c16d17a7d268f010ee5381c83cbb259443f1150514eed66a5",
+      "url": "https://i.gyazo.com/4eccbd10a4fbf093b9744ada3528fbd1.png"
     },
     {
       "name": "guide-minutes",

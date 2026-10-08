@@ -150,13 +150,13 @@ describe("GET /v1/g/demo/card.svg", () => {
 
   it("既定でデモの名前と固定のアイコンを描き、`l` / `u` があればそれを描く", async () => {
     const svg = await (await SELF.fetch(DEMO_URL)).text();
-    expect(svg).toContain(">/cosense-grass</text>");
+    expect(svg).toContain(">cosense-grass</text>");
     expect(svg).toContain(">demo</text>");
     expect(svg).toContain(`href="${DEMO_ICON}"`);
     expect(svg).toContain('<a href="https://scrapbox.io/cosense-grass/">');
 
     const named = await (await SELF.fetch(`${DEMO_URL}?l=my-proj&u=taro`)).text();
-    expect(named).toContain(">/my-proj</text>");
+    expect(named).toContain(">my-proj</text>");
     expect(named).toContain(">taro</text>");
     expect(named).toContain('<a href="https://scrapbox.io/my-proj/">');
   });
@@ -390,7 +390,7 @@ describe("GET /v1/g/{publicId}/card.svg", () => {
     const labeled = await (await SELF.fetch(`${url}?l=my-proj`)).text();
     expect(dark).not.toBe(light);
     expect(en).toContain(">Mon</text>");
-    expect(labeled).toContain(">/my-proj</text>");
+    expect(labeled).toContain(">my-proj</text>");
     expect(labeled).not.toContain("<image");
   });
 

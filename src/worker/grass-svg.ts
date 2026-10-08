@@ -73,6 +73,10 @@ function toSvg(layout: GrassLayout): string {
       ? ""
       : // **`<img>` で貼られている間は押せない** (research §3)。画像そのものを開いたときに効く
         `<a href="${escapeXml(name.project.href)}"><text x="${name.project.x}" y="${name.project.y}" font-size="${name.project.size}" font-weight="500" fill="${name.project.fill}">${escapeXml(name.project.text)}</text></a>`;
+  const separator =
+    name.separator === undefined
+      ? ""
+      : `<text x="${name.separator.x}" y="${name.separator.y}" font-size="${name.separator.size}" fill="${name.separator.fill}">${escapeXml(name.separator.text)}</text>`;
   const icon =
     name.icon === undefined
       ? ""
@@ -81,14 +85,14 @@ function toSvg(layout: GrassLayout): string {
   const user =
     name.user === undefined
       ? ""
-      : `<text x="${name.user.x}" y="${name.user.y}" font-size="${name.user.size}" fill="${name.user.fill}">${escapeXml(name.user.text)}</text>`;
+      : `<text x="${name.user.x}" y="${name.user.y}" font-size="${name.user.size}" font-weight="500" fill="${name.user.fill}">${escapeXml(name.user.text)}</text>`;
   const mark = name.mark
     .map(
       (s) =>
         `<rect x="${s.x}" y="${s.y}" width="${name.markCellSize}" height="${name.markCellSize}" rx="${name.markCellRadius}" fill="${s.fill}"/>`,
     )
     .join("");
-  const nameRow = mark + project + icon + user;
+  const nameRow = mark + project + separator + icon + user;
 
   // **`<img>` で貼られている間は押せない** (research §3)。気づかせるためのもので、画像そのものを開いたときに効く (ADR-0027)。
   // `i` はフォントに頼らず点と棒で描く
