@@ -116,6 +116,8 @@ Worker の API も `/v1/` を固定し、破壊的変更では `/v2/` へ上げ�
 手元の `cosense` CLI (`@helpfeel/cosense-cli`、または cosense-cli プラグインの `bin`。`cosense login https://scrapbox.io` 済み) を使うので **CI では動かない** (PAT を Secrets に置かない)。
 **貼る前に、作業ツリーが最新の `origin/main` で変更が無いことをスクリプトが確かめ**、違えば書き込む前に止まる (#138)。
 先に `npm run build:userscript` で作り直す。差し戻しなど意図して別のコミットを貼るときだけ `--allow-stale`。
+**どのコードが貼られているかはバンドルの 1 行目の指紋** (`// cosense-grass build <12 桁> — commit ...`) で見分ける。
+`build` が同じなら `dev` と `v1` は同じコードで、`commit` は判定に使わない (main が進むと変わる)。
 **ops を手で組んで貼らない** — 分割の順番を間違えると配布ページが空になる (#105)。
 貼った後の突き合わせはスクリプトが `check-distribution.sh` を呼んで行う
 (**末尾の改行 1 つを落としてから比べる**。Cosense は行の配列なので配信物に改行が無い)。

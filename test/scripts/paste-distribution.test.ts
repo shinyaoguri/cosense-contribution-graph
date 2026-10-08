@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { stamp } from "../../scripts/bundle-fingerprint.ts";
 import {
+  alreadyPasted,
   chunkByBytes,
   explainCosenseFailure,
   isRetryable,
@@ -468,5 +470,36 @@ describe("explainCosenseFailure (#137)", () => {
   it("**それ以外の失敗 (503 など) は案内を付けない** — 試し直しの対象を横取りしない", () => {
     expect(explainCosenseFailure(new Error("HTTP 503 Service Unavailable"))).toBeUndefined();
     expect(explainCosenseFailure("文字列")).toBeUndefined();
+  });
+});
+
+describe("alreadyPasted", () => {
+  const bundle = stamp("// banner\nrun();\n", { commit: "6f1103c", date: "2026-10-08" });
+  const [fingerprint = "", ...rest] = bundle.slice(0, -1).split("\n");
+  const base = { bodyMatches: true, resuming: false, bundleText: bundle };
+
+  it("本体が一致し、ページ冒頭に同じ build の指紋があれば貼らない", () => {
+    expect(alreadyPasted({ ...base, page: page([fingerprint, ...rest]) })).toBe(true);
+  });
+
+  it("commit だけ違う指紋なら貼らない (コードは同じ)", () => {
+    const other = fingerprint.replace("6f1103c", "abcdef0");
+    expect(alreadyPasted({ ...base, page: page([other, ...rest]) })).toBe(true);
+  });
+
+  it("本体が一致しても、指紋が無いページには貼る (どのコードか分かるようにする)", () => {
+    expect(alreadyPasted({ ...base, page: page(rest) })).toBe(false);
+  });
+
+  it("本体が違えば貼る", () => {
+    expect(alreadyPasted({ ...base, bodyMatches: false, page: page([fingerprint, ...rest]) })).toBe(
+      false,
+    );
+  });
+
+  it("途中経過があれば続ける", () => {
+    expect(alreadyPasted({ ...base, resuming: true, page: page([fingerprint, ...rest]) })).toBe(
+      false,
+    );
   });
 });
