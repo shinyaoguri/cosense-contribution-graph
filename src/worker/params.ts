@@ -1,6 +1,7 @@
 import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
+import { CELLS, type Cell, type GrassForm, SPANS, type Span } from "../shared/grass.ts";
 import { isValidProjectName, isValidUserName } from "../shared/project-name.ts";
-import type { Lang } from "./graph/grass.ts";
+import type { Lang, Mode } from "./graph/grass.ts";
 import { DEFAULT_PARAMS, MAX_WEEKS, type Params } from "./graph/grid.ts";
 import { isSchemeName } from "./graph/scheme.ts";
 
@@ -82,6 +83,45 @@ export function parseYear(search: URLSearchParams): string | undefined {
 /**
  * カードの図のラベルの言語 (`?lang=`。ADR-0024)。**`en` のときだけ英語で、それ以外は日本語** (未知の値も 400 にしない)。
  */
-export function parseLang(search: URLSearchParams): Lang {
+function parseLang(search: URLSearchParams): Lang {
   return search.get("lang") === "en" ? "en" : "ja";
+}
+
+/** 図 (`card.svg`) の描画パラメータ (ADR-0026 決定 1)。 */
+export type GrassParams = {
+  readonly form: GrassForm;
+  readonly theme: "light" | "dark";
+  readonly mode: Mode;
+  readonly palette: Params["palette"];
+  readonly lang: Lang;
+  /** `?year=` の年の 12/31。今日より後かどうかは描く側が見る */
+  readonly end?: string;
+};
+
+const isSpan = (value: string | null): value is Span => SPANS.some((span) => span === value);
+const isCell = (value: string | null): value is Cell => CELLS.some((cell) => cell === value);
+
+/**
+ * 図の描画パラメータをクエリから読む (ADR-0026 決定 1)。**既定の形は URL ごとに違う**ので呼び出し側が渡す (決定 6)。
+ *
+ * - `span` (`half` / `year`) と `cell` (`slot` / `day`) は独立に選べる。外れた値は既定に落とす (400 にしない)
+ * - **`year` があれば、`span` によらず 1 年にする** (年を振り返るのに半年では足りない)
+ * - `weeks` は読まない (期間は 2 つに絞った。未知のキーと同じく無視する)
+ */
+export function parseGrassParams(search: URLSearchParams, defaults: GrassForm): GrassParams {
+  const { theme, mode, palette } = parseParams(search);
+  const end = parseYear(search);
+  const span = search.get("span");
+  const cell = search.get("cell");
+  return {
+    form: {
+      span: end !== undefined ? "year" : isSpan(span) ? span : defaults.span,
+      cell: isCell(cell) ? cell : defaults.cell,
+    },
+    theme,
+    mode,
+    palette,
+    lang: parseLang(search),
+    ...(end === undefined ? {} : { end }),
+  };
 }

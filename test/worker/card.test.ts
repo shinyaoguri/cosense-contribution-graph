@@ -1,9 +1,10 @@
 import { env, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
+import { CARD_FORM, CELLS, GRASS_SIZES, SPANS } from "../../src/shared/grass.ts";
 import { PH_ALL, publicIdOf } from "../../src/shared/ids.ts";
 import { DEMO_ICON } from "../../src/worker/demo.ts";
 import { centerOf } from "../../src/worker/graph/balance.ts";
-import { type GrassDay, slotPopulation } from "../../src/worker/graph/grass.ts";
+import { type GrassDay, type GrassInput, slotPopulation } from "../../src/worker/graph/grass.ts";
 import { buildScale } from "../../src/worker/graph/scale.ts";
 import { DEFAULT_SCHEME } from "../../src/worker/graph/scheme.ts";
 import { type CardOptions, renderStoredCard } from "../../src/worker/graph-data.ts";
@@ -16,7 +17,13 @@ const TODAY = "2026-09-15";
 const PH = "0123456789abcdef";
 const DEMO_URL = "https://example.com/v1/g/demo/card.svg";
 const CARD_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:";
-const OPTIONS: CardOptions = { theme: "light", palette: DEFAULT_SCHEME, lang: "ja" };
+const OPTIONS: CardOptions = {
+  form: CARD_FORM,
+  theme: "light",
+  mode: "bi",
+  palette: DEFAULT_SCHEME,
+  lang: "ja",
+};
 const ICON = "data:image/png;base64,iVBORw0KGgo=";
 
 /** day, w, r, wc, wo, 区間 (sw0..sw3, sr0..sr3。null は内訳なし) */
@@ -63,13 +70,16 @@ function cardDayOf([, w, r, wc, wo, s]: Row): GrassDay {
 function expected(
   population: readonly Row[],
   display: readonly Row[],
-  extra: { label?: string; user?: string; icon?: string; total?: boolean } = {},
+  extra: Partial<Pick<GrassInput, "label" | "user" | "icon" | "total" | "form" | "end">> = {},
 ): string {
   const all = new Map(population.map((row) => [row[0], cardDayOf(row)]));
   const slots = slotPopulation(all);
   const dayMinutes = population.map(([, w, r]) => ({ w, r }));
+  // 計測開始日は母集団 (ph = '*') の最も古い日。それより前は点線の枠になる
+  const startDay = population.map(([day]) => day).sort()[0];
   return renderGrass({
     today: TODAY,
+    ...(startDay === undefined ? {} : { startDay }),
     days: new Map(display.map((row) => [row[0], cardDayOf(row)])),
     slotScale: buildScale(slots.map((m) => m.w + m.r)),
     slotCenter: centerOf(slots),
@@ -111,6 +121,23 @@ describe("GET /v1/g/demo/card.svg", () => {
     }
   });
 
+  it("**span と cell で 4 つの形を描き分ける。外寸は GRASS_SIZES どおり** (ADR-0026)", async () => {
+    for (const span of SPANS) {
+      for (const cell of CELLS) {
+        const svg = await (await SELF.fetch(`${DEMO_URL}?span=${span}&cell=${cell}`)).text();
+        const { width, height } = GRASS_SIZES[span][cell];
+        expect(svg, `${span} ${cell}`).toMatch(
+          new RegExp(
+            `^<svg [^>]*width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"`,
+          ),
+        );
+      }
+    }
+    // year は span によらず 1 年
+    const past = await (await SELF.fetch(`${DEMO_URL}?year=2025&span=half`)).text();
+    expect(past).toMatch(/^<svg [^>]*width="775" height="361"/);
+  });
+
   it("ETag で 304 を返す", async () => {
     const etag = (await SELF.fetch(DEMO_URL)).headers.get("etag") ?? "";
     expect(etag).not.toBe("");
@@ -132,10 +159,18 @@ describe("GET /v1/g/demo/card.svg", () => {
     expect(named).toContain('<a href="https://scrapbox.io/my-proj/">');
   });
 
-  it("**ユーザー名はエスケープする**", async () => {
-    const svg = await (await SELF.fetch(`${DEMO_URL}?u=${encodeURIComponent('<b>&"x')}`)).text();
-    expect(svg).toContain(">&lt;b&gt;&amp;&quot;x</text>");
-    expect(svg).not.toContain("<b>");
+  it("**ユーザー名はどの形でもエスケープする** (XSS を塞ぐ要点。Issue #195)", async () => {
+    // 長いと草の右端で `…` に切られるので短くする
+    const attack = encodeURIComponent('"><script>&');
+    for (const span of SPANS) {
+      for (const cell of CELLS) {
+        const svg = await (
+          await SELF.fetch(`${DEMO_URL}?span=${span}&cell=${cell}&u=${attack}`)
+        ).text();
+        expect(svg, `${span} ${cell}`).toContain(">&quot;&gt;&lt;script&gt;&amp;</text>");
+        expect(svg).not.toContain("<script");
+      }
+    }
   });
 
   it("`lang=en` で英語、それ以外は日本語。`theme=dark` が効く", async () => {
@@ -236,6 +271,26 @@ describe("renderStoredCard", () => {
     expect(svg).toBe(expected(rows, rows, { label: "proj", user: "taro", total: true }));
     expect(svg).not.toContain("/proj");
     expect(svg).toContain(">taro</text>");
+  });
+
+  it("**year では右端の翌日まで読み、過去の 12/31 の夜に翌日の区間 0 を足す**", async () => {
+    const rows: Row[] = [
+      ["2025-12-30", 2, 0, 0, 0, [0, 0, 0, 2, 0, 0, 0, 0]],
+      ["2025-12-31", 4, 0, 0, 0, [0, 0, 0, 4, 0, 0, 0, 0]],
+      ["2026-01-01", 30, 0, 0, 0, [30, 0, 0, 0, 0, 0, 0, 0]],
+    ];
+    const publicId = await store(randomUid(), PH, rows);
+    const options: CardOptions = {
+      ...OPTIONS,
+      form: { span: "year", cell: "slot" },
+      end: "2025-12-31",
+    };
+
+    const svg = await renderStoredCard(env.DB, publicId, options, NOW, iconSpy().icon);
+
+    expect(svg).toBe(expected([], rows, { form: options.form, end: "2025-12-31" }));
+    // 翌日の行を読まなかったときの絵とは違う
+    expect(svg).not.toBe(expected([], rows.slice(0, 2), { form: options.form, end: "2025-12-31" }));
   });
 
   it("graphs に無い publicId は undefined", async () => {

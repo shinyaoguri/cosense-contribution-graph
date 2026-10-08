@@ -11,17 +11,18 @@
  */
 
 import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
+import { SPAN_WEEKS } from "../shared/grass.ts";
 import { PH_ALL } from "../shared/ids.ts";
 import { DEFAULT_TIME_ZONE, todayIn } from "./days.ts";
 import { type AxisDay, sumAxes } from "./graph/axes.ts";
 import type { Minutes } from "./graph/balance.ts";
 import { centerOf } from "./graph/balance.ts";
-import { type GrassDay, grassStart, HALF_WEEKS, type Lang, slotPopulation } from "./graph/grass.ts";
+import { type GrassDay, grassStart, slotPopulation } from "./graph/grass.ts";
 import { DAYS, MAX_WEEKS, type Params } from "./graph/grid.ts";
 import { buildScale } from "./graph/scale.ts";
-import type { SchemeName, Theme } from "./graph/scheme.ts";
 import { renderGrass } from "./grass-svg.ts";
 import { renderOverview } from "./overview-svg.ts";
+import type { GrassParams } from "./params.ts";
 import { renderGraph } from "./svg.ts";
 
 type DayRow = { readonly day: string; readonly w: number; readonly r: number };
@@ -203,10 +204,7 @@ function cardDayOf(row: CardRow): GrassDay {
   return { ...base, segments: { w: [sw0, sw1, sw2, sw3], r: [sr0, sr1, sr2, sr3] } };
 }
 
-export type CardOptions = {
-  readonly theme: Theme;
-  readonly palette: SchemeName;
-  readonly lang: Lang;
+export type CardOptions = GrassParams & {
   /** 画像に描くプロジェクト名 (`?l=`)。その要求で渡されたもので、保存しない */
   readonly label?: string;
   /** 画像に描くユーザー名 (`?u=`)。同上 */
@@ -216,8 +214,10 @@ export type CardOptions = {
 /**
  * D1 の記録からカードの図を描く (ADR-0024)。`publicId` が `graphs` に無ければ `undefined`。D1 の失敗は throw する。
  *
- * - 期間は右端の日 (今日) の週から 26 週。右端の日の決め方は草と同じ (`rightEdge`)。`year` は受けない
+ * - 期間は形 (`span`) の週数。右端の日の決め方は草と同じ (`rightEdge`。`?year=` ならその年の 12/31)
  * - 表示する行と `ph = '*'` の母集団を 1 回の batch で読む (`loadGraph` と同じ形)。合算は 1 回だけ読む
+ * - **表示する行は右端の翌日まで読む。** 右端の日の夜は翌日の区間 0 を足して組み立てる (過去の年の 12/31 の夜)
+ * - 計測開始日は母集団 (`ph = '*'` の全期間) の最も古い日 (草と同じ。Issue #80)
  * - **アイコンは `l` と `u` がそろい、合算でないときだけ取りに行く** (`icon` は注入。D1 の読み取りと並べて待つ)
  */
 export async function renderStoredCard(
@@ -235,7 +235,8 @@ export async function renderStoredCard(
     return undefined;
   }
 
-  const today = rightEdge(nowMs);
+  const today = todayIn(DEFAULT_TIME_ZONE, nowMs);
+  const end = rightEdge(nowMs, options.end);
   const total = graph.ph === PH_ALL;
   const populationQuery = db
     .prepare(`SELECT ${CARD_COLUMNS} FROM daily WHERE uid = ? AND ph = ?`)
@@ -252,7 +253,12 @@ export async function renderStoredCard(
         .prepare(
           `SELECT ${CARD_COLUMNS} FROM daily WHERE uid = ? AND ph = ? AND day >= ? AND day <= ?`,
         )
-        .bind(graph.uid, graph.ph, grassStart(today, HALF_WEEKS), today),
+        .bind(
+          graph.uid,
+          graph.ph,
+          grassStart(end, SPAN_WEEKS[options.form.span]),
+          fromEpochDay(toEpochDay(end) + 1),
+        ),
     ]);
     return [population?.results ?? [], display?.results ?? []];
   };
@@ -267,8 +273,16 @@ export async function renderStoredCard(
   const population = new Map(populationRows.map((row) => [row.day, cardDayOf(row)]));
   const slots = slotPopulation(population);
   const dayMinutes = populationRows.map((row): Minutes => ({ w: row.w, r: row.r }));
+  const startDay = populationRows.reduce<string | undefined>(
+    (oldest, row) => (oldest === undefined || row.day < oldest ? row.day : oldest),
+    undefined,
+  );
   return renderGrass({
     today,
+    end,
+    form: options.form,
+    mode: options.mode,
+    startDay,
     days: total ? population : new Map(displayRows.map((row) => [row.day, cardDayOf(row)])),
     slotScale: buildScale(slots.map((m) => m.w + m.r)),
     slotCenter: centerOf(slots),
