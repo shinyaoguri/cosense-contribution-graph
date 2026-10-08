@@ -214,6 +214,9 @@ flowchart LR
 それ以外の変更は同じページを差し替え、`USERSCRIPT_VERSION` の minor を上げる。
 Worker の API も `/v1/` を固定し、破壊的変更では `/v2/` へ上げる。
 
+配布ページのコードの 1 行目には指紋 `// cosense-grass build <12 桁> — commit <SHA> (<日付>)` がある。
+`build` はコード本体の SHA-256 の先頭で、**2 つのページの `build` が同じなら中身も同じ**。`commit` はどの版の main から作ったかを示す。
+
 ## 自分で運用するとき
 
 - **独自ドメイン。** `workers.dev` では zone の WAF が効かないので、レート制限がかけられない

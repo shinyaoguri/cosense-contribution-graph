@@ -39,6 +39,7 @@ import { execFile as execFileCallback } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, rm, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
+import { parseFingerprint } from "./bundle-fingerprint.ts";
 
 const execFile = promisify(execFileCallback);
 
@@ -411,6 +412,32 @@ export function explainCosenseFailure(error: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * 貼らずに済むか。**本体が一致し、ページ冒頭に同じ指紋が付いているときだけ**。
+ *
+ * 本体の比較 (`check-distribution.sh`) は指紋の行を除くので、指紋が付く前に貼ったページや、
+ * 指紋の行だけ消されたページも「一致」になる。そのままにすると、ページを見てもどのコードか分からないので貼り直す。
+ * 指紋の `commit` だけが違うのは貼り直さない — コードは同じで、指紋の `build` も同じ
+ */
+export function alreadyPasted(input: {
+  readonly bodyMatches: boolean;
+  /** 前回の途中経過がある。切り替えた後に止まると、配信物は一致しても古い行が残っている */
+  readonly resuming: boolean;
+  readonly page: Page;
+  readonly bundleText: string;
+}): boolean {
+  if (!input.bodyMatches || input.resuming) {
+    return false;
+  }
+  const title = input.page.lines.findIndex((line) => line.text === SCRIPT_TITLE);
+  const first = input.page.lines[title + 1]?.text;
+  if (title === -1 || first === undefined || !inCodeBlock(first)) {
+    return false;
+  }
+  const pasted = parseFingerprint(first.slice(INDENT.length));
+  return pasted !== undefined && pasted.build === parseFingerprint(input.bundleText)?.build;
+}
+
 // ---- ここから下は CLI (ネットワークとファイルを触る) ----
 
 async function cosense(args: readonly string[], stdin?: string): Promise<string> {
@@ -564,18 +591,14 @@ async function main(): Promise<void> {
   const previous = await readState(statePath);
 
   // 貼る前に配信物と比べる。**既に一致していれば何もしない** (同じ中身で commit を増やさない)。
-  // ただし途中経過があれば続ける — 切り替えた後に止まると、配信物は一致しても古い行が残っている
+  // ただし途中経過があれば続ける — 切り替えた後に止まると、配信物は一致しても古い行が残っている。
+  // 比べるのは指紋の行を除いた本体で、指紋が付いているかはページを読んでから `alreadyPasted` で見る
   const check = await execFile("./scripts/check-distribution.sh", [page, bundlePath]).catch(
     (error: { code?: number; stdout?: string; stderr?: string }) => error,
   );
   if ("code" in check && check.code === 2) {
     throw new Error(`配信物を取得できなかった: ${check.stderr ?? ""}`);
   }
-  if (!("code" in check) && previous?.page !== page) {
-    log(`配布ページ ${page} は既に手元のバンドルと一致している。何もしない`);
-    return;
-  }
-
   const readPage = async () =>
     JSON.parse(await cosense(["readPage", `${PROJECT_URL}/${page}`])) as Page & {
       persistent?: boolean;
@@ -583,6 +606,19 @@ async function main(): Promise<void> {
   const fetched = await readPage();
   if (fetched.persistent === false) {
     throw new Error(`ページ ${page} がまだ無い。Cosense で code:script.js だけ作ってから貼る`);
+  }
+  if (
+    alreadyPasted({
+      bodyMatches: !("code" in check),
+      resuming: previous?.page === page,
+      page: fetched,
+      bundleText,
+    })
+  ) {
+    log(
+      `配布ページ ${page} は既に手元のバンドルと一致している (build ${parseFingerprint(bundleText)?.build})。何もしない`,
+    );
+    return;
   }
 
   const bundleSha = sha256(bundleText);
