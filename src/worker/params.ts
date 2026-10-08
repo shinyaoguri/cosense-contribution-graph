@@ -1,5 +1,6 @@
 import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
 import { CELLS, type Cell, type GrassForm, SPANS, type Span } from "../shared/grass.ts";
+import { isValidGyazoId } from "../shared/gyazo-id.ts";
 import { isValidProjectName, isValidUserName } from "../shared/project-name.ts";
 import type { Lang, Mode } from "./graph/grass.ts";
 import { DEFAULT_SCHEME, isSchemeName, type SchemeName, type Theme } from "./graph/scheme.ts";
@@ -24,6 +25,18 @@ export function parseLabel(search: URLSearchParams): string | undefined {
 export function parseUser(search: URLSearchParams): string | undefined {
   const raw = search.get("u");
   return raw !== null && isValidUserName(raw) ? raw : undefined;
+}
+
+/**
+ * アイコンの Gyazo の画像 ID (`?i=`。ADR-0028)。**UserScript が、ログインしたブラウザで読んだページの `image` から取り出して渡す。**
+ * 非公開プロジェクトのアイコンは Worker が Cosense から引けないため。`parseLabel` と同じく**サーバは保存しない**。
+ *
+ * **URL ではなく ID だけを受ける。** 取りに行く先は Worker が ID から組み立てる (`card-icon.ts`) ので、
+ * 任意の URL を取らせる口にならない。`isValidGyazoId` を通ったものだけ返し、外れていれば `undefined` (描かないだけ。400 にしない)
+ */
+export function parseIcon(search: URLSearchParams): string | undefined {
+  const raw = search.get("i");
+  return raw !== null && isValidGyazoId(raw) ? raw : undefined;
 }
 
 const YEAR_PATTERN = /^\d{4}$/;

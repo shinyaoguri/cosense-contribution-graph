@@ -37,7 +37,7 @@ import { googleKeys } from "./idtoken.ts";
 import { handleIngest } from "./ingest.ts";
 import { type GraphData, loadGraphData } from "./json.ts";
 import { d1KeyResolver } from "./keys.ts";
-import { parseGrassParams, parseLabel, parseUser } from "./params.ts";
+import { parseGrassParams, parseIcon, parseLabel, parseUser } from "./params.ts";
 import { handleProbe } from "./probe.ts";
 import { HOME_JA_PATH, HOME_PATH, handleHome, handlePrivacy } from "./site.ts";
 
@@ -186,13 +186,19 @@ export default {
             ...parseGrassParams(url.searchParams, route.form),
             label: parseLabel(url.searchParams),
             user: parseUser(url.searchParams),
+            gyazo: parseIcon(url.searchParams),
           },
           Date.now(),
-          (project, user) =>
-            cardIcon(project, user, {
-              fetch: (iconUrl, init) => fetch(iconUrl, init),
-              cache: caches.default,
-            }),
+          (project, user, gyazo) =>
+            cardIcon(
+              project,
+              user,
+              {
+                fetch: (iconUrl, init) => fetch(iconUrl, init),
+                cache: caches.default,
+              },
+              gyazo,
+            ),
         );
       } catch {
         console.log(JSON.stringify({ event: route.event, status: 503 }));

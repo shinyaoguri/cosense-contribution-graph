@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   cardIcon,
+  gyazoCacheKey,
   type IconCache,
   type IconDeps,
   iconCacheKey,
@@ -178,5 +179,121 @@ describe("cardIcon", () => {
     expect(iconCacheKey("proj", user)).toBe(
       `https://card-icon.invalid/proj/${encodeURIComponent(user)}`,
     );
+  });
+});
+
+describe("cardIcon: UserScript が渡す Gyazo の ID (ADR-0028)", () => {
+  const ID = "0123456789abcdef0123456789abcdef";
+  const THUMB = `https://gyazo.com/${ID}/max_size/64`;
+  const FILE = `https://i.gyazo.com/thumb_dpr/64/${ID}-png.png`;
+
+  it("**ID があれば `/icon` を引かず、Gyazo の max_size/64 だけを辿る** (非公開プロジェクトでも取れる)", async () => {
+    const { deps: d, calls } = deps({
+      [THUMB]: () => redirect(FILE),
+      [FILE]: () => image("image/png"),
+    });
+
+    expect(await cardIcon("proj", "taro", d, ID)).toBe(PNG_URI);
+    expect(calls.map((c) => c.url)).toEqual([THUMB, FILE]);
+    expect(calls.every((c) => c.init.redirect === "manual")).toBe(true);
+  });
+
+  it("**鍵は Gyazo の ID 単位で、(project, user) の失敗の記憶に引きずられない**", async () => {
+    const {
+      deps: d,
+      calls,
+      store,
+    } = deps({
+      [ICON_API]: () => new Response(null, { status: 401 }),
+      [THUMB]: () => redirect(FILE),
+      [FILE]: () => image("image/png"),
+    });
+
+    // 先に ID 無しで引いて失敗を 1 時間記憶させる (UserScript が古く `i=` を付けない端末から先に読まれた場合)
+    expect(await cardIcon("proj", "taro", d)).toBeUndefined();
+    expect(store.get(iconCacheKey("proj", "taro"))?.body).toBe("");
+
+    // その後で `i=` 付きで読まれたら、Gyazo から取れる
+    expect(await cardIcon("proj", "taro", d, ID)).toBe(PNG_URI);
+    expect(store.get(gyazoCacheKey(ID))).toEqual({ body: PNG_URI, cacheControl: "max-age=86400" });
+    expect(calls.map((c) => c.url)).toEqual([ICON_API, THUMB, FILE]);
+
+    // 2 回目はキャッシュから。外へ取りに行かない
+    expect(await cardIcon("proj", "taro", d, ID)).toBe(PNG_URI);
+    expect(calls).toHaveLength(3);
+  });
+
+  it("**Gyazo から取れなければ従来の `/icon` に落ちる** (画像が消された公開プロジェクトでは今の画像が出る)", async () => {
+    const {
+      deps: d,
+      calls,
+      store,
+    } = deps({
+      [THUMB]: () => new Response(null, { status: 404 }),
+      [ICON_API]: () => image("image/png"),
+    });
+
+    expect(await cardIcon("proj", "taro", d, ID)).toBe(PNG_URI);
+    expect(calls.map((c) => c.url)).toEqual([THUMB, ICON_API]);
+    // Gyazo の失敗は ID の鍵に、`/icon` の成功は (project, user) の鍵に
+    expect(store.get(gyazoCacheKey(ID))).toEqual({ body: "", cacheControl: "max-age=3600" });
+    expect(store.get(iconCacheKey("proj", "taro"))?.body).toBe(PNG_URI);
+  });
+
+  it("どちらも取れなければ undefined で、両方の失敗を記憶する", async () => {
+    const {
+      deps: d,
+      calls,
+      store,
+    } = deps({
+      [THUMB]: () => new Response(null, { status: 404 }),
+      [ICON_API]: () => new Response(null, { status: 401 }),
+    });
+
+    expect(await cardIcon("proj", "taro", d, ID)).toBeUndefined();
+    expect(store.get(gyazoCacheKey(ID))?.body).toBe("");
+    expect(store.get(iconCacheKey("proj", "taro"))?.body).toBe("");
+
+    expect(await cardIcon("proj", "taro", d, ID)).toBeUndefined();
+    expect(calls).toHaveLength(2);
+  });
+
+  it("**Gyazo の転送先にも許可リストと、種類・大きさの検査がかかる**", async () => {
+    const evil = deps({
+      [THUMB]: () => redirect("https://evil.example/x.png"),
+      [ICON_API]: () => new Response(null, { status: 401 }),
+    });
+    expect(await cardIcon("proj", "taro", evil.deps, ID)).toBeUndefined();
+    expect(evil.calls.map((c) => c.url)).toEqual([THUMB, ICON_API]);
+
+    const svg = deps({
+      [THUMB]: () => redirect(FILE),
+      [FILE]: () => image("image/svg+xml"),
+      [ICON_API]: () => new Response(null, { status: 401 }),
+    });
+    expect(await cardIcon("proj", "taro", svg.deps, ID)).toBeUndefined();
+
+    const big = deps({
+      [THUMB]: () => redirect(FILE),
+      [FILE]: () => image("image/png", new Uint8Array(MAX_ICON_BYTES + 1)),
+      [ICON_API]: () => new Response(null, { status: 401 }),
+    });
+    expect(await cardIcon("proj", "taro", big.deps, ID)).toBeUndefined();
+  });
+
+  it("**形の外れた ID では URL を組み立てず、従来どおり `/icon` だけを引く**", async () => {
+    for (const bad of ["../../etc/passwd", `${"0".repeat(31)}/`, "ABC", ""]) {
+      const { deps: d, calls } = deps({ [ICON_API]: () => image("image/png") });
+      expect(await cardIcon("proj", "taro", d, bad), bad).toBe(PNG_URI);
+      expect(
+        calls.map((c) => c.url),
+        bad,
+      ).toEqual([ICON_API]);
+    }
+  });
+
+  it("**ID の鍵は外から引けない名前で、(project, user) の鍵とぶつからない** (project 名が `gyazo`、user 名が ID の形でも)", () => {
+    expect(gyazoCacheKey(ID)).toBe(`https://card-icon-gyazo.invalid/${ID}`);
+    expect(gyazoCacheKey(ID)).not.toBe(iconCacheKey("gyazo", ID));
   });
 });

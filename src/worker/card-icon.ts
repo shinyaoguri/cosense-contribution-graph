@@ -3,16 +3,20 @@
  *
  * **`<img>` で読まれた SVG は外部の画像を読まない**ので、URL ではなく中身を `data:` の URI にして埋め込む。
  *
- * - 取り先は `https://scrapbox.io/api/pages/<l>/<u>/icon` だけ (`[user.icon]` と同じもの。research §4)。
+ * - 取り先は `https://scrapbox.io/api/pages/<l>/<u>/icon` (`[user.icon]` と同じもの。research §4)。
  *   302 でそのページの画像へ転送されるので、**転送は自分で辿り** (`redirect: "manual"`)、行き先のホストを許可リストで確かめる。
  *   Google のアイコン (`lh3.googleusercontent.com`) など、許可リストの外へ転送されたら諦める
+ * - **非公開プロジェクトは未認証では引けない** (401。research §4) ので、UserScript が図の URL の `?i=` で Gyazo の画像 ID を渡す (ADR-0028)。
+ *   **渡された URL は取らず、ID から `https://gyazo.com/<id>/max_size/64` を自分で組み立てる。** 取れなければ上の `/icon` に落ちる
  * - Gyazo は `/max_size/400` で返るので `/max_size/64` に替えて小さく取る
  * - 種類は png / jpeg / gif / webp だけ。**SVG は入れない** (スクリプトや外部参照を持ちうる)。大きすぎるものも捨てる
- * - 結果は**失敗も含めて** Cache API に置く (成功 1 日、失敗 1 時間)。D1 には保存しない
+ * - 結果は**失敗も含めて** Cache API に置く (成功 1 日、失敗 1 時間)。D1 には保存しない。
+ *   **鍵は (project, user) と Gyazo の ID で別々にする** — 先に ID 無しで失敗を記憶しても、ID 付きの要求が引きずられない
  * - **取れないときは undefined** (名前だけにする)。例外は外へ出さない
  *
  * `fetch` と `cache` は注入する (テストでは偽物にし、外へ取りに行かない)。
  */
+import { isValidGyazoId } from "../shared/gyazo-id.ts";
 
 /** 転送を辿ってよいホスト */
 const ALLOWED_HOSTS: ReadonlySet<string> = new Set([
@@ -57,21 +61,56 @@ export type IconDeps = {
   readonly cache: IconCache;
 };
 
+/** Gyazo の ID の鍵の置き場。**`CACHE_ORIGIN` と別のホストにする** — project 名が `gyazo` で user 名が ID の形のときに (project, user) の鍵とぶつからない */
+const GYAZO_CACHE_ORIGIN = "https://card-icon-gyazo.invalid";
+
 /** キャッシュの鍵 */
 export function iconCacheKey(project: string, user: string): string {
   return `${CACHE_ORIGIN}/${encodeURIComponent(project)}/${encodeURIComponent(user)}`;
 }
 
+/** Gyazo の ID のキャッシュの鍵 (ADR-0028)。**呼ぶ側が `isValidGyazoId` を通したものだけを渡す** */
+export function gyazoCacheKey(id: string): string {
+  return `${GYAZO_CACHE_ORIGIN}/${id}`;
+}
+
 /**
  * アイコンの `data:` URI。取れなければ undefined。**キャッシュにあれば外へ取りに行かない。**
- * 失敗もキャッシュする (非公開プロジェクトや画像の無いページを毎回引かない)
+ * 失敗もキャッシュする (非公開プロジェクトや画像の無いページを毎回引かない)。
+ *
+ * `gyazoId` (UserScript が渡した画像 ID。ADR-0028) が**形を通れば先に**そこから取り、取れなければ `/icon` に落ちる。
+ * 形が外れていれば無かったものとして扱う (URL の部品にしない)
  */
 export async function cardIcon(
   project: string,
   user: string,
   deps: IconDeps,
+  gyazoId?: string,
 ): Promise<string | undefined> {
-  const key = iconCacheKey(project, user);
+  if (gyazoId !== undefined && isValidGyazoId(gyazoId)) {
+    const icon = await cached(gyazoCacheKey(gyazoId), deps, () =>
+      fetchImage(new URL(`https://gyazo.com/${gyazoId}/max_size/${GYAZO_MAX_SIZE}`), deps.fetch),
+    );
+    if (icon !== undefined) {
+      return icon;
+    }
+  }
+  return cached(iconCacheKey(project, user), deps, () =>
+    fetchImage(
+      new URL(
+        `https://scrapbox.io/api/pages/${encodeURIComponent(project)}/${encodeURIComponent(user)}/icon`,
+      ),
+      deps.fetch,
+    ),
+  );
+}
+
+/** キャッシュを引き、無ければ取って置く。**失敗 (例外も含む) は空文字で記憶し、例外は外へ出さない** */
+async function cached(
+  key: string,
+  deps: IconDeps,
+  produce: () => Promise<string | undefined>,
+): Promise<string | undefined> {
   try {
     const cached = await deps.cache.match(key);
     if (cached !== undefined) {
@@ -84,7 +123,7 @@ export async function cardIcon(
 
   let icon: string | undefined;
   try {
-    icon = await fetchIcon(project, user, deps.fetch);
+    icon = await produce();
   } catch {
     icon = undefined;
   }
@@ -128,14 +167,9 @@ function allowedIconUrl(location: string, base: URL): URL | undefined {
   return url;
 }
 
-async function fetchIcon(
-  project: string,
-  user: string,
-  fetchFn: IconDeps["fetch"],
-): Promise<string | undefined> {
-  let url = new URL(
-    `https://scrapbox.io/api/pages/${encodeURIComponent(project)}/${encodeURIComponent(user)}/icon`,
-  );
+/** `start` から転送を辿って画像を取り、`data:` の URI にする。**許可リスト・種類・大きさの検査はどこから始めても同じ** */
+async function fetchImage(start: URL, fetchFn: IconDeps["fetch"]): Promise<string | undefined> {
+  let url = start;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const res = await fetchFn(url.href, { redirect: "manual" });
     if (res.status >= 300 && res.status < 400) {
