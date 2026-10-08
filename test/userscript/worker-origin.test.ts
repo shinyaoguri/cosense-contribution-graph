@@ -6,6 +6,8 @@ import {
   cardUrl,
   graphIds,
   graphUrl,
+  grassLine,
+  grassUrl,
   WORKER_ORIGIN,
 } from "../../src/userscript/worker-origin.ts";
 
@@ -101,6 +103,43 @@ describe("cardUrl と cardLine (ADR-0024・0025)", () => {
       // Cosense のパーサが画像とみなす形 (`@progfay/scrapbox-parser` の ImageNode.ts)
       expect(line).toMatch(/^\[https?:\/\/[^\s\]]+\.(?:png|jpe?g|gif|svg|webp)(?:\?[^\]\s]+)?\]$/i);
     }
+  });
+});
+
+describe("grassUrl と grassLine (ADR-0026)", () => {
+  const id = "0123456789abcdef0123456789abcdef";
+  const card = `https://grass.soui.dev/v1/g/${id}/card.svg`;
+  const graph = `https://grass.soui.dev/v1/g/${id}.svg`;
+
+  it("**選んだ形を既定に持つ経路を選び、既定と違うキーだけを付ける** (貼る行を短く保つ)", () => {
+    expect(grassUrl(id, { span: "half", cell: "slot" })).toBe(card);
+    expect(grassUrl(id, { span: "half", cell: "day" })).toBe(`${card}?cell=day`);
+    expect(grassUrl(id, { span: "year", cell: "slot" })).toBe(`${card}?span=year`);
+    // 1 年 × 1 日は `{publicId}.svg` の既定。貼ってある草と同じ URL になる
+    expect(grassUrl(id, { span: "year", cell: "day" })).toBe(graph);
+  });
+
+  it("**年を選んだら 1 年で、`span` は付けず `year` だけを付ける** (Worker も year があれば 1 年で描く)", () => {
+    expect(grassUrl(id, { span: "half", cell: "slot", year: 2026 })).toBe(`${card}?year=2026`);
+    expect(grassUrl(id, { span: "half", cell: "day", year: 2026 })).toBe(`${graph}?year=2026`);
+  });
+
+  it("**名前は形の後に `l=` / `u=` で続け、形が外れていれば付けない**", () => {
+    expect(grassUrl(id, { span: "half", cell: "day" }, { project: "p", user: "山田" })).toBe(
+      `${card}?cell=day&l=p&u=${encodeURIComponent("山田")}`,
+    );
+    expect(grassUrl(id, { span: "year", cell: "day" }, { project: "../x" })).toBe(graph);
+  });
+
+  it("**貼る行はただの画像の記法で、空白と `]` を含まない**", () => {
+    const line = grassLine(id, { span: "year", cell: "slot", year: 2026 }, { user: "a b]" });
+    expect(line).toBe(`[${card}?year=2026&u=a%20b%5D]`);
+    expect(line.slice(1, -1)).not.toMatch(/[\s\]]/);
+  });
+
+  it("**プロフィールに貼る行 (`cardLine`) は形のクエリを付けない** (ダイアログで選んだ形を混ぜない)", () => {
+    expect(cardLine(id, { project: "p" })).toBe(`[${card}?l=p]`);
+    expect(graphUrl(id)).toBe(graph);
   });
 });
 

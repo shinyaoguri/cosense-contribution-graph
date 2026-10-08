@@ -21,7 +21,7 @@ Cosense (旧 Scrapbox) の活動を草として可視化する。成果物は **
 **UserScript が初めてページへ書く**プロフィールへの自動挿入 (同一オリジンの WebSocket で commit。insert だけでコードブロックの外。ADR-0025)。
 段階 11 (#220) で **草・概観・カードを 1 つの描画 (`graph/grass.ts`) にまとめ、カードを基本形にした** (ADR-0026)。
 期間 (`span=half|year`) とマス (`cell=slot|day`) で 4 つの形を描き、`{publicId}.svg` は「1 年 × 1 日」を既定にした同じ描画、`overview.svg` は廃止してカードを返す。
-**外寸は `src/shared/grass.ts` の `GRASS_SIZES` が正本で、`<img>` の寸法を手で書かない。** UserScript のダイアログを 1 枚の図にするのは未実装 (段階 11 の 6 番目)。
+**外寸は `src/shared/grass.ts` の `GRASS_SIZES` が正本で、`<img>` の寸法を手で書かない。** ダイアログは 1 枚の図と形の切り替え (期間・マス) で、URL は選んだ形から `grassUrl` で作る。
 本番は `https://grass.soui.dev` (独自ドメイン。`cosense-grass.soui.workers.dev` も有効) で、デモの草 `/v1/g/demo.svg` がある。設計の正本は `docs/`。
 
 ## docs の読み方

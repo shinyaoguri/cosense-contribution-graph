@@ -270,11 +270,9 @@ function enrolled(): SendStatus {
   return {
     kind: "enrolled",
     kid: "kid-1",
-    graphUrl: "https://grass.soui.dev/v1/g/x.svg",
-    overviewUrl: "https://grass.soui.dev/v1/g/x/overview.svg",
+    publicId: "x",
+    names: {},
     dataUrl: "https://grass.soui.dev/v1/g/x/ffffffffffffffffffffffffffffffff.json",
-    cardUrl: "https://grass.soui.dev/v1/g/total/card.svg",
-    cardLine: "[https://grass.soui.dev/v1/g/total/card.svg]",
     totalSent: true,
     projects: [],
     todaySends: 0,
@@ -315,29 +313,23 @@ describe("草を見る", () => {
     t.sending.status = async () => ({
       kind: "enrolled",
       kid: "0123456789abcdef",
-      graphUrl: "https://grass.soui.dev/v1/g/total.svg",
-      overviewUrl: "https://grass.soui.dev/v1/g/total/overview.svg",
+      publicId: "total",
+      names: {},
       dataUrl: "https://grass.soui.dev/v1/g/total/ffffffffffffffffffffffffffffffff.json",
-      cardUrl: "https://grass.soui.dev/v1/g/total/card.svg",
-      cardLine: "[https://grass.soui.dev/v1/g/total/card.svg]",
       totalSent: true,
       projects: [
         {
           name: "a",
-          graphUrl: "https://grass.soui.dev/v1/g/a.svg",
-          overviewUrl: "https://grass.soui.dev/v1/g/a/overview.svg",
+          publicId: "a",
+          names: {},
           dataUrl: "https://grass.soui.dev/v1/g/a/ffffffffffffffffffffffffffffffff.json",
-          cardUrl: "https://grass.soui.dev/v1/g/a/card.svg",
-          cardLine: "[https://grass.soui.dev/v1/g/a/card.svg https://scrapbox.io/a/]",
           sent: true,
         },
         {
           name: "b",
-          graphUrl: "https://grass.soui.dev/v1/g/b.svg",
-          overviewUrl: "https://grass.soui.dev/v1/g/b/overview.svg",
+          publicId: "b",
+          names: {},
           dataUrl: "https://grass.soui.dev/v1/g/b/ffffffffffffffffffffffffffffffff.json",
-          cardUrl: "https://grass.soui.dev/v1/g/b/card.svg",
-          cardLine: "[https://grass.soui.dev/v1/g/b/card.svg https://scrapbox.io/b/]",
           sent: false,
         },
       ],
@@ -354,9 +346,9 @@ describe("草を見る", () => {
     expect(t.sending.count).toBe(3);
     expect(t.views).toHaveLength(2);
     const view = t.views[0]?.view;
-    expect(view?.kind === "graphs" && view.projects.map((project) => project.url)).toEqual([
-      "https://grass.soui.dev/v1/g/b.svg",
-      "https://grass.soui.dev/v1/g/a.svg",
+    expect(view?.kind === "graphs" && view.projects.map((project) => project.publicId)).toEqual([
+      "b",
+      "a",
     ]);
     // 送信はしない (読み込み時の 1 回だけ)
     expect(t.triggers).toEqual(["load"]);
@@ -368,11 +360,9 @@ describe("草を見る", () => {
     t.sending.status = async () => ({
       kind: "enrolled",
       kid: "0123456789abcdef",
-      graphUrl: "https://grass.soui.dev/v1/g/total.svg",
-      overviewUrl: "https://grass.soui.dev/v1/g/total/overview.svg",
+      publicId: "total",
+      names: {},
       dataUrl: "https://grass.soui.dev/v1/g/total/ffffffffffffffffffffffffffffffff.json",
-      cardUrl: "https://grass.soui.dev/v1/g/total/card.svg",
-      cardLine: "[https://grass.soui.dev/v1/g/total/card.svg]",
       totalSent: true,
       projects: [],
       todaySends: 1,

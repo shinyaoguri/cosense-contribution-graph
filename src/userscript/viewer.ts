@@ -21,21 +21,18 @@ import { MAX_TODAY_SENDS, type SentRecord, type Trigger } from "./outbox.ts";
 import type { SendStatus } from "./sender.ts";
 import { SETTINGS_LABEL, SIGN_IN_LABEL } from "./settings.ts";
 import { localClock, localDay } from "./time.ts";
+import type { Names } from "./worker-origin.ts";
 
 /** 最初に出すプロジェクト別の草の数。統合の方は、開くたびの Worker へのリクエストと D1 の読み取りを抑える */
 export const INITIAL_PROJECT_GRAPHS = 5;
 
 export type GraphEntry = {
   readonly label: string;
-  readonly url: string;
-  /** 活動の概観 (ADR-0021)。草の下に並べる */
-  readonly overviewUrl: string;
+  /** 図の publicId と、図に描く名前。図の URL と貼る行は、ダイアログが選んだ形から作る (`grassUrl`。ADR-0026) */
+  readonly publicId: string;
+  readonly names: Names;
   /** 日ごとの集計値の JSON (ADR-0020)。**渡すと内訳まで読める** */
   readonly dataUrl: string;
-  /** Cosense に貼るカードの行 (ADR-0025)。プロジェクト別はプロフィールページに自動で貼るものと同じ */
-  readonly cardLine: string;
-  /** カードの図 (ADR-0024)。ダイアログの囲みの主役 (合算にもある。2026-10-07) */
-  readonly cardUrl: string;
   /**
    * このブラウザから 1 件でも送れたか。false なら草はまだ無いかもしれない (ほかの端末から送っていればある)。
    * ~~押されるまで画像を読まない~~ **2026-09-24 から最初から読み**、読めなかったときの文言の言い分けにだけ使う
@@ -161,36 +158,29 @@ export function describeIntegrated(
         // **合算も送れたかを見る** (Issue #100)。登録しただけで 1 件も送っていないと 404 になる
         total: {
           label: TOTAL_LABEL,
-          url: status.graphUrl,
-          overviewUrl: status.overviewUrl,
+          publicId: status.publicId,
+          names: status.names,
           dataUrl: status.dataUrl,
-          cardUrl: status.cardUrl,
-          cardLine: status.cardLine,
           sent: status.totalSent,
         },
         projects: [
-          ...current.map((project) => ({
-            label: currentLabel(project.name),
-            url: project.graphUrl,
-            overviewUrl: project.overviewUrl,
-            dataUrl: project.dataUrl,
-            cardLine: project.cardLine,
-            cardUrl: project.cardUrl,
-            sent: project.sent,
-          })),
-          ...others.map((project) => ({
-            label: project.name,
-            url: project.graphUrl,
-            overviewUrl: project.overviewUrl,
-            dataUrl: project.dataUrl,
-            cardLine: project.cardLine,
-            cardUrl: project.cardUrl,
-            sent: project.sent,
-          })),
+          ...current.map((project) => ({ ...entryOf(project), label: currentLabel(project.name) })),
+          ...others.map((project) => ({ ...entryOf(project), label: project.name })),
         ],
       };
     }
   }
+}
+
+type ProjectStatus = Extract<SendStatus, { kind: "enrolled" }>["projects"][number];
+
+function entryOf(project: ProjectStatus): Omit<GraphEntry, "label"> {
+  return {
+    publicId: project.publicId,
+    names: project.names,
+    dataUrl: project.dataUrl,
+    sent: project.sent,
+  };
 }
 
 function currentLabel(name: string): string {

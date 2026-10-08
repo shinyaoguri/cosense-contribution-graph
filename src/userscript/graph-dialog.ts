@@ -13,12 +13,13 @@
  * - **同期の状態と「今すぐ送る」を合算の草の直後に置く** (Issue #102)。押した後は
  *   **ダイアログを開き直さず、状態行と表示中の画像だけ差し替える** (開き直すと畳みが戻り、画像を全部取り直す)
  * - **草の URL はコンソールにもログにも出さない** (publicId が分かると誰でも見られる)
- * - **囲みの主役はカード** (ADR-0024・0025。2026-10-07)。左にカードを大きく置き、右の列に草と概観を縮めて置き、
- *   その横にコピーの格子を並べる。合算にもカードを出す。貼る行はプロフィールページに自動で貼るものと同じ形 (`worker-origin.ts` の `cardLine`)
+ * - **囲みの中は 1 枚の図とコピーの格子** (ADR-0026)。図の形 (期間 × マス) はダイアログの上の切り替えで全部の囲みをそろえて選び、
+ *   図の URL と Cosense に貼る行もその形で作る (`worker-origin.ts` の `grassUrl`)。既定はカードの形 (直近 26 週 × 時間帯)
  * - **「設定」はここから開く** (Issue #95)。ページメニューはこのダイアログの 1 項目だけにしたので、
  *   設定への入口はここが唯一。サインインは設定のダイアログの中のクリックで始まるので、
  *   ポップアップを開く同期区間は分断されない
  */
+import { CARD_FORM, type Cell, GRASS_SIZES, SPANS } from "../shared/grass.ts";
 import { GUIDE_HEIGHTS, GUIDE_WIDTH, type GuideName } from "../shared/guide.ts";
 import { DISTRIBUTION_URL, REPOSITORY_URL } from "../shared/links.ts";
 import {
@@ -36,7 +37,7 @@ import {
   SEND_NOW_LABEL,
   type SyncView,
 } from "./viewer.ts";
-import { guideUrl, PRIVACY_URL } from "./worker-origin.ts";
+import { type GrassView, grassLine, grassUrl, guideUrl, PRIVACY_URL } from "./worker-origin.ts";
 
 const STOPPED_EVENTS = ["keydown", "keyup", "keypress", "paste", "copy", "cut"] as const;
 
@@ -83,59 +84,39 @@ const ICONS = {
   ],
 } as const satisfies Record<string, readonly (readonly [string, Record<string, string>])[]>;
 
-/** カードと右の列の間、概観とコピーの格子の間。狭い画面で折り返したときは縦の間隔になる */
+/** 図とコピーの格子の間。狭い画面で折り返したときは縦の間隔になる */
 const ROW_GAP = 16;
 
-/** 53 週の既定の SVG の寸法 (design §8) */
-export const GRAPH_WIDTH = 775;
-export const GRAPH_HEIGHT = 146;
+/** 図の外寸 (`GRASS_SIZES`)。**年を選んだら 1 年の形** (Worker も `year` があれば 1 年で描く) */
+export function figureSize(view: GrassView): { readonly width: number; readonly height: number } {
+  return GRASS_SIZES[view.year === undefined ? view.span : "year"][view.cell];
+}
 
-/** 活動の概観の SVG の寸法 (design §8、ADR-0021) */
-export const OVERVIEW_WIDTH = 300;
-export const OVERVIEW_HEIGHT = 220;
+/** いちばん幅の広い形 (1 年) の幅。図は縮めずにこの幅まで出す */
+const FIGURE_MAX_WIDTH = Math.max(
+  ...SPANS.flatMap((span) => Object.values(GRASS_SIZES[span]).map((size) => size.width)),
+);
 
-/** カードの図の SVG の寸法 (design §8、ADR-0024) */
-export const CARD_WIDTH = 500;
-export const CARD_HEIGHT = 400;
-
-/**
- * 囲みの中に出す寸法 (2026-10-07)。**カードを主役に左へ大きく置き、右の列に草と概観を縮めて置く**。
- * 右の列の高さ (草 + `INNER_GAP` + 概観) をカードの高さにそろえ、囲みの高さをカードで決める (右に空きを作らない)。
- * 縦横比は元の図のまま (どれも viewBox 付きの SVG なので、属性で縮めるだけで崩れない)。
- * 先に確保して、読み込みでダイアログの大きさが変わらないようにする
- */
-export const SHOWN = {
-  /** 500 × 400 の 0.6 倍。ページカードのサムネ (約 145 × 122) より大きく見える */
-  card: { width: 300, height: 240 },
-  /** 775 × 146 の約 0.66 倍。月や曜日の文字は小さくなるが、全体はコピーした URL で見る */
-  graph: { width: 513, height: 97 },
-  /** 300 × 220 の約 0.61 倍。軸の外の余白が広いので、この大きさでも読める */
-  overview: { width: 184, height: 135 },
-} as const;
-
-/** 囲みの外寸の幅。カード・間・右の列に、囲みの内側の余白と枠線 (1px) を足す */
-const BLOCK_WIDTH = SHOWN.card.width + ROW_GAP + SHOWN.graph.width + 2 * (INNER_PADDING + 1);
+/** 囲みの外寸の幅。いちばん広い図に、囲みの内側の余白と枠線 (1px) を足す */
+const BLOCK_WIDTH = FIGURE_MAX_WIDTH + 2 * (INNER_PADDING + 1);
 
 /**
  * ダイアログの外寸の幅の上限。囲みの幅に、ダイアログの余白と枠線を足す。**ダイアログは border-box** (`dialog.ts`) なので
- * `max-width` はこの外寸で書く。余白と枠を足し忘れると、囲みの内側がカードと右の列の和に届かず、右の列がカードの下へ折り返す
- * (2026-10-07。Cosense でだけ起きた)
+ * `max-width` はこの外寸で書く。余白と枠を足し忘れると、囲みの内側が図の幅に届かず縮む (2026-10-07。Cosense でだけ起きた)
  */
 export const DIALOG_MAX_WIDTH = BLOCK_WIDTH + 2 * (DIALOG_PADDING + DIALOG_BORDER);
 
-/**
- * 右の列がこれより狭くなるまでは、カードの横に並べたままにする。その間は草を列の幅まで縮める。
- * これより狭い画面では、カードの下へ折り返す (概観とコピーの格子が並ぶ幅は残す)
- */
-const COLUMN_MIN_WIDTH = 360;
+/** コピーの格子の最小の幅。半年の図 (幅 500) の横にはこの幅で並び、1 年の図 (幅 775) では下へ折り返す */
+const GRID_MIN_WIDTH = 240;
 
 /**
- * コピーするものの種類ごとのボタンの文言と、コピーできないときの欄の名乗りの末尾。
- * ボタンの `aria-label` は「{何の}の {ボタンの文言}」
+ * コピーするものの種類ごとのボタンの文言、名乗り、コピーできないときの欄の名乗りの末尾。
+ * ボタンの `aria-label` は「{何の}の {名乗り}」。**貼る行のボタンは短くする** — 行の名前 (「Cosense」) が
+ * 何に貼るかを言っていて、長い文言だと半年の図の横の格子から囲みの外へはみ出した (2026-10-08)
  */
 const COPY_KINDS = {
-  url: { button: "URL をコピー", field: "URL" },
-  line: { button: "Cosense に貼る行をコピー", field: "Cosense に貼る行" },
+  url: { button: "URL をコピー", label: "URL をコピー", field: "URL" },
+  line: { button: "貼る行をコピー", label: "Cosense に貼る行をコピー", field: "Cosense に貼る行" },
 } as const;
 
 /**
@@ -162,12 +143,15 @@ export type GraphDialogDependencies = {
  * 期間の選択肢の最も古い年 (#177)。Worker が記録を受け始めたのが 2026 年で、導入前の活動は遡らない (design §9)。
  * 選択肢は去年からここまで。**今年は並べない** — `?year=` は右端を今日に落として 53 週を遡るので、
  * 今年を選ぶと直近 1 年と同じ絵になる (`src/worker/params.ts` の `parseYear`)。
- * そのため 2026 年のあいだは選択肢が無く、期間の欄は 2027 年から出る
+ * そのため 2026 年のあいだは年の選択肢が無く、2027 年から並ぶ
  */
 export const FIRST_YEAR = 2026;
 
-/** 期間の「直近 1 年」(`?year=` を付けない) */
-export const RECENT_PERIOD_LABEL = "直近 1 年";
+/** 期間の選択肢 (年を除く)。値は `span` */
+export const SPAN_LABELS = { half: "直近 26 週", year: "直近 1 年" } as const;
+
+/** マスの選択肢 */
+export const CELL_LABELS: Record<Cell, string> = { slot: "時間帯 (朝・昼・夜)", day: "1 日" };
 
 /** 「今すぐ送る」の結果 (`settings-dialog.ts` の `danger()` と同じ、返り値を差し込む形) */
 export type SendNowResult = {
@@ -191,26 +175,24 @@ export type GraphDialog = {
   close(): void;
 };
 
+/** 表示中の図 1 枚。`latest` は最後に頼んだ読み直し (それ以外の読み込みが後から終わっても差し替えない) */
+type Frame = {
+  readonly frame: HTMLElement;
+  readonly src: (bust?: number) => string;
+  readonly make: (lazy: boolean) => HTMLImageElement;
+  readonly fail: () => void;
+  latest?: HTMLImageElement;
+};
+
 export function createGraphDialog(doc: Document, deps: GraphDialogDependencies): GraphDialog {
   let dialog: HTMLDialogElement | undefined;
   /**
-   * 表示中の画像 (草・概観・カード)。送った後と期間を替えた後に取り直す。`url` は期間を付ける前のもの。
-   * `fail` は期間を替えて読めなかったときに枠へ出すもの (前の期間の絵を残すと、別の年の絵と取り違える)。
-   * **`periodic` が false のもの (カード) は期間で変わらない** (直近 26 週の固定。Worker は `year` を受けない)
+   * 表示中の図。送った後と形を替えた後に取り直す。`fail` は読めなかったときに枠へ出すもの
+   * (形を替えて読めなかったとき、前の形の絵を残すと別の形の絵と取り違える)
    */
-  let frames: {
-    url: string;
-    frame: HTMLElement;
-    make: (lazy: boolean) => HTMLImageElement;
-    fail: () => void;
-    periodic: boolean;
-  }[] = [];
-  /** 選んでいる年 (`?year=`)。`undefined` は直近 1 年。**開くたびに直近 1 年へ戻す** (#177) */
-  let period: string | undefined;
-
-  /** 選んでいる期間を URL に付ける。`l` / `u` を保つよう、文字列で `&` を継ぐ (`srcOf` と同じ) */
-  const withPeriod = (url: string) =>
-    period === undefined ? url : `${url}${url.includes("?") ? "&" : "?"}year=${period}`;
+  let frames: Frame[] = [];
+  /** 選んでいる形 (ADR-0026)。**開くたびに既定 (カードの形) へ戻す** (#177) */
+  let view: GrassView = CARD_FORM;
 
   const element = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string) => {
     const node = doc.createElement(tag);
@@ -266,32 +248,11 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     current.remove();
   };
 
-  const imageElement = (
-    size: { readonly width: number; readonly height: number; readonly alt: string },
-    lazy: boolean,
-  ) => {
-    const img = element("img");
-    img.width = size.width;
-    img.height = size.height;
-    img.alt = size.alt;
-    if (lazy) {
-      // 属性で付ける (jsdom は loading の IDL 属性を持たない)
-      img.setAttribute("loading", "lazy");
-    }
-    img.setAttribute("referrerpolicy", "no-referrer");
-    img.style.maxWidth = "none";
-    // 行の基線の下に隙間を作らない (右の列の高さをカードにそろえるため。`SHOWN`)
-    img.style.display = "block";
-    return img;
-  };
-
   /**
    * **キャッシュを外すクエリは `<img>` にだけ付ける** (Issue #102)。
    * 共有 SVG は `max-age=900` なので、送った直後に同じ URL で読むとブラウザのキャッシュから古い絵が返る。
    * Worker は未知のクエリを無視する (`params.ts`)。**コピーする URL には混ぜない** (他人に渡すものなので)。
-   *
-   * **URL にすでにクエリが付いていることがある** — プロジェクト別の草には名前が `?l=` で載る
-   * (Issue #119)。`?` を 2 つ並べると URL が壊れるので、2 つ目からは `&` で継ぐ。
+   * URL にはすでにクエリ (`l` / `u` や形) が付いていることがあるので、2 つ目からは `&` で継ぐ
    */
   const srcOf = (url: string, bust?: number) => {
     if (bust === undefined) {
@@ -301,18 +262,29 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
   };
 
   /**
-   * 草の画像。読めなければ文言に置き換える。**送れていない草も最初から読む** (2026-09-24) —
-   * ほかの端末から送っていれば草はある。読めなかったときは、送れたかどうかで理由を言い分ける
-   * (送れているのに読めないのは、サーバに届かないとき)
+   * 図 (ADR-0026)。**寸法は選んでいる形の外寸** (`GRASS_SIZES`) を属性で先に確保し、狭ければ縦横比を保って縮める。
+   * 読めなければ文言に置き換える。**送れていない図も最初から読む** (2026-09-24) — ほかの端末から送っていれば図はある。
+   * 読めなかったときは、送れたかどうかで理由を言い分ける (送れているのに読めないのは、サーバに届かないとき)
    */
-  const image = (entry: GraphEntry) => {
+  const figure = (entry: GraphEntry) => {
     const frame = element("div");
+    // 囲みより図が広い画面 (スマホ) では、枠ごと縮める
+    frame.style.flex = "0 1 auto";
+    frame.style.minWidth = "0";
+    frame.style.maxWidth = "100%";
     const make = (lazy: boolean) => {
-      const img = imageElement({ ...SHOWN.graph, alt: `${entry.label} の草` }, lazy);
-      // 右の列が狭いときは列の幅まで縮める (縦横比は width / height 属性から保たれる)。
+      const img = element("img");
+      const size = figureSize(view);
+      img.width = size.width;
+      img.height = size.height;
+      img.alt = `${entry.label} の図`;
+      if (lazy) {
+        // 属性で付ける (jsdom は loading の IDL 属性を持たない)
+        img.setAttribute("loading", "lazy");
+      }
+      img.setAttribute("referrerpolicy", "no-referrer");
       // style 属性は Cosense の CSP で許されている (research §1)
-      img.style.maxWidth = "100%";
-      img.style.height = "auto";
+      Object.assign(img.style, { display: "block", maxWidth: "100%", height: "auto" });
       return img;
     };
     const fail = () => {
@@ -320,142 +292,148 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
         element(
           "p",
           entry.sent
-            ? "草を表示できませんでした (サーバに届かないか、まだ記録が反映されていません)。"
-            : "このブラウザからはまだ送っていません。ほかの端末からも送っていなければ、草はまだありません。",
+            ? "図を表示できませんでした (サーバに届かないか、まだ記録が反映されていません)。"
+            : "このブラウザからはまだ送っていません。ほかの端末からも送っていなければ、図はまだありません。",
         ),
       );
     };
+    const src = (bust?: number) => srcOf(grassUrl(entry.publicId, view, entry.names), bust);
     const img = make(true);
-    img.addEventListener("error", fail);
-    img.src = srcOf(withPeriod(entry.url));
+    const target: Frame = { frame, src, make, fail, latest: img };
+    // 形を替えた後に最初の図の失敗が届いても、新しい形の図を文言で上書きしない
+    img.addEventListener("error", () => {
+      if (target.latest === img) {
+        fail();
+      }
+    });
+    img.src = src();
     frame.append(img);
-    frames.push({ url: entry.url, frame, make, fail, periodic: true });
-    return frame;
-  };
-
-  /** 読めずに空になっても、まわりの位置が動かないよう大きさを取っておく枠 (概観とカード) */
-  const reservedFrame = (size: { readonly width: number; readonly height: number }) => {
-    const frame = element("div");
-    frame.style.flex = `0 0 ${size.width}px`;
-    frame.style.minHeight = `${size.height}px`;
+    frames.push(target);
     return frame;
   };
 
   /**
-   * 活動の概観 (ADR-0021)。草の下に置く。**読めなければ何も出さない** — 読めない理由は草の側で言っている
-   * (概観は草と同じ publicId なので、草が読めれば概観も読める)
-   */
-  const overview = (entry: GraphEntry) => {
-    const frame = reservedFrame(SHOWN.overview);
-    const make = (lazy: boolean) =>
-      imageElement({ ...SHOWN.overview, alt: `${entry.label} の活動の概観` }, lazy);
-    const fail = () => {
-      frame.replaceChildren();
-    };
-    const img = make(true);
-    img.addEventListener("error", fail);
-    img.src = srcOf(withPeriod(entry.overviewUrl));
-    frame.append(img);
-    frames.push({ url: entry.overviewUrl, frame, make, fail, periodic: true });
-    return frame;
-  };
-
-  /**
-   * カードの図 (ADR-0024)。囲みの左に主役として置く。**読めなければ何も出さない** (概観と同じ。理由は草の側で言う)。
-   * 期間は付けない (図は直近 26 週で決まっている)
-   */
-  const card = (entry: GraphEntry) => {
-    const { label, cardUrl: url } = entry;
-    const frame = reservedFrame(SHOWN.card);
-    // 囲みがカードより狭い画面 (スマホ) では、枠ごと縮める
-    frame.style.flexShrink = "1";
-    frame.style.minWidth = "0";
-    const make = (lazy: boolean) => {
-      const img = imageElement({ ...SHOWN.card, alt: `${label} のカード` }, lazy);
-      img.style.maxWidth = "100%";
-      img.style.height = "auto";
-      return img;
-    };
-    const fail = () => {
-      frame.replaceChildren();
-    };
-    const img = make(true);
-    img.addEventListener("error", fail);
-    img.src = srcOf(url);
-    frame.append(img);
-    frames.push({ url, frame, make, fail, periodic: false });
-    return frame;
-  };
-
-  /**
-   * 送った後に、表示中の草を取り直す。**新しい絵が読めてから差し替える** —
-   * 取り直しが失敗したときに、見えていた草が文言に化けないようにする。
+   * 送った後に、表示中の図を取り直す。**新しい絵が読めてから差し替える** —
+   * 取り直しが失敗したときに、見えていた図が文言に化けないようにする。
    */
   const refreshGraphs = () => {
     const bust = Date.now();
-    for (const { url, frame, make, periodic } of frames) {
-      const next = make(false);
-      next.addEventListener("load", () => {
-        frame.replaceChildren(next);
-      });
-      next.src = srcOf(periodic ? withPeriod(url) : url, bust);
+    for (const target of frames) {
+      reload(target, target.src(bust), false);
     }
   };
 
   /**
-   * 期間を替えたときに、表示中の画像を選んだ期間の URL で読み直す (#177)。**読めてから差し替える**。
-   * 読めなければ枠を文言に替える — 前の期間の絵を残すと、別の年の絵と取り違える
+   * 1 枚を読み直す。**最後に頼んだものだけが差し替えられる** — 形を続けて替えると、先に頼んだ古い形の読み込みが
+   * 後から終わることがあり、そのまま差し替えると選んだ形と違う絵が残る (2026-10-08 に確認用のページで起きた)。
+   * `failOnError` が false なら、読めなくても今の絵を残す (送った後の取り直し)
+   */
+  const reload = (target: Frame, url: string, failOnError: boolean) => {
+    const next = target.make(false);
+    target.latest = next;
+    next.addEventListener("load", () => {
+      if (target.latest === next) {
+        target.frame.replaceChildren(next);
+      }
+    });
+    if (failOnError) {
+      next.addEventListener("error", () => {
+        if (target.latest === next) {
+          target.fail();
+        }
+      });
+    }
+    next.src = url;
+  };
+
+  /**
+   * 形を替えたときに、表示中の図を選んだ形の URL で読み直す (#177・ADR-0026)。**読めてから差し替える**。
+   * 読めなければ枠を文言に替える — 前の形の絵を残すと、別の形の絵と取り違える
    */
   const reloadGraphs = () => {
-    for (const { url, frame, make, fail } of frames.filter((target) => target.periodic)) {
-      const next = make(false);
-      next.addEventListener("load", () => {
-        frame.replaceChildren(next);
-      });
-      next.addEventListener("error", fail);
-      next.src = srcOf(withPeriod(url));
+    for (const target of frames) {
+      reload(target, target.src(), true);
     }
   };
 
   /**
-   * 期間の選択 (#177)。「直近 1 年」と、去年から `FIRST_YEAR` までの各年。**過去の年が無ければ出さない**。
-   * 選ぶと、すべての囲みの草と概観、「URL をコピー」でコピーする URL が `?year=` 付きに替わる (カードは替わらない)
+   * 図の形の切り替え (ADR-0026)。**ダイアログ全体で 1 か所**に置き、すべての囲みの図と、コピーする URL・貼る行をそろえて替える。
+   *
+   * - 期間: 「直近 26 週」「直近 1 年」と、去年から `FIRST_YEAR` までの各年 (#177)。年を選ぶと 1 年になる
+   * - マス: 時間帯 (朝・昼・夜の 3 マス) か 1 日 1 マス
    */
-  const periodPicker = (): HTMLElement[] => {
-    const lastYear = new Date((deps.now ?? Date.now)()).getFullYear() - 1;
-    if (lastYear < FIRST_YEAR) {
-      return [];
-    }
+  const viewPicker = (): HTMLElement => {
     const line = element("div");
-    line.style.display = "flex";
-    line.style.alignItems = "center";
-    line.style.gap = "8px";
-    line.style.margin = `${OUTER_GAP}px 0 0`;
-    const label = element("label");
-    label.style.display = "inline-flex";
-    label.style.alignItems = "center";
-    label.style.gap = "8px";
-    label.style.fontWeight = "bold";
-    const select = element("select");
+    Object.assign(line.style, {
+      display: "flex",
+      flexWrap: "wrap",
+      alignItems: "center",
+      gap: `${INNER_GAP}px ${ROW_GAP}px`,
+      margin: `${OUTER_GAP}px 0 0`,
+    });
+    const labelled = (text: string, control: HTMLElement) => {
+      const label = element("label");
+      Object.assign(label.style, { display: "inline-flex", alignItems: "center", gap: "8px" });
+      const name = element("span", text);
+      name.style.fontWeight = "bold";
+      label.append(name, control);
+      return label;
+    };
+
+    const period = element("select");
     const option = (value: string, text: string) => {
       const node = element("option", text);
       node.value = value;
       return node;
     };
-    select.append(option("", RECENT_PERIOD_LABEL));
-    for (let year = lastYear; year >= FIRST_YEAR; year--) {
-      select.append(option(String(year), `${year} 年`));
+    for (const span of SPANS) {
+      period.append(option(span, SPAN_LABELS[span]));
     }
-    select.addEventListener("change", () => {
-      period = select.value === "" ? undefined : select.value;
+    const lastYear = new Date((deps.now ?? Date.now)()).getFullYear() - 1;
+    for (let year = lastYear; year >= FIRST_YEAR; year--) {
+      period.append(option(String(year), `${year} 年`));
+    }
+    period.value = view.span;
+    period.addEventListener("change", () => {
+      const value = period.value;
+      view =
+        value === "half" || value === "year"
+          ? { span: value, cell: view.cell }
+          : { span: "year", cell: view.cell, year: Number(value) };
       reloadGraphs();
     });
-    label.append("期間", select);
-    const hint = element("span", "過去の年の草と活動の概観を見て、その URL をコピーできます");
+
+    // マスは 2 択なので、並べて見える radio にする (select だと開くまで選択肢が見えない)
+    const cells = element("span");
+    cells.setAttribute("role", "radiogroup");
+    cells.setAttribute("aria-label", "マス");
+    Object.assign(cells.style, { display: "inline-flex", alignItems: "center", gap: "12px" });
+    const cellsName = element("span", "マス");
+    cellsName.style.fontWeight = "bold";
+    cells.append(cellsName);
+    for (const cell of ["slot", "day"] as const) {
+      const label = element("label");
+      Object.assign(label.style, { display: "inline-flex", alignItems: "center", gap: "4px" });
+      const radio = element("input");
+      radio.type = "radio";
+      radio.name = "cosense-grass-cell";
+      radio.value = cell;
+      radio.checked = view.cell === cell;
+      radio.addEventListener("change", () => {
+        if (radio.checked) {
+          view = { ...view, cell };
+          reloadGraphs();
+        }
+      });
+      label.append(radio, CELL_LABELS[cell]);
+      cells.append(label);
+    }
+
+    const hint = element("span", "すべての図と、コピーする URL・貼る行がこの形になります");
     hint.style.fontSize = "smaller";
     hint.style.color = MUTED_TEXT_COLOR;
-    line.append(label, hint);
-    return [line];
+    line.append(labelled("期間", period), cells, hint);
+    return line;
   };
 
   /** 同期の状態と「今すぐ送る」。押した後はここだけ描き直す */
@@ -506,12 +484,11 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
    */
   const copyLine = (target: {
     readonly name: string;
-    /** コピーするもの。`kind` が `line` なら Cosense に貼る行 */
-    readonly url: string;
+    /** コピーするもの。**押した時点の形で作る** (形を替えて押し直したら、その形の URL・行になる)。`kind` が `line` なら Cosense に貼る行 */
+    readonly value: () => string;
     readonly what: string;
-    readonly open?: boolean;
-    /** 選んでいる期間を付けてコピーするか (草と概観。JSON は全期間なので付けない。#177) */
-    readonly periodic?: boolean;
+    /** あれば「開く」のリンクを並べる (日ごとの数値) */
+    readonly open?: string;
     /** 既定は `url` */
     readonly kind?: keyof typeof COPY_KINDS;
   }) => {
@@ -543,7 +520,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     };
     const copy = button(kind.button, () => {
       clearTimeout(reset);
-      const url = target.periodic ? withPeriod(target.url) : target.url;
+      const url = target.value();
       // await を挟まずに呼ぶ。結果は後から書く
       deps.writeText(url).then(
         () => {
@@ -562,7 +539,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
             field.setAttribute("aria-label", `${target.what}の ${kind.field}`);
             line.append(field);
           }
-          // 期間を替えて押し直したら、欄もその期間の URL にする
+          // 形を替えて押し直したら、欄もその形の URL にする
           field.value = url;
           status.textContent = "コピーできなかったので、下の欄から選んでコピーしてください";
           field.select();
@@ -570,12 +547,12 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
       );
     });
     copy.prepend(copyIcon);
-    copy.setAttribute("aria-label", `${target.what}の ${kind.button}`);
+    copy.setAttribute("aria-label", `${target.what}の ${kind.label}`);
     // コピーを先に置き、行ごとの「URL をコピー」の位置をそろえる
     line.append(copy);
-    if (target.open) {
+    if (target.open !== undefined) {
       // 「URL をコピー」と並ぶので、リンクのままボタンの見た目にする
-      const open = externalLink("開く", target.url, `${target.what}を開く`);
+      const open = externalLink("開く", target.open, `${target.what}を開く`);
       open.classList.add(BUTTON_CLASS);
       open.prepend(icon("external"));
       line.append(open);
@@ -597,35 +574,37 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
   };
 
   /**
-   * 草・概観・カード・日ごとの数値のコピーを並べる格子。概観の右 (狭い画面では下) に置く。
-   * **概観の高さに収まるよう、行の間を詰め、名前を短くする** (2026-10-07)。何の URL かはボタンの `aria-label` が言う。
-   * 「共有する」の見出しは高さを食うので外した。日ごとの数値の注意は囲みの下端の 1 行 (`dataNote`) にする
+   * 図の URL・Cosense に貼る行・日ごとの数値のコピーを並べる格子。図の右 (狭いときと 1 年の図では下) に置く。
+   * 何の URL かはボタンの `aria-label` が言う。日ごとの数値の注意は囲みの下端の 1 行 (`dataNote`) にする
    */
   const shareGrid = (entry: GraphEntry) => {
     const rows = element("div");
-    rows.style.display = "grid";
-    rows.style.gridTemplateColumns = "max-content minmax(0, 1fr)";
-    rows.style.alignItems = "center";
-    rows.style.gap = "4px 12px";
+    Object.assign(rows.style, {
+      display: "grid",
+      gridTemplateColumns: "max-content minmax(0, 1fr)",
+      alignItems: "center",
+      gap: "4px 12px",
+      flex: `1 1 ${GRID_MIN_WIDTH}px`,
+      minWidth: "0",
+    });
+    const what = `${entry.label} の図`;
     rows.append(
-      ...copyLine({ name: "草", url: entry.url, what: `${entry.label} の草`, periodic: true }),
       ...copyLine({
-        name: "概観",
-        url: entry.overviewUrl,
-        what: `${entry.label} の活動の概観`,
-        periodic: true,
+        name: "図",
+        value: () => grassUrl(entry.publicId, view, entry.names),
+        what,
       }),
       ...copyLine({
-        name: "カード",
-        url: entry.cardLine,
-        what: `${entry.label} のカード`,
+        name: "Cosense",
+        value: () => grassLine(entry.publicId, view, entry.names),
+        what,
         kind: "line",
       }),
       ...copyLine({
         name: "数値 (JSON)",
-        url: entry.dataUrl,
+        value: () => entry.dataUrl,
         what: `${entry.label} の日ごとの数値`,
-        open: true,
+        open: entry.dataUrl,
       }),
     );
     return rows;
@@ -633,12 +612,12 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
 
   /**
    * 日ごとの数値の URL を渡すと何が読めるかの注意 (ADR-0020 の 2026-09-26 の改訂)。**その場に添える** —
-   * 草の URL と同じ気軽さで渡されないように。囲みの下端に 1 行で置く (2026-10-07。格子の横には入らない)
+   * 図の URL と同じ気軽さで渡されないように。囲みの下端に 1 行で置く
    */
   const dataNote = () => {
     const note = element(
       "p",
-      "数値 (JSON) の URL を渡すと、日ごとの内訳まで読めます (草や概観の URL からは作れない別の URL で、期間によらず全期間の値)。",
+      "数値 (JSON) の URL を渡すと、日ごとの内訳まで読めます (図の URL からは作れない別の URL で、形によらず全期間の値)。",
     );
     note.style.margin = `${INNER_GAP}px 0 0`;
     note.style.fontSize = "smaller";
@@ -647,14 +626,13 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
   };
 
   /**
-   * 1 つの草 (見出し・画像・コピー) を**枠で囲む** (Issue #124)。
+   * 1 つの図 (見出し・図・コピー) を**枠で囲む** (Issue #124)。
    *
-   * 囲まずに縦へ並べると、コピーボタンが上の画像のものか下の画像のものか読み取れない。
+   * 囲まずに縦へ並べると、コピーボタンが上の図のものか下の図のものか読み取れない。
    * **共通領域** (同じ囲みの中は 1 つのまとまり) と**近接** (枠の内側 < 枠と枠の間) の両方で示す。
    * 片方だけに頼らないのは、枠線が見えにくい環境でも間隔でまとまりが読めるようにするため。
    *
-   * **中はカードが主役** (2026-10-07)。左にカード、右の列に草と、その下に概観とコピーの格子を置く (`SHOWN`)。
-   * 狭い画面では、カードの下に右の列が、概観の下にコピーの格子が折り返す
+   * 中は図とコピーの格子を横に並べ、入らなければ (1 年の図・狭い画面) 格子を図の下へ折り返す
    */
   const graph = (entry: GraphEntry) => {
     const block = element("section");
@@ -664,31 +642,14 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     block.style.margin = `${OUTER_GAP}px 0`;
     const heading = element("h4", entry.label);
     heading.style.margin = `0 0 ${INNER_GAP}px`;
-    // 作る順が送った後の取り直しの順になる (草 → 概観 → カード)
-    const grass = image(entry);
-    const radar = overview(entry);
-    const figure = card(entry);
-    const lower = element("div");
-    lower.style.display = "flex";
-    lower.style.flexWrap = "wrap";
-    lower.style.alignItems = "center";
-    lower.style.gap = `${ROW_GAP}px`;
-    lower.append(radar, shareGrid(entry));
-    const column = element("div");
-    column.style.display = "flex";
-    column.style.flexDirection = "column";
-    column.style.gap = `${INNER_GAP}px`;
-    // 少し狭いだけなら列を縮めて横に並べたまま (草も縮む)、`COLUMN_MIN_WIDTH` を割るとカードの下へ折り返す
-    column.style.flex = `1 1 ${COLUMN_MIN_WIDTH}px`;
-    column.style.maxWidth = `${SHOWN.graph.width}px`;
-    column.style.minWidth = "0";
-    column.append(grass, lower);
     const row = element("div");
-    row.style.display = "flex";
-    row.style.flexWrap = "wrap";
-    row.style.alignItems = "flex-start";
-    row.style.gap = `${ROW_GAP}px`;
-    row.append(figure, column);
+    Object.assign(row.style, {
+      display: "flex",
+      flexWrap: "wrap",
+      alignItems: "flex-start",
+      gap: `${ROW_GAP}px`,
+    });
+    row.append(figure(entry), shareGrid(entry));
     block.append(heading, row, dataNote());
     return block;
   };
@@ -786,7 +747,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
       fontWeight: "bold",
       lineHeight: "1",
     });
-    const title = element("span", "草と活動の概観の見方");
+    const title = element("span", "図の見方");
     title.style.fontWeight = "bold";
     const hint = decoration("");
     Object.assign(hint.style, { marginLeft: "auto", color: MUTED_TEXT_COLOR, fontSize: "0.9em" });
@@ -812,8 +773,8 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
   };
 
   /**
-   * 何をどう数えて描いているか (#164)。**畳んでおく** — 毎回読むものではないので、草を押し下げない。
-   * 数値は実装に合わせる (sensor.ts の 3 分・20 秒、design §7 の四分位と 3 分のデッドゾーン、ADR-0021 の 4 軸)
+   * 何をどう数えて描いているか (#164)。**畳んでおく** — 毎回読むものではないので、図を押し下げない。
+   * 数値は実装に合わせる (sensor.ts の 3 分・20 秒、design §7 の四分位と 3 分のデッドゾーン、ADR-0021 の 4 軸、ADR-0024 の時間帯)
    */
   const guide = () => {
     const details = element("details");
@@ -847,23 +808,24 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
       ...guideSection(
         "草",
         "grass",
-        "1 マスが 1 日、1 列が 1 週間です (直近 53 週)。2027 年からは「期間」で過去の年を選ぶと、その年の草と活動の概観になります。",
+        "1 列が 1 週間です。既定は直近 26 週で、1 日を朝 (9〜13 時)・昼 (13〜18 時)・夜 (18 時〜翌 9 時) の 3 マスに分けます (夜は翌朝 9 時までをその日に数えます)。上の「期間」と「マス」で、1 年分や 1 日 1 マスに切り替えられます。2027 年からは過去の年も選べます。",
         [
-          "濃さ: その日の合計 (書いた分 + 読んだ分) を、これまでの全記録の分布 (四分位) で 4 段階に分けたもの。3 分未満の日は色を付けません",
-          "色合い: 自分のふだんの比率 (全記録の中央値) を真ん中にして、書き寄りの日ほど黄色、読み寄りの日ほど紫、ふだんどおりの日は緑になります",
+          "濃さ: その日 (時間帯) の合計 (書いた分 + 読んだ分) を、これまでの全記録の分布 (四分位) で 4 段階に分けたもの。3 分未満は色を付けません",
+          "色合い: 自分のふだんの比率 (全記録の中央値) を真ん中にして、書き寄りほど黄色、読み寄りほど紫、ふだんどおりは緑になります",
+          "記録を始める前の日は点線の枠です。時間帯を記録し始める前の日は、その日の合計の色を 3 マスに薄く塗ります",
         ],
       ),
       ...guideSection(
-        "活動の概観",
+        "草の下の線",
         "overview",
-        "草と同じ期間の分を、作る・育てる・関わる・読むの 4 つに分けた割合です。どの分も 1 つにしか数えません。",
-        "書いたページがどれにあたるかは、そのページを最初に編集したときに、作成者と作成日を Cosense に問い合わせて決めます。図はいちばん多い軸が端まで伸び、ほかの軸は割合の平方根の長さで描きます (少ない軸も見えるように)。% は分の割合そのもので、合計が 100 になるよう丸めています。",
+        "同じ期間の分を、作る・育てる・関わる・読むの 4 つに分けた割合です。どの分も 1 つにしか数えません。",
+        "書いたページがどれにあたるかは、そのページを最初に編集したときに、作成者と作成日を Cosense に問い合わせて決めます。1 本の線を 4 つの軸が割合で取り合い、線の下に軸名と % を小さく添えます (狭い区間は % だけ)。% は分の割合そのもので、合計が 100 になるよう丸めています。",
       ),
       ...guideSection(
-        "カードと自分のページ",
+        "貼る行と自分のページ",
         undefined,
-        "各囲みの左のカードは、曜日 × 時間帯の草と活動の割合を 1 枚にした図です。「Cosense に貼る行をコピー」で、この図を出す画像の行をコピーできます。",
-        "cosense-grass を読み込んでいるプロジェクトでは、自分のページ (ユーザー名のページ) の読み込みのコードの下に、そのプロジェクトのカードの行を自動で貼ります。消しても次に開いたときに貼り直します。止めるには、自分のページから読み込みの 1 行を外してください。",
+        "「貼る行をコピー」で、選んでいる形の図を Cosense に出す画像の行をコピーできます。「URL をコピー」も同じ形の図の URL です。",
+        "cosense-grass を読み込んでいるプロジェクトでは、自分のページ (ユーザー名のページ) の読み込みのコードの下に、そのプロジェクトの図 (直近 26 週 × 時間帯) の行を自動で貼ります。消しても次に開いたときに貼り直します。止めるには、自分のページから読み込みの 1 行を外してください。",
       ),
       ...guideSection("送るもの", undefined),
       privacy,
@@ -908,31 +870,31 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     return line;
   };
 
-  const integrated = (view: IntegratedView, handlers: GraphDialogHandlers) => {
+  const integrated = (records: IntegratedView, handlers: GraphDialogHandlers) => {
     const section = element("section");
     section.append(element("h3", "全端末を統合した記録"));
-    if (view.kind === "message") {
-      section.append(...view.lines.map((line) => element("p", line)), guide());
+    if (records.kind === "message") {
+      section.append(...records.lines.map((line) => element("p", line)), guide());
       return section;
     }
     section.append(
       element(
         "p",
-        "同じ Google アカウントで登録した端末の記録をまとめた草です。ほかの人に見せる草は最大 15 分遅れて更新され、今日の列は日本時間で決まります。",
+        "同じ Google アカウントで登録した端末の記録をまとめた図です。ほかの人に見せる図は最大 15 分遅れて更新され、今日の列は日本時間で決まります。",
       ),
       guide(),
-      ...periodPicker(),
-      graph(view.total),
-      sync(view.sync, handlers),
+      viewPicker(),
+      graph(records.total),
+      sync(records.sync, handlers),
     );
 
-    if (view.projects.length === 0) {
+    if (records.projects.length === 0) {
       section.append(
         element("p", "このブラウザで直近 30 日に記録したプロジェクトはまだありません。"),
       );
       return section;
     }
-    appendLimited(section, view.projects, graph);
+    appendLimited(section, records.projects, graph);
     section.append(
       element(
         "p",
@@ -943,10 +905,10 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
   };
 
   return {
-    open(view, handlers) {
+    open(records, handlers) {
       close();
       frames = [];
-      period = undefined;
+      view = CARD_FORM;
       const node = element("dialog");
       styleDialog(node);
       // 長い説明文で画面の幅いっぱいに広がらないよう、囲みの幅に余白と枠を足したところで止める
@@ -962,7 +924,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
       });
       closeOnBackdropClick(node, close);
 
-      node.append(element("h2", MENU_TITLE), integrated(view, handlers), footer(handlers));
+      node.append(element("h2", MENU_TITLE), integrated(records, handlers), footer(handlers));
 
       doc.body.append(node);
       dialog = node;

@@ -10,13 +10,7 @@ import {
   SEND_NOW_LABEL,
   TOTAL_LABEL,
 } from "../../src/userscript/viewer.ts";
-import {
-  cardLine,
-  cardUrl,
-  dataUrl,
-  graphUrl,
-  overviewUrl,
-} from "../../src/userscript/worker-origin.ts";
+import { dataUrl } from "../../src/userscript/worker-origin.ts";
 
 const UID = "AAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
@@ -30,23 +24,19 @@ async function enrolled(
   return {
     kind: "enrolled",
     kid: "0123456789abcdef",
-    graphUrl: graphUrl(await publicIdOf(UID, PH_ALL)),
-    overviewUrl: overviewUrl(await publicIdOf(UID, PH_ALL)),
+    publicId: await publicIdOf(UID, PH_ALL),
+    names: { user: "taro" },
     dataUrl: dataUrl(await publicIdOf(UID, PH_ALL), await dataKeyOf(UID, PH_ALL)),
-    cardUrl: cardUrl(await publicIdOf(UID, PH_ALL)),
-    cardLine: cardLine(await publicIdOf(UID, PH_ALL)),
     totalSent,
     projects: await Promise.all(
       projects.map(async ({ name, sent }) => ({
         name,
-        graphUrl: graphUrl(await publicIdOf(UID, await phOf(UID, name))),
-        overviewUrl: overviewUrl(await publicIdOf(UID, await phOf(UID, name))),
+        publicId: await publicIdOf(UID, await phOf(UID, name)),
+        names: { project: name, user: "taro" },
         dataUrl: dataUrl(
           await publicIdOf(UID, await phOf(UID, name)),
           await dataKeyOf(UID, await phOf(UID, name)),
         ),
-        cardUrl: cardUrl(await publicIdOf(UID, await phOf(UID, name)), { project: name }),
-        cardLine: cardLine(await publicIdOf(UID, await phOf(UID, name)), { project: name }),
         sent,
       })),
     ),
@@ -168,11 +158,9 @@ describe("describeIntegrated", () => {
     if (view.kind !== "graphs") return;
     expect(view.total).toEqual({
       label: TOTAL_LABEL,
-      url: status.kind === "enrolled" && status.graphUrl,
-      overviewUrl: status.kind === "enrolled" && status.overviewUrl,
+      publicId: status.kind === "enrolled" && status.publicId,
+      names: { user: "taro" },
       dataUrl: status.kind === "enrolled" && status.dataUrl,
-      cardUrl: status.kind === "enrolled" && status.cardUrl,
-      cardLine: status.kind === "enrolled" && status.cardLine,
       sent: true,
     });
     expect(view.projects.map((p) => [p.label, p.sent])).toEqual([
@@ -182,30 +170,27 @@ describe("describeIntegrated", () => {
     ]);
   });
 
-  it("**カードは状況の値そのもの。合算にも図がある** (ダイアログの囲みの主役。2026-10-07)", async () => {
+  it("**publicId と名前は状況の値そのもの** (図の URL と貼る行は、ダイアログが選んだ形から作る。ADR-0026)", async () => {
     const status = await enrolled([{ name: "alpha", sent: true }]);
 
     const view = describeIntegrated(status, "alpha", NOW);
 
     if (view.kind !== "graphs" || status.kind !== "enrolled") throw new Error("graphs のはず");
-    expect(view.total.cardLine).toBe(status.cardLine);
-    expect(view.total.cardUrl).toBe(status.cardUrl);
-    expect(view.projects[0]?.cardUrl).toBe(status.projects[0]?.cardUrl);
-    expect(view.projects[0]?.cardLine).toBe(status.projects[0]?.cardLine);
+    expect(view.projects[0]?.publicId).toBe(status.projects[0]?.publicId);
+    expect(view.projects[0]?.names).toEqual({ project: "alpha", user: "taro" });
   });
 
-  it("**URL は状況の値そのもの** (32 桁の publicId で、プロジェクト名もクエリも含まない)", async () => {
+  it("**publicId は 32 桁で、プロジェクト名を含まない** (名前は図に描くときだけ `l=` で渡す)", async () => {
     const status = await enrolled([{ name: "秘密のプロジェクト", sent: true }]);
 
     const view = describeIntegrated(status, "秘密のプロジェクト", NOW);
 
     if (view.kind !== "graphs") throw new Error("graphs のはず");
     for (const entry of [view.total, ...view.projects]) {
-      expect(entry.url).toMatch(/^https:\/\/grass\.soui\.dev\/v1\/g\/[0-9a-f]{32}\.svg$/);
-      expect(decodeURIComponent(entry.url)).not.toContain("秘密");
+      expect(entry.publicId).toMatch(/^[0-9a-f]{32}$/);
     }
-    expect(view.projects[0]?.url).toBe(
-      graphUrl(await publicIdOf(UID, await phOf(UID, "秘密のプロジェクト"))),
+    expect(view.projects[0]?.publicId).toBe(
+      await publicIdOf(UID, await phOf(UID, "秘密のプロジェクト")),
     );
   });
 
