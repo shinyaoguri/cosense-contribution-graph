@@ -10,6 +10,7 @@
  * - マスは 1 日を朝・昼・夜の 3 マス (`slot`) か 1 マス (`day`)。期間は 26 週 (`half`) か 53 週 (`year`)
  * - **行は月曜始まり** (今の草は日曜始まり)。1 日は 朝 9–13 / 昼 13–18 / 夜 18–9 の 3 マスの縦長のタイル
  * - **夜は D の区間 3 と D+1 の区間 0 を足す** (その日の夜。design §4)。右端の日 (今日) の夜は D の区間 3 だけ
+ * - **D の行が無くても、D+1 の区間 0 に分があれば D の夜に塗る** (#230)。計測開始日の前日でも塗る
  * - 区間が NULL の日 (内訳なし) は、その日の合計の色 (今の草と同じ色) を 3 マスに薄く塗る
  */
 import { fromEpochDay, toEpochDay, weekdayOf } from "../../shared/epoch-day.ts";
@@ -456,7 +457,8 @@ export type Slots = readonly [Minutes, Minutes, Minutes];
 /**
  * その日の 朝・昼・夜。**夜は D の区間 3 + D+1 の区間 0** (その日の夜)。
  *
- * - D に内訳が無ければ undefined (内訳なし)
+ * - D の行があって内訳なしなら undefined (その日の合計で薄く塗る)
+ * - **D の行が無くても、D+1 の区間 0 に分があれば 朝 0・昼 0・夜 = D+1 の区間 0** (#230)。分が無ければ undefined
  * - **D が `today` 以降なら翌日を足さない** (今日の夜は D の区間 3 だけ)。翌日の行が無いか内訳なしなら 0 を足す
  */
 export function slotsOf(
@@ -464,11 +466,21 @@ export function slotsOf(
   day: string,
   today: string,
 ): Slots | undefined {
-  const segments = days.get(day)?.segments;
+  const next = day < today ? days.get(fromEpochDay(toEpochDay(day) + 1))?.segments : undefined;
+  const current = days.get(day);
+  if (current === undefined) {
+    return next === undefined || next.w[0] + next.r[0] === 0
+      ? undefined
+      : [
+          { w: 0, r: 0 },
+          { w: 0, r: 0 },
+          { w: next.w[0], r: next.r[0] },
+        ];
+  }
+  const segments = current.segments;
   if (segments === undefined) {
     return undefined;
   }
-  const next = day < today ? days.get(fromEpochDay(toEpochDay(day) + 1))?.segments : undefined;
   return [
     { w: segments.w[1], r: segments.r[1] },
     { w: segments.w[2], r: segments.r[2] },
@@ -483,10 +495,14 @@ export function slotsOf(
 export function slotPopulation(days: ReadonlyMap<string, GrassDay>): Minutes[] {
   const result: Minutes[] = [];
   for (const day of days.keys()) {
-    // 母集団では「今日」を区別しない。翌日の行があれば足す
-    const slots = slotsOf(days, day, "9999-12-31");
-    if (slots !== undefined) {
-      result.push(...slots);
+    // 行の無い前日の夜 (その日の 0–9 時) も入れる (#230)
+    const previous = fromEpochDay(toEpochDay(day) - 1);
+    for (const d of days.has(previous) ? [day] : [previous, day]) {
+      // 母集団では「今日」を区別しない。翌日の行があれば足す
+      const slots = slotsOf(days, d, "9999-12-31");
+      if (slots !== undefined) {
+        result.push(...slots);
+      }
     }
   }
   return result;
@@ -575,9 +591,12 @@ function layoutGrid(
     const row = mondayIndex(epoch);
     const x = round(g.originX + column * g.columnStep);
     const whole = input.days.get(day);
+    // slotsOf は「実際の今日」で翌日を足すかを決める。`?year=` で過去の 12/31 が右端でも、その日の夜は翌日の区間 0 を足す
+    const slots = g.slots === 1 ? undefined : slotsOf(input.days, day, input.today);
 
-    // 計測開始前の日は塗らず、1 日のタイルに点線の枠を 1 つ描く (活動の無い日と区別する。Issue #80)
-    if (input.startDay !== undefined && day < input.startDay) {
+    // 計測開始前の日は塗らず、1 日のタイルに点線の枠を 1 つ描く (活動の無い日と区別する。Issue #80)。
+    // 3 マスの形で夜に開始日の 0–9 時が入る前日は塗る (#230)
+    if (input.startDay !== undefined && day < input.startDay && slots === undefined) {
       grid.push({
         x,
         y: cellY(g, row, 0),
@@ -607,8 +626,6 @@ function layoutGrid(
       continue;
     }
 
-    // slotsOf は「実際の今日」で翌日を足すかを決める。`?year=` で過去の 12/31 が右端でも、その日の夜は翌日の区間 0 を足す
-    const slots = slotsOf(input.days, day, input.today);
     // 内訳なしの日は、今の草と同じ色 (日の合計) を 3 マスに薄く塗る
     const fallback =
       slots === undefined && whole !== undefined

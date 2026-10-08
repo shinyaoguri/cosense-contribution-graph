@@ -7,7 +7,7 @@ Cosense (旧 Scrapbox) での活動を、GitHub のコントリビューショ�
 図は画像の URL で共有できるので、Cosense のページにもそのまま貼れる。
 
 <!-- readme-image: demo-card -->
-<img src="https://i.gyazo.com/56acdf9d676e829f22f052855892081c.png" width="532" alt="直近 26 週の図の例 (デモ)">
+<img src="https://i.gyazo.com/484b65dc4727660be46a4cfb16c7bf02.png" width="532" alt="直近 26 週の図の例 (デモ)">
 
 - 本番: <https://grass.soui.dev> ([日本語](https://grass.soui.dev/ja))
 - 配布: Cosense の公開プロジェクト [/cosense-grass](https://scrapbox.io/cosense-grass/)
