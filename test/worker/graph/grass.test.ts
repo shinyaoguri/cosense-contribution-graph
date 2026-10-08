@@ -321,18 +321,40 @@ describe("名前の行", () => {
   const gridRight = (layout: ReturnType<typeof layoutGrass>) =>
     Math.max(...layout.grid.map((c) => c.x)) + layout.cellWidth;
 
-  it("`/プロジェクト名`・アイコン・ユーザー名 (`@` なし) の順。プロジェクト名はリンクを持つ", () => {
+  it("`プロジェクト名 / アイコン ユーザー名` (`@` なし) の順。プロジェクト名はリンクを持つ", () => {
     const name = layoutGrass(
       input({ label: "my-proj", user: "taro", icon: "data:image/png;base64,AA==" }),
     ).name;
 
-    expect(name.project?.text).toBe("/my-proj");
+    expect(name.project?.text).toBe("my-proj");
     expect(name.project?.href).toBe("https://scrapbox.io/my-proj/");
+    expect(name.separator?.text).toBe("/");
     expect(name.icon?.href).toBe("data:image/png;base64,AA==");
     expect(name.user?.text).toBe("taro");
-    expect(name.project?.x ?? 0).toBeLessThan((name.icon?.cx ?? 0) - 8);
+    expect((name.project?.x ?? 0) + estimateWidth("my-proj", name.project?.size ?? 0)).toBeLessThan(
+      name.separator?.x ?? 0,
+    );
+    expect((name.separator?.x ?? 0) + estimateWidth("/", name.separator?.size ?? 0)).toBeLessThan(
+      (name.icon?.cx ?? 0) - 8,
+    );
     expect((name.icon?.cx ?? 0) + 8).toBeLessThan(name.user?.x ?? 0);
     expect(name.mark).toEqual([]);
+  });
+
+  it("**ユーザー名はプロジェクト名と同じ大きさ・色で描く** (区切りの `/` だけ淡い)", () => {
+    const name = layoutGrass(input({ label: "p", user: "taro" })).name;
+
+    expect(name.user?.size).toBe(name.project?.size);
+    expect(name.user?.fill).toBe(name.project?.fill);
+    expect(name.separator?.fill).not.toBe(name.project?.fill);
+  });
+
+  it("区切りの `/` はプロジェクト名とユーザー名が両方あるときだけ", () => {
+    expect(layoutGrass(input({ user: "taro" })).name.separator).toBeUndefined();
+    expect(layoutGrass(input({ label: "p" })).name.separator).toBeUndefined();
+    expect(
+      layoutGrass(input({ total: true, label: "p", user: "taro" })).name.separator,
+    ).toBeUndefined();
   });
 
   it("アイコンが無ければユーザー名だけ。名前が無ければ何も描かない", () => {
@@ -366,8 +388,8 @@ describe("名前の行", () => {
   });
 
   it("短い名前は切らない", () => {
-    const name = layoutGrass(input({ label: "a".repeat(20), user: "b".repeat(20) })).name;
-    expect([name.project?.text, name.user?.text]).toEqual([`/${"a".repeat(20)}`, "b".repeat(20)]);
+    const name = layoutGrass(input({ label: "a".repeat(12), user: "b".repeat(12) })).name;
+    expect([name.project?.text, name.user?.text]).toEqual(["a".repeat(12), "b".repeat(12)]);
   });
 
   it("**合算はプロジェクト名の代わりに合算の印を描き、アイコンを入れない**", () => {

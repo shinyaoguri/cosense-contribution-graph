@@ -7,7 +7,7 @@ Cosense (旧 Scrapbox) での活動を、GitHub のコントリビューショ�
 図は画像の URL で共有できるので、Cosense のページにもそのまま貼れる。
 
 <!-- readme-image: demo-card -->
-<img src="https://i.gyazo.com/d51c609a7f306179957ac296124f0de5.png" width="532" alt="直近 26 週の図の例 (デモ)">
+<img src="https://i.gyazo.com/88ca27a8813742f4349f243cdd5c22e6.png" width="532" alt="直近 26 週の図の例 (デモ)">
 
 - 本番: <https://grass.soui.dev> ([日本語](https://grass.soui.dev/ja))
 - 配布: Cosense の公開プロジェクト [/cosense-grass](https://scrapbox.io/cosense-grass/)
@@ -33,7 +33,7 @@ Cosense の公式サービスではない。運営元の株式会社 Helpfeel �
 同じ図で 1 年分にしたり、1 日を 1 マスにしたりできる (下は 1 年 × 1 日)。
 
 <!-- readme-image: demo-grass -->
-<img src="https://i.gyazo.com/9ef9e0d54591e76c82e64bcb4a2a97fd.png" width="807" alt="1 年分の草の例 (デモ)">
+<img src="https://i.gyazo.com/4eccbd10a4fbf093b9744ada3528fbd1.png" width="807" alt="1 年分の草の例 (デモ)">
 
 <!-- readme-image: guide-grass -->
 <img src="https://i.gyazo.com/db197ac239510760b66085a313348329.png" width="672" alt="草の読み方の例">

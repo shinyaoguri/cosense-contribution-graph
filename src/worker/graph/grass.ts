@@ -167,6 +167,8 @@ export type GrassLayout = {
   readonly axis: GrassAxis;
   readonly name: {
     readonly project?: GrassText & { readonly href: string; readonly size: number };
+    /** プロジェクト名とユーザー名の間の `/`。両方あるときだけ */
+    readonly separator?: GrassText & { readonly size: number };
     readonly icon?: {
       readonly cx: number;
       readonly cy: number;
@@ -372,11 +374,12 @@ const PERCENT_OPACITY = 0.8;
 const PERCENT_GAP = 4;
 
 // 名前の行
-const PROJECT_SIZE = 15;
-const USER_SIZE = 11.5;
+/** プロジェクト名とユーザー名で共通。同じ強さで並べる */
+const NAME_SIZE = 15;
 const ICON_RADIUS = 8;
-/** プロジェクト名とアイコン (かユーザー名) の間 */
-const PROJECT_GAP = 10;
+const SEPARATOR = "/";
+/** 区切りの `/` の左右の隙間 */
+const SEPARATOR_GAP = 5;
 /** アイコンとユーザー名の間 */
 const ICON_GAP = 5;
 /** 合算の印とユーザー名の間 */
@@ -830,7 +833,8 @@ export function layoutAxisLine(
 }
 
 /**
- * 名前の行。`/プロジェクト名` (太字・リンク)、アイコン (丸く切り抜く)、ユーザー名 (控えめ、`@` なし) の順。
+ * 名前の行。`プロジェクト名 / (アイコン) ユーザー名` の順で、プロジェクト名とユーザー名は同じ大きさ・太さ・色
+ * (プロジェクト名はリンク、アイコンは丸く切り抜く、ユーザー名に `@` は付けない)。区切りの `/` だけ淡くする。
  * 合算は合算の印とユーザー名だけ。**草の右端を超えないよう、見積もり幅で切って `…` を付ける**
  */
 function layoutName(input: GrassInput, g: Geometry): GrassLayout["name"] {
@@ -851,10 +855,12 @@ function layoutName(input: GrassInput, g: Geometry): GrassLayout["name"] {
   const available = g.gridRight - left;
   const iconBlock = icon === undefined ? 0 : ICON_RADIUS * 2 + ICON_GAP;
 
-  const projectText = project === undefined ? undefined : `/${project}`;
-  const projectFull = projectText === undefined ? 0 : estimateWidth(projectText, PROJECT_SIZE);
-  const userFull = input.user === undefined ? 0 : iconBlock + estimateWidth(input.user, USER_SIZE);
-  const between = projectText !== undefined && input.user !== undefined ? PROJECT_GAP : 0;
+  const projectText = project;
+  const projectFull = projectText === undefined ? 0 : estimateWidth(projectText, NAME_SIZE);
+  const userFull = input.user === undefined ? 0 : iconBlock + estimateWidth(input.user, NAME_SIZE);
+  const separated = projectText !== undefined && input.user !== undefined;
+  const separatorWidth = estimateWidth(SEPARATOR, NAME_SIZE);
+  const between = separated ? SEPARATOR_GAP * 2 + separatorWidth : 0;
 
   // 収まらなければ、ユーザー名に少なくとも 4 割を残してプロジェクト名から切る
   let projectShown = projectText;
@@ -863,12 +869,13 @@ function layoutName(input: GrassInput, g: Geometry): GrassLayout["name"] {
       input.user === undefined
         ? available
         : Math.max(available - between - userFull, available * 0.6);
-    projectShown = truncate(projectText, PROJECT_SIZE, projectMax);
+    projectShown = truncate(projectText, NAME_SIZE, projectMax);
   }
-  const projectWidth = projectShown === undefined ? 0 : estimateWidth(projectShown, PROJECT_SIZE);
+  const projectWidth = projectShown === undefined ? 0 : estimateWidth(projectShown, NAME_SIZE);
 
   const result: {
     project?: GrassText & { href: string; size: number };
+    separator?: GrassText & { size: number };
     icon?: { cx: number; cy: number; r: number; href: string };
     user?: GrassText & { size: number };
   } = {};
@@ -880,13 +887,23 @@ function layoutName(input: GrassInput, g: Geometry): GrassLayout["name"] {
       anchor: "start",
       fill: STRONG[theme],
       href: `${COSENSE_ORIGIN}/${encodeURIComponent(project)}/`,
-      size: PROJECT_SIZE,
+      size: NAME_SIZE,
     };
   }
   if (input.user !== undefined) {
-    let x = left + projectWidth + (projectShown === undefined ? 0 : PROJECT_GAP);
-    const userShown = truncate(input.user, USER_SIZE, g.gridRight - x - iconBlock);
+    let x = left + projectWidth + (projectShown === undefined ? 0 : between);
+    const userShown = truncate(input.user, NAME_SIZE, g.gridRight - x - iconBlock);
     if (userShown !== undefined) {
+      if (projectShown !== undefined) {
+        result.separator = {
+          x: round(left + projectWidth + SEPARATOR_GAP),
+          y: g.nameY,
+          text: SEPARATOR,
+          anchor: "start",
+          fill: FAINT[theme],
+          size: NAME_SIZE,
+        };
+      }
       if (icon !== undefined) {
         result.icon = { cx: round(x + ICON_RADIUS), cy: g.nameMiddle, r: ICON_RADIUS, href: icon };
         x += iconBlock;
@@ -896,8 +913,8 @@ function layoutName(input: GrassInput, g: Geometry): GrassLayout["name"] {
         y: g.nameY,
         text: userShown,
         anchor: "start",
-        fill: MID[theme],
-        size: USER_SIZE,
+        fill: STRONG[theme],
+        size: NAME_SIZE,
       };
     }
   }

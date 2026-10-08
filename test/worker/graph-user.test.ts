@@ -42,10 +42,10 @@ describe("図のユーザー名 (Issue #134。ADR-0024 の名前の行)", () => 
   it("**プロジェクト名・アイコン・ユーザー名の順に描く。ユーザー名に `@` は付けない**", async () => {
     const svg = await (await fetchDemo("?l=villagepump&u=taro")).text();
 
-    expect(svg).toContain(">/villagepump</text>");
+    expect(svg).toContain(">villagepump</text>");
     expect(svg).toContain(">taro</text>");
     expect(svg).not.toContain("@taro");
-    expect(svg.indexOf(">/villagepump<")).toBeLessThan(svg.indexOf(">taro<"));
+    expect(svg.indexOf(">villagepump<")).toBeLessThan(svg.indexOf(">taro<"));
   });
 
   it("**漢字や絵文字の名前も描く** (Issue #195)", async () => {

@@ -144,7 +144,7 @@ describe("クエリ (design §6)", () => {
   it("**`l` でプロジェクト名を描き、プロジェクトへのリンクを埋める** (`<img>` では押せないが、画像を開けば飛べる)", async () => {
     const svg = await fetchText(`${GRAPH_URL}?l=villagepump`);
 
-    expect(svg).toContain(">/villagepump</text>");
+    expect(svg).toContain(">villagepump</text>");
     expect(svg).toContain('<a href="https://scrapbox.io/villagepump/">');
   });
 
