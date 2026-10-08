@@ -76,18 +76,27 @@ describe("GET /v1/guide/{name}.svg (Issue #182)", () => {
     expect(new Set(fills).size).toBe(4 * scheme.legendBalances.length);
   });
 
-  it("**概観の図は、実物の概観と同じレイアウトで例の割合を描く**", async () => {
+  it("**概観の図は、実物の 4 軸の線 (`axisSvg`) で例の割合を描く** (ADR-0026 決定 7)", async () => {
     const body = await (await fetchGuide("overview")).text();
+    const axis = /<g data-part="axis" transform="[^"]*">(.*)<\/g>/.exec(body)?.[1] ?? "";
 
-    // 読む 240 / 育てる 90 / 関わる 40 / 作る 30 (合計 400)
-    for (const [name, percent] of [
-      ["読む", 60],
-      ["育てる", 22],
-      ["関わる", 10],
-      ["作る", 8],
-    ] as const) {
-      expect(body).toContain(`${name}<tspan dx="4" font-weight="bold">${percent}%</tspan>`);
-    }
+    // 読む 240 / 育てる 90 / 関わる 40 / 作る 30 (合計 400)。線の並びは 作る・育てる・関わる・読む
+    expect(axis.split("<line ").length - 1).toBe(4);
+    expect(axis).toMatch(/>育てる<tspan [^>]*>22%<\/tspan>/);
+    expect(axis).toMatch(/>読む<tspan [^>]*>60%<\/tspan>/);
+    // 作る と 関わる は区間が狭く、軸名を省いて % だけ (実物と同じ)
+    expect(axis).toMatch(/<text [^>]*>8%<\/text>/);
+    expect(axis).toMatch(/<text [^>]*>10%<\/text>/);
+    expect(axis).not.toContain("作る");
+    // レーダーはもう描かない
+    expect(body).not.toContain('data-part="radar"');
+  });
+
+  it("**草の図は月曜始まり** (図と同じ。ADR-0026 決定 3)", async () => {
+    const body = await (await fetchGuide("grass")).text();
+    const weekdays = [...body.matchAll(/>([月火水木金土日])<\/text>/g)].map((m) => m[1]);
+
+    expect(weekdays).toEqual(["月", "火", "水", "木", "金", "土", "日"]);
   });
 
   it("**数えているものの図の合計は、帯のマスの数と合う** (書いた 6 + 読んだ 9 = 15)", async () => {

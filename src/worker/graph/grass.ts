@@ -22,7 +22,7 @@ import {
   type Span,
 } from "../../shared/grass.ts";
 import type { Quad } from "../segments.ts";
-import { type AxisDay, percentages, sumAxes } from "./axes.ts";
+import { type AxisDay, type AxisTotals, percentages, sumAxes } from "./axes.ts";
 import { balanceOf, type Minutes } from "./balance.ts";
 import { levelOf, type Scale } from "./scale.ts";
 import { type SchemeName, schemeOf, type Theme } from "./scheme.ts";
@@ -128,6 +128,25 @@ type GrassLine = {
   readonly stroke: string;
 };
 
+/** 4 軸の線と、その下の軸名と % */
+export type GrassAxis = {
+  readonly y: number;
+  readonly strokeWidth: number;
+  /** 作る・育てる・関わる・読む のうち 0 でない軸の順。全部 0 なら淡い 1 本 */
+  readonly lines: readonly GrassLine[];
+  readonly names: readonly AxisName[];
+  readonly nameSize: number;
+  readonly letterSpacing: string;
+  readonly nameColor: string;
+  /** % の文字の大きさ・字間・色・不透明度 (よく見たら読める程度。ADR-0026 決定 5) */
+  readonly percentSize: number;
+  readonly percentSpacing: string;
+  readonly percentColor: string;
+  readonly percentOpacity: number;
+  /** 軸名と % の間 */
+  readonly percentGap: number;
+};
+
 export type GrassLayout = {
   readonly width: number;
   readonly height: number;
@@ -143,23 +162,7 @@ export type GrassLayout = {
   readonly grid: readonly GrassGridCell[];
   /** 「計」の列。月曜の朝から日曜の夜の順 (1 日 1 マスなら月曜から日曜) */
   readonly sum: readonly GrassCell[];
-  readonly axis: {
-    readonly y: number;
-    readonly strokeWidth: number;
-    /** 作る・育てる・関わる・読む のうち 0 でない軸の順。全部 0 なら淡い 1 本 */
-    readonly lines: readonly GrassLine[];
-    readonly names: readonly AxisName[];
-    readonly nameSize: number;
-    readonly letterSpacing: string;
-    readonly nameColor: string;
-    /** % の文字の大きさ・字間・色・不透明度 (よく見たら読める程度。ADR-0026 決定 5) */
-    readonly percentSize: number;
-    readonly percentSpacing: string;
-    readonly percentColor: string;
-    readonly percentOpacity: number;
-    /** 軸名と % の間 */
-    readonly percentGap: number;
-  };
+  readonly axis: GrassAxis;
   readonly name: {
     readonly project?: GrassText & { readonly href: string; readonly size: number };
     readonly icon?: {
@@ -698,14 +701,38 @@ function layoutLabels(input: GrassInput, strings: Strings, g: Geometry): GrassTe
  * 4 軸の線。草の左端から「計」の列の右端までを、0 でない軸で**全体に対する割合**で分ける。
  * 区間の左端の下に軸名と % を置く。見積もり幅が区間に収まらなければ % だけにし、それも入らなければ省く (ADR-0026 決定 5)
  */
-function layoutAxis(input: GrassInput, strings: Strings, g: Geometry): GrassLayout["axis"] {
-  const { theme } = input;
+function layoutAxis(input: GrassInput, g: Geometry): GrassAxis {
   const start = grassStart(endOf(input), g.weeks);
   const end = endOf(input);
   const inRange = [...input.days]
     .filter(([day]) => day >= start && day <= end)
     .map(([, values]) => values);
-  const totals = sumAxes(inRange);
+  return layoutAxisLine(sumAxes(inRange), {
+    left: g.originX,
+    right: g.sumRight,
+    y: g.axisY,
+    nameY: g.axisNameY,
+    theme: input.theme,
+    lang: input.lang,
+  });
+}
+
+/**
+ * 4 軸の値から、`left` から `right` までの線と軸名・% を置く。図の下の線 (`layoutAxis`) と説明の図 (`guide-svg.ts`) が使う
+ */
+export function layoutAxisLine(
+  totals: AxisTotals,
+  at: {
+    readonly left: number;
+    readonly right: number;
+    readonly y: number;
+    readonly nameY: number;
+    readonly theme: Theme;
+    readonly lang: Lang;
+  },
+): GrassAxis {
+  const { theme } = at;
+  const strings = STRINGS[at.lang];
   const values = [totals.create, totals.grow, totals.join, totals.read];
   // 端数が同じときは線の並び (作る・育てる・関わる・読む) の先を優先する
   const percents = percentages(values);
@@ -713,7 +740,7 @@ function layoutAxis(input: GrassInput, strings: Strings, g: Geometry): GrassLayo
   const inset = AXIS_STROKE / 2;
   const percentSpacing = PERCENT_LETTER_SPACING_EM * PERCENT_SIZE;
   const base = {
-    y: g.axisY,
+    y: at.y,
     strokeWidth: AXIS_STROKE,
     nameSize: AXIS_NAME_SIZE,
     letterSpacing: `${AXIS_LETTER_SPACING_EM}em`,
@@ -727,18 +754,16 @@ function layoutAxis(input: GrassInput, strings: Strings, g: Geometry): GrassLayo
   if (sum === 0) {
     return {
       ...base,
-      lines: [
-        { x1: round(g.originX + inset), x2: round(g.sumRight - inset), stroke: FAINTEST[theme] },
-      ],
+      lines: [{ x1: round(at.left + inset), x2: round(at.right - inset), stroke: FAINTEST[theme] }],
       names: [],
     };
   }
 
   const nonZero = values.flatMap((value, i) => (value > 0 ? [{ value, i }] : []));
-  const available = g.sumRight - g.originX - AXIS_GAP * (nonZero.length - 1);
+  const available = at.right - at.left - AXIS_GAP * (nonZero.length - 1);
   const lines: GrassLine[] = [];
   const names: AxisName[] = [];
-  let cursor = g.originX;
+  let cursor = at.left;
   for (const { value, i } of nonZero) {
     const length = (available * value) / sum;
     // 丸い端が線幅の半分はみ出すので、見た目の区間 [cursor, cursor + length] に収まるよう内側に引く。
@@ -752,7 +777,7 @@ function layoutAxis(input: GrassInput, strings: Strings, g: Geometry): GrassLayo
     const percent = `${percents[i] ?? 0}%`;
     const nameWidth = estimateWidth(name, AXIS_NAME_SIZE, AXIS_LETTER_SPACING_EM * AXIS_NAME_SIZE);
     const percentWidth = estimateWidth(percent, PERCENT_SIZE, percentSpacing);
-    const position = { x: round(cursor), y: g.axisNameY };
+    const position = { x: round(cursor), y: at.nameY };
     if (nameWidth + PERCENT_GAP + percentWidth <= length) {
       names.push({ ...position, name, percent });
     } else if (percentWidth <= length) {
@@ -854,7 +879,7 @@ export function layoutGrass(input: GrassInput): GrassLayout {
     labels: layoutLabels(input, strings, g),
     grid,
     sum: layoutSum(sums, input.theme, g),
-    axis: layoutAxis(input, strings, g),
+    axis: layoutAxis(input, g),
     name: layoutName(input, g),
   };
 }

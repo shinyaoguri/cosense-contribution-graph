@@ -21,8 +21,8 @@
       "path": "/v1/guide/grass.svg",
       "alt": "草の読み方の例",
       "width": 672,
-      "sha256": "9df60e2e46e4208b711ee69bbbae09a7cc1793a58b7e6a722b168b9ec06db872",
-      "url": "https://i.gyazo.com/0c37b915a429d2b449f07bc7cf1d24ff.png"
+      "sha256": "3be9d7508ff09cca9f4c96525b12294b489f57d6342d42ab640446eb2f743baf",
+      "url": "https://i.gyazo.com/db197ac239510760b66085a313348329.png"
     },
     {
       "name": "demo-overview",
@@ -35,10 +35,10 @@
     {
       "name": "guide-overview",
       "path": "/v1/guide/overview.svg",
-      "alt": "活動の概観の読み方の例",
+      "alt": "4 軸の線の読み方の例",
       "width": 672,
-      "sha256": "651333570251d35aa5482c336f97dc18d5ad29ddc64ddb360af735f9eb50b4d5",
-      "url": "https://i.gyazo.com/a8e4a7853d5187890bd2481532256a4e.png"
+      "sha256": "6f9d4192c10bcc277e8fd28d1e81f0ef687f4154b4029b3001ff0beac0532413",
+      "url": "https://i.gyazo.com/4d5ba8f3b11809e52db2faa656cab402.png"
     }
   ]
 }
