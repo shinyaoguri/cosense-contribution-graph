@@ -6,11 +6,9 @@ import type { SendStatus } from "../../src/userscript/sender.ts";
 const enrolled: SendStatus = {
   kind: "enrolled",
   kid: "0123456789abcdef",
-  graphUrl: "https://grass.soui.dev/v1/g/total.svg",
-  overviewUrl: "https://grass.soui.dev/v1/g/total/overview.svg",
+  publicId: "total",
+  names: {},
   dataUrl: "https://grass.soui.dev/v1/g/total/ffffffffffffffffffffffffffffffff.json",
-  cardUrl: "https://grass.soui.dev/v1/g/total/card.svg",
-  cardLine: "[https://grass.soui.dev/v1/g/total/card.svg]",
   totalSent: true,
   projects: [],
   todaySends: 0,

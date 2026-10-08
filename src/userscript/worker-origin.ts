@@ -5,6 +5,7 @@
  * サインインのポップアップの postMessage も、このオリジンから来たものだけを受け取る。
  */
 import { ACCOUNT_PATH } from "../shared/auth.ts";
+import { CARD_FORM, GRAPH_FORM, type GrassForm } from "../shared/grass.ts";
 import type { GuideName } from "../shared/guide.ts";
 import { PH_ALL, phOf, publicIdOf } from "../shared/ids.ts";
 import { PRIVACY_JA_PATH } from "../shared/links.ts";
@@ -34,11 +35,11 @@ export async function graphIds(
   return { ph, publicId: await publicIdOf(uid, ph) };
 }
 
-/** カードの行のリンク先。**UserScript が動いているオリジン** (scrapbox.io) */
-const COSENSE_ORIGIN = "https://scrapbox.io";
-
 /** 図に描く名前。**サーバは保存しない** (ADR-0007) */
-type Names = { readonly project?: string; readonly user?: string };
+export type Names = { readonly project?: string; readonly user?: string };
+
+/** 図の形と、振り返る年 (`?year=`)。年があれば期間は 1 年になる (ADR-0026 決定 1) */
+export type GrassView = GrassForm & { readonly year?: number };
 
 /**
  * 図の URL に付ける版。Worker はクエリを見ないので、図の中身には効かない。
@@ -58,20 +59,22 @@ export function guideUrl(name: GuideName): string {
 }
 
 /**
- * 共有 SVG の URL (design §6)。
+ * 図の URL (design §6、ADR-0026)。`{publicId}.svg`・`card.svg` は同じ描画で既定の形だけが違うので、
+ * **選んだ形を既定に持つ経路を選び、既定と違うキーだけを付ける** (貼る行を短く保つ)。どちらでもなければ `card.svg` に付ける。
  *
- * **プロジェクト名を渡すと `?l=`、ユーザー名を渡すと `u=` を付ける** (Issue #119・#134)。
- * Worker はどちらも保存せず、その画像に描くだけ。
- * **貼った先でも名前が出る**ようにするため、`<img>` だけでなくコピーする URL にも同じものを使う。
- * 形が取り決めの外なら付けない (Worker 側も同じ形で弾くので、付けても描かれない)。
+ * - **プロジェクト名を渡すと `l=`、ユーザー名を渡すと `u=` を付ける** (Issue #119・#134)。Worker はどちらも保存せず、その画像に描くだけ。
+ *   **貼った先でも名前が出る**ようにするため、`<img>` だけでなくコピーする URL にも同じものを使う。
+ *   形が取り決めの外なら付けない (Worker 側も同じ形で弾くので、付けても描かれない)
+ * - **年を選んだら期間は 1 年** (Worker も `year` があれば 1 年で描く)。`span` は付けず `year` だけを付ける
  */
-export function graphUrl(publicId: string, names: Names = {}): string {
-  return withNames(`${WORKER_ORIGIN}/v1/g/${publicId}.svg`, names);
-}
-
-/** 名前を `?l=` / `u=` で付ける。形が取り決めの外なら付けない (草とカードで共通) */
-function withNames(url: string, names: Names): string {
+export function grassUrl(publicId: string, view: GrassView, names: Names = {}): string {
+  const span = view.year === undefined ? view.span : "year";
+  const graph = span === GRAPH_FORM.span && view.cell === GRAPH_FORM.cell;
+  const base = graph ? GRAPH_FORM : CARD_FORM;
   const query = [
+    view.year === undefined && span !== base.span ? `span=${span}` : undefined,
+    view.cell !== base.cell ? `cell=${view.cell}` : undefined,
+    view.year === undefined ? undefined : `year=${view.year}`,
     names.project !== undefined && isValidProjectName(names.project)
       ? `l=${encodeURIComponent(names.project)}`
       : undefined,
@@ -79,20 +82,12 @@ function withNames(url: string, names: Names): string {
       ? `u=${encodeURIComponent(names.user)}`
       : undefined,
   ].filter((part) => part !== undefined);
+  const url = `${WORKER_ORIGIN}/v1/g/${publicId}${graph ? ".svg" : "/card.svg"}`;
   return query.length === 0 ? url : `${url}?${query.join("&")}`;
 }
 
 /**
- * カードの図の URL (design §6、ADR-0024)。**草と同じ publicId** で、名前の付け方も草と同じ。
- *
- * プロフィールページに貼る行 (`cardLine`) と、ダイアログの `<img>` に使う
- */
-export function cardUrl(publicId: string, names: Names = {}): string {
-  return withNames(`${WORKER_ORIGIN}/v1/g/${publicId}/card.svg`, names);
-}
-
-/**
- * Cosense に貼るカードの行 (ADR-0025 決定 6 の改訂)。**ただの画像の記法** `[<図の URL>]` で、リンク先は付けない。
+ * Cosense に貼る図の行 (ADR-0025 決定 6 の改訂)。**ただの画像の記法** `[<図の URL>]` で、リンク先は付けない。
  *
  * ```
  * [https://grass.soui.dev/v1/g/<publicId>/card.svg?l=<project>&u=<user>]
@@ -101,18 +96,25 @@ export function cardUrl(publicId: string, names: Names = {}): string {
  * - 最初はリンク付きの画像 (`[<図の URL> https://scrapbox.io/<project>/]`) にしていたが、作者が不要と判断した (2026-10-07、#213)。
  *   プロジェクトへのリンクは SVG の中のプロジェクト名が持つ (SVG を直接開いたときに効く)
  * - 角括弧の中に空白と `]` が入ると記法が切れる。名前は `encodeURIComponent` を通すので入らない
- *   (Cosense の記法の判定は `@progfay/scrapbox-parser` の `ImageNode.ts`。URL が `.svg` で終わり、続くクエリに空白と `]` が無いこと)
+ *   (Cosense の記法の判定は `@progfay/scrapbox-parser` の `ImageNode.ts`。URL の path が `.svg` で終わり、続くクエリに空白と `]` が無いこと)
  */
-export function cardLine(publicId: string, names: Names = {}): string {
-  return `[${cardUrl(publicId, names)}]`;
+export function grassLine(publicId: string, view: GrassView, names: Names = {}): string {
+  return `[${grassUrl(publicId, view, names)}]`;
 }
 
-/**
- * 活動の概観の URL (design §6、ADR-0021)。**草と同じ publicId** で、草の横 (下) に並べる。
- * 名前 (`l` / `u`) は描かないので付けない。
- */
-export function overviewUrl(publicId: string): string {
-  return `${WORKER_ORIGIN}/v1/g/${publicId}/overview.svg`;
+/** 1 年 × 1 日の図 (`{publicId}.svg`)。サインインした後に開く (`auth.ts`) */
+export function graphUrl(publicId: string, names: Names = {}): string {
+  return grassUrl(publicId, GRAPH_FORM, names);
+}
+
+/** カードの図 (`card.svg` の既定の形。ADR-0024)。プロフィールページに貼る (`profile.ts`。ADR-0025) */
+export function cardUrl(publicId: string, names: Names = {}): string {
+  return grassUrl(publicId, CARD_FORM, names);
+}
+
+/** プロフィールページに貼るカードの行。**クエリは名前だけで、形は既定のまま** (ADR-0026 の改訂。ダイアログで選んだ形は混ぜない) */
+export function cardLine(publicId: string, names: Names = {}): string {
+  return grassLine(publicId, CARD_FORM, names);
 }
 
 /**

@@ -44,15 +44,7 @@ import {
 import { MENU_TITLE, SETTINGS_LABEL } from "./settings.ts";
 import type { Store } from "./store.ts";
 import { localDay } from "./time.ts";
-import {
-  cardLine,
-  cardUrl,
-  dataUrl,
-  graphIds,
-  graphUrl,
-  overviewUrl,
-  WORKER_ORIGIN,
-} from "./worker-origin.ts";
+import { dataUrl, graphIds, type Names, WORKER_ORIGIN } from "./worker-origin.ts";
 
 const BACKOFF_BASE_MS = 15 * 60_000;
 const BACKOFF_MAX_MS = 24 * 60 * 60_000;
@@ -80,16 +72,14 @@ export type SendStatus =
   | {
       readonly kind: "enrolled";
       readonly kid: string;
-      /** 合算の草。**ダイアログにだけ出す** (コンソールにもログにも残さない) */
-      readonly graphUrl: string;
-      /** 合算の活動の概観 (ADR-0021)。草と同じく、ダイアログにだけ出す */
-      readonly overviewUrl: string;
+      /**
+       * 合算の図の publicId と、図に描く名前 (合算はユーザー名だけ)。URL はダイアログが選んだ形から作る (`grassUrl`。ADR-0026)。
+       * **publicId が分かると誰でも図を見られるので、ダイアログにだけ出す** (コンソールにもログにも残さない)
+       */
+      readonly publicId: string;
+      readonly names: Names;
       /** 合算の日ごとの集計値の JSON (ADR-0020)。**渡すと内訳まで読める**ので、ダイアログにだけ出す */
       readonly dataUrl: string;
-      /** 合算のカードの図 (ADR-0024)。ダイアログに出す。**プロフィールページには貼らない** (ADR-0025) */
-      readonly cardUrl: string;
-      /** 合算のカードの図を Cosense に貼る行 (ADR-0025)。リンク先は付かない */
-      readonly cardLine: string;
       /**
        * 合算の行 (`*`) を 1 件でも送れたか。false なら共有 SVG はまだ無いので 404 になる (Issue #100)。
        * ほかの端末から送っていれば草はあるので、**読むかどうかは見る側が決める**
@@ -101,13 +91,10 @@ export type SendStatus =
        */
       readonly projects: readonly {
         readonly name: string;
-        readonly graphUrl: string;
-        readonly overviewUrl: string;
+        readonly publicId: string;
+        /** 図に描くプロジェクト名とユーザー名。プロフィールページに自動で貼る行と同じ名前 (ADR-0025) */
+        readonly names: Names;
         readonly dataUrl: string;
-        /** カードの図 (ADR-0024)。ダイアログに出す */
-        readonly cardUrl: string;
-        /** カードの図を Cosense に貼る行。**プロフィールページに自動で貼るものと同じ** (ADR-0025) */
-        readonly cardLine: string;
         readonly sent: boolean;
       }[];
       readonly todaySends: number;
@@ -206,11 +193,9 @@ export function createSender(deps: SenderDependencies): Sender {
             const names = { project: name, user };
             return {
               name,
-              graphUrl: graphUrl(publicId, names),
-              overviewUrl: overviewUrl(publicId),
+              publicId,
+              names,
               dataUrl: dataUrl(publicId, await dataKeyOf(uid, ph)),
-              cardUrl: cardUrl(publicId, names),
-              cardLine: cardLine(publicId, names),
               sent: sentPhs.has(ph),
             };
           }),
@@ -220,11 +205,9 @@ export function createSender(deps: SenderDependencies): Sender {
       return {
         kind: "enrolled",
         kid,
-        graphUrl: graphUrl(total.publicId, { user }),
-        overviewUrl: overviewUrl(total.publicId),
+        publicId: total.publicId,
+        names: { user },
         dataUrl: dataUrl(total.publicId, await dataKeyOf(uid, total.ph)),
-        cardUrl: cardUrl(total.publicId, { user }),
-        cardLine: cardLine(total.publicId, { user }),
         totalSent: sentPhs.has(PH_ALL),
         projects,
         todaySends: sent.days[today]?.n ?? 0,

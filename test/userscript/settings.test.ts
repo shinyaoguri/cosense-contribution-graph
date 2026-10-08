@@ -15,12 +15,10 @@ import { ACCOUNT_URL } from "../../src/userscript/worker-origin.ts";
 const ENROLLED: SendStatus = {
   kind: "enrolled",
   kid: "0123456789abcdef",
-  graphUrl: "https://grass.soui.dev/v1/g/0123456789abcdef0123456789abcdef.svg",
-  overviewUrl: "https://grass.soui.dev/v1/g/0123456789abcdef0123456789abcdef/overview.svg",
+  publicId: "0123456789abcdef0123456789abcdef",
+  names: {},
   dataUrl:
     "https://grass.soui.dev/v1/g/0123456789abcdef0123456789abcdef/ffffffffffffffffffffffffffffffff.json",
-  cardUrl: "https://grass.soui.dev/v1/g/total/card.svg",
-  cardLine: "[https://grass.soui.dev/v1/g/total/card.svg]",
   totalSent: true,
   projects: [],
   todaySends: 0,

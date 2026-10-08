@@ -14,13 +14,7 @@ import { MAX_TODAY_SENDS, readSent, SENT_KEY } from "../../src/userscript/outbox
 import { backoffMs, createSender } from "../../src/userscript/sender.ts";
 import { type Activity, createStore } from "../../src/userscript/store.ts";
 import { localDay } from "../../src/userscript/time.ts";
-import {
-  cardLine,
-  cardUrl,
-  dataUrl,
-  graphUrl,
-  overviewUrl,
-} from "../../src/userscript/worker-origin.ts";
+import { dataUrl } from "../../src/userscript/worker-origin.ts";
 
 const UID = encodeBase64url(new Uint8Array(20).fill(9));
 
@@ -396,9 +390,9 @@ describe("createSender — status", () => {
     const found = t.state.device;
     if (found.kind !== "found") throw new Error();
     expect(after.kid).toBe(found.record.kid);
-    expect(after.graphUrl).toMatch(/^https:\/\/grass\.soui\.dev\/v1\/g\/[0-9a-f]{32}\.svg$/);
-    // 概観は草と同じ publicId で、名前を付けない (ADR-0021)
-    expect(after.overviewUrl).toBe(after.graphUrl.replace(/\.svg$/, "/overview.svg"));
+    // 合算の図の publicId と名前。URL はダイアログが選んだ形から作る (ADR-0026)。合算にプロジェクト名は付けない
+    expect(after.publicId).toBe(await publicIdOf(UID, PH_ALL));
+    expect(after.names).toEqual({ user: undefined });
     // 日ごとの数値は uid からしか作れない鍵を並べる (ADR-0020)。草の URL の publicId とは別の値
     expect(after.dataUrl).toBe(
       dataUrl(await publicIdOf(UID, PH_ALL), await dataKeyOf(UID, PH_ALL)),
@@ -413,29 +407,19 @@ describe("createSender — status", () => {
       requests: 1,
       entries: 4,
     });
-    // **プロジェクト別の URL には名前が `?l=` で載る** (Issue #119)。合算 (上の graphUrl) には載らない
+    // **プロジェクト別には名前 (プロジェクト名) を付ける** (Issue #119)。合算 (上) には付けない
     expect(after.projects).toEqual([
       {
         name: "p",
-        graphUrl: graphUrl(await publicIdOf(UID, await phOf(UID, "p")), { project: "p" }),
-        overviewUrl: overviewUrl(await publicIdOf(UID, await phOf(UID, "p"))),
+        publicId: await publicIdOf(UID, await phOf(UID, "p")),
+        names: { project: "p", user: undefined },
         dataUrl: dataUrl(
           await publicIdOf(UID, await phOf(UID, "p")),
           await dataKeyOf(UID, await phOf(UID, "p")),
         ),
-        cardUrl: cardUrl(await publicIdOf(UID, await phOf(UID, "p")), { project: "p" }),
-        cardLine: cardLine(await publicIdOf(UID, await phOf(UID, "p")), { project: "p" }),
         sent: true,
       },
     ]);
-    expect(after.projects[0]?.graphUrl).toMatch(/\?l=p$/);
-    // **カードは草と同じ publicId** (ADR-0024 決定 4)。合算の行はリンク先を持たない (ADR-0025)
-    expect(after.projects[0]?.cardUrl).toBe(
-      after.projects[0]?.graphUrl.replace(/\.svg\?/, "/card.svg?"),
-    );
-    // 合算のカードも草と同じ publicId (ダイアログに出す。2026-10-07)
-    expect(after.cardUrl).toBe(after.graphUrl.replace(/\.svg$/, "/card.svg"));
-    expect(after.cardLine).toBe(`[${after.cardUrl}]`);
     expect(after.backoffUntil).toBeUndefined();
   });
 
@@ -447,10 +431,8 @@ describe("createSender — status", () => {
 
     const status = await t.sender.status();
     if (status.kind !== "enrolled") throw new Error(status.kind);
-    expect(status.graphUrl).toMatch(
-      /^https:\/\/grass\.soui\.dev\/v1\/g\/[0-9a-f]{32}\.svg\?u=example-user$/,
-    );
-    expect(status.projects[0]?.graphUrl).toMatch(/\?l=p&u=example-user$/);
+    expect(status.names).toEqual({ user: "example-user" });
+    expect(status.projects[0]?.names).toEqual({ project: "p", user: "example-user" });
   });
 
   it("**ユーザー名を毎回読み直す** (Cosense でログインし直しても、開き直さずに新しい名前になる)", async () => {
@@ -461,8 +443,8 @@ describe("createSender — status", () => {
     const after = await t.sender.status();
 
     if (before.kind !== "enrolled" || after.kind !== "enrolled") throw new Error();
-    expect(before.graphUrl).not.toContain("u=");
-    expect(after.graphUrl).toMatch(/\?u=later$/);
+    expect(before.names.user).toBeUndefined();
+    expect(after.names.user).toBe("later");
   });
 
   it("**まだ送れていないプロジェクトは sent: false** (URL は 404 になる)", async () => {

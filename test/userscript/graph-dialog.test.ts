@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CARD_FORM, CELLS, GRASS_SIZES, SPANS } from "../../src/shared/grass.ts";
 import { GUIDE_HEIGHTS, GUIDE_WIDTH } from "../../src/shared/guide.ts";
 import {
   BUTTON_CLASS,
@@ -7,19 +8,14 @@ import {
   DIALOG_PADDING,
 } from "../../src/userscript/dialog.ts";
 import {
-  CARD_HEIGHT,
-  CARD_WIDTH,
+  CELL_LABELS,
   COPIED_FEEDBACK_MS,
   createGraphDialog,
   DIALOG_MAX_WIDTH,
   FIRST_YEAR,
-  GRAPH_HEIGHT,
-  GRAPH_WIDTH,
-  OVERVIEW_HEIGHT,
-  OVERVIEW_WIDTH,
-  RECENT_PERIOD_LABEL,
+  figureSize,
   type SendNowResult,
-  SHOWN,
+  SPAN_LABELS,
 } from "../../src/userscript/graph-dialog.ts";
 import { MENU_TITLE, SETTINGS_LABEL } from "../../src/userscript/settings.ts";
 import {
@@ -57,30 +53,23 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const url = (name: string) => `https://grass.soui.dev/v1/g/${name.padEnd(32, "0")}.svg`;
+const id = (name: string) => name.padEnd(32, "0");
+/** 既定の形 (直近 26 週 × 時間帯) の図の URL。`query` は形や名前のクエリ (`?l=p0` など) */
+const cardOf = (name: string, query = "") =>
+  `https://grass.soui.dev/v1/g/${id(name)}/card.svg${query}`;
+/** 1 年 × 1 日の図の URL (`{publicId}.svg`。ADR-0026 決定 6) */
+const graphOf = (name: string, query = "") => `https://grass.soui.dev/v1/g/${id(name)}.svg${query}`;
 /** 囲みの見出し (説明の `<details>` の中の見出しと分ける) */
 const CARD_TITLE = "section > h4";
-/** 草の画像 (概観の画像と分ける) */
-const GRASS = 'img[alt$="の草"]';
-/** 活動の概観の画像 (ADR-0021) */
-const OVERVIEW = 'img[alt$="の活動の概観"]';
-/** カードの図 (ADR-0024) */
-const CARD = 'img[alt$="のカード"]';
-const PASTE_LINE = "Cosense に貼る行をコピー";
-const dataOf = (name: string) =>
-  `https://grass.soui.dev/v1/g/${name.padEnd(32, "0")}/${"f".repeat(32)}.json`;
-const overviewOf = (name: string) =>
-  `https://grass.soui.dev/v1/g/${name.padEnd(32, "0")}/overview.svg`;
-
-const cardOf = (name: string) => `https://grass.soui.dev/v1/g/${name.padEnd(32, "0")}/card.svg`;
-/** Cosense に貼る行。合算はリンク先が無い */
-const lineOf = (name: string, project?: string) =>
-  project === undefined
-    ? `[${cardOf(name)}]`
-    : `[${cardOf(name)}?l=${project} https://scrapbox.io/${project}/]`;
+/** 囲みの図 (説明の図と分ける) */
+const FIGURE = 'img[alt$="の図"]';
+/** 貼る行のボタンの文言。名乗り (`aria-label`) は「Cosense に貼る行をコピー」 */
+const PASTE_LINE = "貼る行をコピー";
+const dataOf = (name: string) => `https://grass.soui.dev/v1/g/${id(name)}/${"f".repeat(32)}.json`;
 
 const SYNC: SyncView = { lines: ["このブラウザの記録は送信済みです。"], canSend: false };
 
+/** 合算 (`aa`) とプロジェクト別 (`b0`, `b1`, …。プロジェクト名は `p0`, `p1`, …) */
 function graphs(
   projects: { label: string; sent: boolean }[],
   totalSent = true,
@@ -90,23 +79,37 @@ function graphs(
     kind: "graphs",
     total: {
       label: TOTAL_LABEL,
-      url: url("aa"),
-      overviewUrl: overviewOf("aa"),
+      publicId: id("aa"),
+      names: {},
       dataUrl: dataOf("aa"),
-      cardUrl: cardOf("aa"),
-      cardLine: lineOf("aa"),
       sent: totalSent,
     },
     projects: projects.map((p, i) => ({
       ...p,
-      url: url(`b${i}`),
-      overviewUrl: overviewOf(`b${i}`),
+      publicId: id(`b${i}`),
+      names: { project: `p${i}` },
       dataUrl: dataOf(`b${i}`),
-      cardUrl: cardOf(`b${i}`),
-      cardLine: lineOf(`b${i}`, `p${i}`),
     })),
     sync,
   };
+}
+
+/** 表示中の図の src */
+const srcsOf = (dialog: HTMLDialogElement | null) =>
+  [...(dialog?.querySelectorAll<HTMLImageElement>(FIGURE) ?? [])].map((img) =>
+    img.getAttribute("src"),
+  );
+
+/** これから作られる `<img>` を集める (読み直しと取り直しを見る) */
+function captureImages(): HTMLImageElement[] {
+  const created: HTMLImageElement[] = [];
+  const original = document.createElement.bind(document);
+  vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
+    const node = original(tag);
+    if (tag === "img") created.push(node as HTMLImageElement);
+    return node;
+  });
+  return created;
 }
 
 function message(...lines: string[]): IntegratedView {
@@ -246,22 +249,25 @@ describe("createGraphDialog", () => {
     expect([...(node?.querySelectorAll("p") ?? [])].map((p) => p.textContent)).toContain(
       "この端末は未登録",
     );
-    expect(node?.querySelectorAll<HTMLImageElement>(GRASS)).toHaveLength(0);
+    expect(node?.querySelectorAll<HTMLImageElement>(FIGURE)).toHaveLength(0);
   });
 
-  it("**送れた草は img で出す。** 大きさ・alt・遅延読み込み・Referer を送らない指定が付き、属性のハンドラは無い", () => {
+  it("**図は img で出す。** 大きさは選んでいる形の外寸・alt・遅延読み込み・Referer を送らない指定が付き、属性のハンドラは無い", () => {
     const t = setup();
 
     t.open(graphs([{ label: "alpha", sent: true }]));
 
-    const images = [...(t.find()?.querySelectorAll<HTMLImageElement>(GRASS) ?? [])];
-    expect(images.map((img) => img.getAttribute("src"))).toEqual([url("aa"), url("b0")]);
+    const images = [...(t.find()?.querySelectorAll<HTMLImageElement>(FIGURE) ?? [])];
+    // 既定の形はカード (直近 26 週 × 時間帯)。プロジェクト別には名前が付く
+    expect(srcsOf(t.find())).toEqual([cardOf("aa"), cardOf("b0", "?l=p0")]);
+    const { width, height } = GRASS_SIZES.half.slot;
     for (const img of images) {
-      expect([img.width, img.height]).toEqual([SHOWN.graph.width, SHOWN.graph.height]);
+      expect([img.width, img.height]).toEqual([width, height]);
       expect(img.getAttribute("loading")).toBe("lazy");
       expect(img.getAttribute("referrerpolicy")).toBe("no-referrer");
-      expect(img.alt).toMatch(/の草$/);
+      expect([img.style.maxWidth, img.style.height]).toEqual(["100%", "auto"]);
     }
+    expect(images.map((img) => img.alt)).toEqual([`${TOTAL_LABEL} の図`, "alpha の図"]);
     const handlers = [...(t.find()?.querySelectorAll("*") ?? [])].flatMap((node) =>
       [...node.attributes].filter((attr) => attr.name.startsWith("on")),
     );
@@ -286,13 +292,14 @@ describe("createGraphDialog", () => {
 
     expect(blocks).toHaveLength(1 + projects.length);
     for (const block of blocks) {
-      // 見出し・画像・概観が 1 つずつ、コピーが 3 つ (草・概観・日ごとの数値) と JSON を開くリンクが同じ囲みの中にある
+      // 見出しと図が 1 つずつ、コピーが 3 つ (図の URL・貼る行・日ごとの数値) と JSON を開くリンクが同じ囲みの中にある
       expect(block.querySelectorAll(CARD_TITLE)).toHaveLength(1);
-      expect(block.querySelectorAll<HTMLImageElement>(GRASS)).toHaveLength(1);
-      expect(block.querySelectorAll<HTMLImageElement>(OVERVIEW)).toHaveLength(1);
-      expect(
-        [...block.querySelectorAll("button")].filter((b) => b.textContent === "URL をコピー"),
-      ).toHaveLength(3);
+      expect(block.querySelectorAll<HTMLImageElement>(FIGURE)).toHaveLength(1);
+      expect([...block.querySelectorAll("button")].map((b) => b.textContent)).toEqual([
+        "URL をコピー",
+        PASTE_LINE,
+        "URL をコピー",
+      ]);
       expect([...block.querySelectorAll("a")].map((a) => a.textContent)).toEqual(["開く"]);
       expect(block.style.border).not.toBe("");
     }
@@ -316,16 +323,14 @@ describe("createGraphDialog", () => {
     const labels = t.buttons("URL をコピー").map((b) => b.getAttribute("aria-label"));
 
     expect(labels).toEqual([
-      `${TOTAL_LABEL} の草の URL をコピー`,
-      `${TOTAL_LABEL} の活動の概観の URL をコピー`,
+      `${TOTAL_LABEL} の図の URL をコピー`,
       `${TOTAL_LABEL} の日ごとの数値の URL をコピー`,
-      "project-a の草の URL をコピー",
-      "project-a の活動の概観の URL をコピー",
+      "project-a の図の URL をコピー",
       "project-a の日ごとの数値の URL をコピー",
     ]);
   });
 
-  it("**3 つのコピーはそれぞれの URL を書き、JSON は別のタブで Referer を送らずに開く** (#164)", async () => {
+  it("**URL のコピーは図と日ごとの数値の URL を書き、JSON は別のタブで Referer を送らずに開く** (#164)", async () => {
     const t = setup();
     t.open(graphs([]));
 
@@ -333,7 +338,7 @@ describe("createGraphDialog", () => {
       copy.click();
     }
     await settle();
-    expect(t.copied).toEqual([url("aa"), overviewOf("aa"), dataOf("aa")]);
+    expect(t.copied).toEqual([cardOf("aa"), dataOf("aa")]);
 
     const open = t
       .find()
@@ -345,25 +350,11 @@ describe("createGraphDialog", () => {
     expect(t.find()?.textContent).toContain("日ごとの内訳まで読めます");
   });
 
-  it("**囲みの主役はカード。合算にもプロジェクト別にも図を出す** (ADR-0024・0025、2026-10-07)", () => {
+  it("**貼る行のコピーは、その図と同じ囲みに置き、対象を名乗る**", () => {
     const t = setup();
     t.open(graphs([{ label: "alpha", sent: true }]));
 
-    const images = [...(t.find()?.querySelectorAll<HTMLImageElement>(CARD) ?? [])];
-    expect(images.map((img) => [img.getAttribute("src"), img.alt])).toEqual([
-      [cardOf("aa"), `${TOTAL_LABEL} のカード`],
-      [cardOf("b0"), "alpha のカード"],
-    ]);
-    for (const img of images) {
-      expect([img.width, img.height]).toEqual([SHOWN.card.width, SHOWN.card.height]);
-      expect(img.getAttribute("loading")).toBe("lazy");
-      expect(img.getAttribute("referrerpolicy")).toBe("no-referrer");
-    }
-    // 囲みごとに 1 枚ずつ、貼る行のコピーと同じ囲みにある
     const blocks = t.sections().filter((node) => node.style.border !== "");
-    for (const block of blocks) {
-      expect(block.querySelectorAll(CARD)).toHaveLength(1);
-    }
     expect(
       t
         .buttons(PASTE_LINE)
@@ -372,12 +363,12 @@ describe("createGraphDialog", () => {
           b.getAttribute("aria-label"),
         ]),
     ).toEqual([
-      [0, `${TOTAL_LABEL} のカードの Cosense に貼る行をコピー`],
-      [1, "alpha のカードの Cosense に貼る行をコピー"],
+      [0, `${TOTAL_LABEL} の図の Cosense に貼る行をコピー`],
+      [1, "alpha の図の Cosense に貼る行をコピー"],
     ]);
   });
 
-  it("**「Cosense に貼る行をコピー」はリンク付きの画像の行を書く** (合算はリンク先なし)", async () => {
+  it("**「Cosense に貼る行をコピー」は選んでいる形の図の画像の行を書く** (リンク先は付けない。ADR-0025 決定 6 の改訂)", async () => {
     const t = setup();
     t.open(graphs([{ label: "alpha", sent: true }]));
 
@@ -386,22 +377,7 @@ describe("createGraphDialog", () => {
     }
     await settle();
 
-    expect(t.copied).toEqual([lineOf("aa"), lineOf("b0", "p0")]);
-  });
-
-  it("**カードの図が読めなければ図だけ消し、枠の大きさとコピーは残す** (まわりの位置が動かない)", () => {
-    const t = setup();
-    t.open(graphs([]));
-
-    const img = t.find()?.querySelector<HTMLImageElement>(CARD);
-    const frame = img?.parentElement;
-    img?.dispatchEvent(new Event("error"));
-
-    expect(t.find()?.querySelectorAll(CARD)).toHaveLength(0);
-    expect(frame?.isConnected).toBe(true);
-    expect(frame?.style.flexBasis).toBe(`${SHOWN.card.width}px`);
-    expect(frame?.style.minHeight).toBe(`${SHOWN.card.height}px`);
-    expect(t.buttons(PASTE_LINE)).toHaveLength(1);
+    expect(t.copied).toEqual([`[${cardOf("aa")}]`, `[${cardOf("b0", "?l=p0")}]`]);
   });
 
   it("**行をコピーできなければ、選べる欄に行を出す**", async () => {
@@ -411,9 +387,9 @@ describe("createGraphDialog", () => {
     t.buttons(PASTE_LINE)[0]?.click();
     await settle();
 
-    const field = t.find()?.querySelector<HTMLInputElement>("input");
-    expect(field?.value).toBe(lineOf("aa"));
-    expect(field?.getAttribute("aria-label")).toBe(`${TOTAL_LABEL} のカードの Cosense に貼る行`);
+    const field = t.find()?.querySelector<HTMLInputElement>("input[type=text]");
+    expect(field?.value).toBe(`[${cardOf("aa")}]`);
+    expect(field?.getAttribute("aria-label")).toBe(`${TOTAL_LABEL} の図の Cosense に貼る行`);
   });
 
   it("**説明に、カードの行を自分のページに自動で貼ること・止め方を書く** (ADR-0025 決定 4)", () => {
@@ -426,70 +402,58 @@ describe("createGraphDialog", () => {
     expect(text).toContain("読み込みの 1 行を外して");
   });
 
-  it("**左にカード、右の列に草と、その下に概観とコピーの格子を並べ、狭ければ折り返す** (2026-10-07)", () => {
+  it("**図の右にコピーの格子を並べ、入らなければ (1 年の図・狭い画面) 下へ折り返す** (ADR-0026)", () => {
     const t = setup();
     t.open(graphs([]));
 
     const block = t.sections().find((node) => node.style.border !== "");
-    const card = block?.querySelector(CARD)?.parentElement;
-    const row = card?.parentElement;
+    const frame = block?.querySelector(FIGURE)?.parentElement;
+    const row = frame?.parentElement;
     expect(row?.parentElement).toBe(block);
     expect(row?.style.display).toBe("flex");
     expect(row?.style.flexWrap).toBe("wrap");
-    // カードが先頭で、その右の列に草 → (概観 + 格子)
-    expect(row?.firstElementChild).toBe(card);
-    const column = row?.children[1] as HTMLElement | undefined;
-    expect(column?.style.flexDirection).toBe("column");
-    expect(column?.firstElementChild?.querySelector(GRASS)).not.toBeNull();
-    const lower = column?.children[1] as HTMLElement | undefined;
-    expect(lower?.style.flexWrap).toBe("wrap");
-    expect(lower?.firstElementChild?.querySelector(OVERVIEW)).not.toBeNull();
+    expect(row?.firstElementChild).toBe(frame);
+    const grid = row?.children[1] as HTMLElement | undefined;
+    expect(grid?.style.display).toBe("grid");
+    expect([...(grid?.querySelectorAll("button") ?? [])].map((b) => b.textContent)).toEqual([
+      "URL をコピー",
+      PASTE_LINE,
+      "URL をコピー",
+    ]);
+    // 半年の図 (幅 500) の横には格子が並ぶ (囲みの内側は 1 年の図の幅 775)
     expect(
-      [...(lower?.children[1]?.querySelectorAll("button") ?? [])].map((b) => b.textContent),
-    ).toEqual(["URL をコピー", "URL をコピー", PASTE_LINE, "URL をコピー"]);
-    // 「共有する」の見出しはもう無い (高さを食うため)
-    expect(block?.textContent).not.toContain("共有する");
+      GRASS_SIZES.half.slot.width + 16 + Number.parseInt(grid?.style.flexBasis ?? "0", 10),
+    ).toBeLessThanOrEqual(GRASS_SIZES.year.slot.width);
   });
 
-  it("**寸法: 右の列の高さをカードにそろえ、縦横比は元の図のまま。カードがいちばん大きい** (2026-10-07)", () => {
-    const gap = 8;
-    expect(SHOWN.graph.height + gap + SHOWN.overview.height).toBe(SHOWN.card.height);
-    for (const [shown, width, height] of [
-      [SHOWN.card, CARD_WIDTH, CARD_HEIGHT],
-      [SHOWN.graph, GRAPH_WIDTH, GRAPH_HEIGHT],
-      [SHOWN.overview, OVERVIEW_WIDTH, OVERVIEW_HEIGHT],
-    ] as const) {
-      expect(Math.abs(shown.height - (shown.width * height) / width)).toBeLessThan(1);
+  it("**図の寸法は外寸の表 (`GRASS_SIZES`) どおり。年を選んだら 1 年の形** (縦横比を崩さない。#156・#202)", () => {
+    for (const span of SPANS) {
+      for (const cell of CELLS) {
+        expect(figureSize({ span, cell })).toEqual(GRASS_SIZES[span][cell]);
+      }
     }
-    const area = (size: { width: number; height: number }) => size.width * size.height;
-    expect(area(SHOWN.card)).toBeGreaterThan(area(SHOWN.graph));
-    expect(area(SHOWN.card)).toBeGreaterThan(area(SHOWN.overview));
+    expect(figureSize({ span: "half", cell: "day", year: 2026 })).toEqual(GRASS_SIZES.year.day);
   });
 
   it("**ダイアログの幅の上限は、囲みの幅に余白と枠を足した外寸** (border-box。足し忘れると Cosense で縦に崩れた。2026-10-07)", () => {
     const t = setup();
     t.open(graphs([]));
 
-    const block = 300 + 16 + 513 + 2 * (12 + 1);
+    // いちばん広い図 (1 年、幅 775) が縮まずに入る
+    const block = GRASS_SIZES.year.day.width + 2 * (12 + 1);
     expect(DIALOG_MAX_WIDTH).toBe(block + 2 * (DIALOG_PADDING + DIALOG_BORDER));
-    expect(SHOWN.card.width + 16 + SHOWN.graph.width + 2 * (12 + 1)).toBe(block);
     // 画面側の上限 (calc) は jsdom が書き換えるので、外寸の側だけ見る
     expect(t.find()?.style.maxWidth).toMatch(new RegExp(`^min\\(${DIALOG_MAX_WIDTH}px, `));
   });
 
-  it("**少し狭いだけなら右の列を縮めて横に並べたまま、草とカードも縮める**", () => {
+  it("**囲みより図が広い画面 (スマホ) では、枠ごと縦横比を保って縮める**", () => {
     const t = setup();
     t.open(graphs([]));
 
-    const grass = t.find()?.querySelector<HTMLImageElement>(GRASS);
-    const card = t.find()?.querySelector<HTMLImageElement>(CARD);
-    const column = grass?.parentElement?.parentElement;
-    expect(column?.style.flexShrink).toBe("1");
-    expect(column?.style.maxWidth).toBe(`${SHOWN.graph.width}px`);
-    for (const img of [grass, card]) {
-      expect([img?.style.maxWidth, img?.style.height]).toEqual(["100%", "auto"]);
-    }
-    expect(card?.parentElement?.style.flexShrink).toBe("1");
+    const img = t.find()?.querySelector<HTMLImageElement>(FIGURE);
+    expect([img?.style.maxWidth, img?.style.height]).toEqual(["100%", "auto"]);
+    expect(img?.parentElement?.style.flexShrink).toBe("1");
+    expect(img?.parentElement?.style.minWidth).toBe("0px");
   });
 
   it("**日ごとの数値を渡すと何が読めるかを、囲みの下端に添える** (ADR-0020 の改訂)", () => {
@@ -508,7 +472,7 @@ describe("createGraphDialog", () => {
 
     const details = t.find()?.querySelector("details");
     expect(details?.open).toBe(false);
-    expect(details?.querySelector("summary")?.textContent).toContain("草と活動の概観の見方");
+    expect(details?.querySelector("summary")?.textContent).toContain("図の見方");
     const text = details?.textContent ?? "";
     for (const phrase of [
       "1 分",
@@ -519,6 +483,9 @@ describe("createGraphDialog", () => {
       "関わる",
       "読む",
       "ページ名",
+      // 時間帯の区切り (ADR-0024 決定 1)
+      "9〜13 時",
+      "18 時〜翌 9 時",
     ]) {
       expect(text).toContain(phrase);
     }
@@ -607,12 +574,14 @@ describe("createGraphDialog", () => {
     expect(summary.style.borderBottom).toBe("");
   });
 
-  it("説明の図の読み方は、長さが平方根で % は分の割合であることを書く (#169)", () => {
+  it("説明の線の読み方は、割合で取り合い、% は分の割合であることを書く。平方根 (レーダー) の話は消した (ADR-0026)", () => {
     const t = setup();
     t.open(graphs([]));
     const text = t.find()?.querySelector("details")?.textContent ?? "";
-    expect(text).toContain("平方根");
+    expect(text).toContain("割合で取り合い");
     expect(text).toContain("% は分の割合");
+    expect(text).not.toContain("平方根");
+    expect(text).not.toContain("概観");
   });
 
   it("**下端に配布ページ・ソースコード・プライバシーポリシーへのリンクを置く** (別のタブで開く。#164)", () => {
@@ -630,65 +599,21 @@ describe("createGraphDialog", () => {
     }
   });
 
-  it("**草の下に活動の概観を置く** (ADR-0021)。大きさを先に確保し、遅延読み込みで Referer を送らない", () => {
-    const t = setup();
-    t.open(graphs([{ label: "alpha", sent: true }]));
-
-    const images = [...(t.find()?.querySelectorAll<HTMLImageElement>(OVERVIEW) ?? [])];
-    expect(images.map((img) => img.getAttribute("src"))).toEqual([
-      overviewOf("aa"),
-      overviewOf("b0"),
-    ]);
-    for (const img of images) {
-      expect([img.width, img.height]).toEqual([SHOWN.overview.width, SHOWN.overview.height]);
-      expect(img.getAttribute("loading")).toBe("lazy");
-      expect(img.getAttribute("referrerpolicy")).toBe("no-referrer");
-    }
-    // 同じ囲みの中で、草の後・コピーの前
-    const block = t.sections().find((node) => node.style.border !== "");
-    const order = [...(block?.querySelectorAll(`${GRASS}, ${OVERVIEW}, button`) ?? [])].map(
-      (node) => (node.tagName === "BUTTON" ? "button" : (node as HTMLImageElement).alt),
-    );
-    expect(order).toEqual([
-      `${TOTAL_LABEL} の草`,
-      `${TOTAL_LABEL} の活動の概観`,
-      "button",
-      "button",
-      "button",
-      "button",
-    ]);
-  });
-
-  it("**概観が読めなければ何も出さない** (理由は草の側で言う)", () => {
-    const t = setup();
-    t.open(graphs([]));
-
-    t.find()?.querySelector<HTMLImageElement>(OVERVIEW)?.dispatchEvent(new Event("error"));
-
-    expect(t.find()?.querySelectorAll<HTMLImageElement>(OVERVIEW)).toHaveLength(0);
-    expect(t.find()?.querySelectorAll<HTMLImageElement>(GRASS)).toHaveLength(1);
-    expect(t.find()?.textContent).not.toContain("表示できませんでした");
-  });
-
   it("**読めなかった画像は文言に置き換える**", () => {
     const t = setup();
     t.open(graphs([]));
 
-    t.find()?.querySelector<HTMLImageElement>(GRASS)?.dispatchEvent(new Event("error"));
+    t.find()?.querySelector<HTMLImageElement>(FIGURE)?.dispatchEvent(new Event("error"));
 
-    expect(t.find()?.querySelectorAll<HTMLImageElement>(GRASS)).toHaveLength(0);
-    expect(t.find()?.textContent).toContain("草を表示できませんでした");
+    expect(t.find()?.querySelectorAll<HTMLImageElement>(FIGURE)).toHaveLength(0);
+    expect(t.find()?.textContent).toContain("図を表示できませんでした");
   });
 
   it("**このブラウザから送れていない草も、最初から読む** (2026-09-24。押す手間をなくした)", () => {
     const t = setup();
     t.open(graphs([{ label: "beta", sent: false }], false));
 
-    expect(
-      [...(t.find()?.querySelectorAll<HTMLImageElement>(GRASS) ?? [])].map((i) =>
-        i.getAttribute("src"),
-      ),
-    ).toEqual([url("aa"), url("b0")]);
+    expect(srcsOf(t.find())).toEqual([cardOf("aa"), cardOf("b0", "?l=p0")]);
     expect(t.buttons("表示してみる")).toEqual([]);
   });
 
@@ -697,13 +622,13 @@ describe("createGraphDialog", () => {
     t.open(graphs([{ label: "beta", sent: false }]));
     const [total, beta] = t.sections().filter((s) => s.firstElementChild?.tagName === "H4");
 
-    for (const img of t.find()?.querySelectorAll<HTMLImageElement>(GRASS) ?? []) {
+    for (const img of t.find()?.querySelectorAll<HTMLImageElement>(FIGURE) ?? []) {
       img.dispatchEvent(new Event("error"));
     }
 
-    expect(total?.textContent).toContain("草を表示できませんでした");
+    expect(total?.textContent).toContain("図を表示できませんでした");
     expect(beta?.textContent).toContain("このブラウザからはまだ送っていません");
-    expect(beta?.textContent).not.toContain("草を表示できませんでした");
+    expect(beta?.textContent).not.toContain("図を表示できませんでした");
   });
 
   it(`**プロジェクト別は ${INITIAL_PROJECT_GRAPHS} 件まで出し、残りは押すと出す**`, () => {
@@ -714,13 +639,13 @@ describe("createGraphDialog", () => {
     }));
     t.open(graphs(projects));
 
-    expect(t.find()?.querySelectorAll<HTMLImageElement>(GRASS)).toHaveLength(
+    expect(t.find()?.querySelectorAll<HTMLImageElement>(FIGURE)).toHaveLength(
       1 + INITIAL_PROJECT_GRAPHS,
     );
 
     t.buttons("ほか 2 件を表示")[0]?.click();
 
-    expect(t.find()?.querySelectorAll<HTMLImageElement>(GRASS)).toHaveLength(
+    expect(t.find()?.querySelectorAll<HTMLImageElement>(FIGURE)).toHaveLength(
       1 + INITIAL_PROJECT_GRAPHS + 2,
     );
     expect(t.buttons("ほか 2 件を表示")).toHaveLength(0);
@@ -740,10 +665,10 @@ describe("createGraphDialog", () => {
     const t = setup();
     t.open(graphs([{ label: "alpha", sent: true }]));
 
-    t.find()?.querySelector<HTMLButtonElement>('[aria-label="alpha の草の URL をコピー"]')?.click();
+    t.find()?.querySelector<HTMLButtonElement>('[aria-label="alpha の図の URL をコピー"]')?.click();
 
     // await の前に呼ばれている
-    expect(t.copied).toEqual([url("b0")]);
+    expect(t.copied).toEqual([cardOf("b0", "?l=p0")]);
     await settle();
     expect(t.find()?.textContent).toContain("コピーしました");
   });
@@ -801,10 +726,10 @@ describe("createGraphDialog", () => {
     t.buttons("URL をコピー")[0]?.click();
     await settle();
 
-    const fields = [...(t.find()?.querySelectorAll("input") ?? [])];
+    const fields = [...(t.find()?.querySelectorAll<HTMLInputElement>("input[type=text]") ?? [])];
     expect(fields).toHaveLength(1);
     expect(fields[0]?.readOnly).toBe(true);
-    expect(fields[0]?.value).toBe(url("aa"));
+    expect(fields[0]?.value).toBe(cardOf("aa"));
     expect(t.find()?.textContent).toContain("コピーできなかった");
   });
 
@@ -840,7 +765,7 @@ describe("createGraphDialog", () => {
     expect(document.querySelectorAll("dialog")).toHaveLength(0);
   });
 
-  it("**草の URL をコンソールに出さない**", async () => {
+  it("**図の URL をコンソールに出さない**", async () => {
     const spies = CONSOLE_METHODS.map((method) =>
       vi.spyOn(console, method).mockImplementation(() => undefined),
     );
@@ -855,7 +780,7 @@ describe("createGraphDialog", () => {
     for (const copy of t.buttons("URL をコピー")) {
       copy.click();
     }
-    for (const img of t.find()?.querySelectorAll<HTMLImageElement>(GRASS) ?? []) {
+    for (const img of t.find()?.querySelectorAll<HTMLImageElement>(FIGURE) ?? []) {
       img.dispatchEvent(new Event("error"));
     }
     await settle();
@@ -865,7 +790,7 @@ describe("createGraphDialog", () => {
     }
   });
 
-  it("**同期の状態を合算の草の直後に出し、送るものが無ければボタンを無効にする** (Issue #102)", () => {
+  it("**同期の状態を合算の図の直後に出し、送るものが無ければボタンを無効にする** (Issue #102)", () => {
     const t = setup();
 
     t.open(
@@ -911,80 +836,28 @@ describe("createGraphDialog", () => {
     expect(send?.disabled).toBe(true);
   });
 
-  it("**送れたら表示中の草を取り直す。** 新しい絵が読めてから差し替える (失敗しても古い絵を残す)", async () => {
+  it("**送れたら表示中の図を取り直す。** 新しい絵が読めてから差し替える (失敗しても古い絵を残す)", async () => {
     const t = setup(undefined, () =>
       Promise.resolve({ text: "送りました。", view: SYNC, refresh: true }),
     );
     t.open(graphs([{ label: "alpha", sent: true }], true, { lines: [], canSend: true }));
-    const created: HTMLImageElement[] = [];
-    const original = document.createElement.bind(document);
-    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
-      const node = original(tag);
-      if (tag === "img") created.push(node as HTMLImageElement);
-      return node;
-    });
+    const created = captureImages();
 
     t.buttons(SEND_NOW_LABEL)[0]?.click();
     await settle();
 
-    // 表示中の草・概観・カードを 2 枚ずつ、キャッシュを外すクエリ付きで取り直す
+    // 表示中の図を 1 枚ずつ、キャッシュを外すクエリ付きで取り直す。**すでにクエリ (`?l=`) があれば `&` で継ぐ** (Issue #119)
     expect(created.map((img) => img.getAttribute("src"))).toEqual([
-      expect.stringMatching(/\/aa0+\.svg\?r=\d+$/),
-      expect.stringMatching(/\/aa0+\/overview\.svg\?r=\d+$/),
       expect.stringMatching(/\/aa0+\/card\.svg\?r=\d+$/),
-      expect.stringMatching(/\/b00+\.svg\?r=\d+$/),
-      expect.stringMatching(/\/b00+\/overview\.svg\?r=\d+$/),
-      // カードも直近の記録で描かれるので取り直す
-      expect.stringMatching(/\/b00+\/card\.svg\?r=\d+$/),
+      expect.stringMatching(/\/b00+\/card\.svg\?l=p0&r=\d+$/),
     ]);
     // 読めるまでは古い絵のまま
-    expect(
-      [...(t.find()?.querySelectorAll<HTMLImageElement>(GRASS) ?? [])].map((i) =>
-        i.getAttribute("src"),
-      ),
-    ).toEqual([url("aa"), url("b0")]);
+    expect(srcsOf(t.find())).toEqual([cardOf("aa"), cardOf("b0", "?l=p0")]);
 
     created[0]?.dispatchEvent(new Event("load"));
-    expect(t.find()?.querySelector<HTMLImageElement>(GRASS)?.getAttribute("src")).toMatch(
+    expect(t.find()?.querySelector<HTMLImageElement>(FIGURE)?.getAttribute("src")).toMatch(
       /\?r=\d+$/,
     );
-  });
-
-  it("**すでにクエリのある URL は `&` で継ぐ** (プロジェクト名の `?l=` を壊さない。Issue #119)", async () => {
-    const t = setup(undefined, () =>
-      Promise.resolve({ text: "送りました。", view: SYNC, refresh: true }),
-    );
-    const labelled = `${url("aa")}?l=villagepump`;
-    t.open({
-      kind: "graphs",
-      total: {
-        label: "すべて",
-        url: labelled,
-        overviewUrl: overviewOf("aa"),
-        dataUrl: dataOf("aa"),
-        cardUrl: cardOf("aa"),
-        cardLine: lineOf("aa"),
-        sent: true,
-      },
-      projects: [],
-      sync: { lines: [], canSend: true },
-    });
-    const created: HTMLImageElement[] = [];
-    const original = document.createElement.bind(document);
-    vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
-      const node = original(tag);
-      if (tag === "img") created.push(node as HTMLImageElement);
-      return node;
-    });
-
-    t.buttons(SEND_NOW_LABEL)[0]?.click();
-    await settle();
-
-    expect(created.map((img) => img.getAttribute("src"))).toEqual([
-      expect.stringMatching(/\?l=villagepump&r=\d+$/),
-      expect.stringMatching(/\/overview\.svg\?r=\d+$/),
-      expect.stringMatching(/\/card\.svg\?r=\d+$/),
-    ]);
   });
 
   it("**取り直しのクエリはコピーする URL に混ぜない** (他人に渡すもの)", async () => {
@@ -998,13 +871,13 @@ describe("createGraphDialog", () => {
     t.buttons("URL をコピー")[0]?.click();
     await settle();
 
-    expect(t.copied).toEqual([url("aa")]);
+    expect(t.copied).toEqual([cardOf("aa")]);
   });
 
-  describe("期間 (#177)", () => {
+  describe("図の形の切り替え (期間とマス。ADR-0026・#177)", () => {
     /** 2027 年 3 月 1 日 (ローカル時刻) */
     const IN_2027 = () => new Date(2027, 2, 1).getTime();
-    const choose = (t: ReturnType<typeof setup>, value: string) => {
+    const choosePeriod = (t: ReturnType<typeof setup>, value: string) => {
       const select = t.find()?.querySelector("select");
       if (!select) {
         throw new Error("期間の選択が無い");
@@ -1012,149 +885,217 @@ describe("createGraphDialog", () => {
       select.value = value;
       select.dispatchEvent(new Event("change"));
     };
-    const srcs = (t: ReturnType<typeof setup>, selector: string) =>
-      [...(t.find()?.querySelectorAll<HTMLImageElement>(selector) ?? [])].map((img) =>
-        img.getAttribute("src"),
-      );
+    const chooseCell = (t: ReturnType<typeof setup>, value: "slot" | "day") => {
+      const radio = t.find()?.querySelector<HTMLInputElement>(`input[type=radio][value=${value}]`);
+      if (!radio) {
+        throw new Error("マスの選択が無い");
+      }
+      radio.checked = true;
+      radio.dispatchEvent(new Event("change"));
+    };
+    const loadAll = (images: readonly HTMLImageElement[]) => {
+      for (const img of images) {
+        img.dispatchEvent(new Event("load"));
+      }
+    };
 
-    it("**選択肢は「直近 1 年」と、去年から 2026 年までの各年。今年は並べない** (直近 1 年と同じ絵になる)", () => {
+    it("**期間は「直近 26 週」「直近 1 年」と、去年から 2026 年までの各年。今年は並べない** (直近 1 年と同じ絵になる)", () => {
       const t = setup(undefined, undefined, () => new Date(2028, 0, 5).getTime());
       t.open(graphs([]));
       const options = [...(t.find()?.querySelectorAll("option") ?? [])];
       expect(options.map((o) => [o.value, o.textContent])).toEqual([
-        ["", RECENT_PERIOD_LABEL],
+        ["half", SPAN_LABELS.half],
+        ["year", SPAN_LABELS.year],
         ["2027", "2027 年"],
         ["2026", "2026 年"],
       ]);
       expect(FIRST_YEAR).toBe(2026);
-      // 理由の文言だけのとき (草が無い) は出さない
+      // 既定はカードの形
+      expect(t.find()?.querySelector("select")?.value).toBe(CARD_FORM.span);
+      expect(t.find()?.querySelector<HTMLInputElement>("input[type=radio]:checked")?.value).toBe(
+        CARD_FORM.cell,
+      );
+      // 理由の文言だけのとき (図が無い) は出さない
       document.body.replaceChildren();
       const u = setup(undefined, undefined, IN_2027);
       u.open(message("この端末は未登録"));
       expect(u.find()?.querySelector("select")).toBeNull();
     });
 
-    it("**過去の年が無いあいだ (2026 年) は、期間の欄を出さない**", () => {
+    it("**過去の年が無いあいだ (2026 年) も、半年と 1 年は選べる**", () => {
       const t = setup(undefined, undefined, () => new Date(2026, 11, 31).getTime());
       t.open(graphs([]));
-      expect(t.find()?.querySelector("select")).toBeNull();
-      expect(t.find()?.querySelector("label")).toBeNull();
+      expect([...(t.find()?.querySelectorAll("option") ?? [])].map((o) => o.value)).toEqual([
+        "half",
+        "year",
+      ]);
     });
 
-    it("**年を選ぶと、すべての囲みの草と概観を ?year= 付きで読み直し、読めてから差し替える**", () => {
-      const t = setup(undefined, undefined, IN_2027);
+    it("**マスは「時間帯」と「1 日」の 2 択で、並べて見える radio にする**", () => {
+      const t = setup();
+      t.open(graphs([]));
+      const group = t.find()?.querySelector('[role="radiogroup"]');
+      expect(group?.getAttribute("aria-label")).toBe("マス");
+      expect(
+        [...(group?.querySelectorAll("label") ?? [])].map((label) => [
+          label.querySelector("input")?.value,
+          label.textContent,
+        ]),
+      ).toEqual([
+        ["slot", CELL_LABELS.slot],
+        ["day", CELL_LABELS.day],
+      ]);
+    });
+
+    it("**期間を替えると、すべての囲みの図をその形の URL と寸法で読み直し、読めてから差し替える**", () => {
+      const t = setup();
       t.open(graphs([{ label: "alpha", sent: true }]));
-      const created: HTMLImageElement[] = [];
-      const original = document.createElement.bind(document);
-      vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
-        const node = original(tag);
-        if (tag === "img") created.push(node as HTMLImageElement);
-        return node;
-      });
+      const created = captureImages();
 
-      choose(t, "2026");
+      choosePeriod(t, "year");
 
-      // カードは期間で変わらない (直近 26 週) ので読み直さない
       expect(created.map((img) => img.getAttribute("src"))).toEqual([
-        `${url("aa")}?year=2026`,
-        `${overviewOf("aa")}?year=2026`,
-        `${url("b0")}?year=2026`,
-        `${overviewOf("b0")}?year=2026`,
+        cardOf("aa", "?span=year"),
+        cardOf("b0", "?span=year&l=p0"),
+      ]);
+      expect(created.map((img) => [img.width, img.height])).toEqual([
+        [GRASS_SIZES.year.slot.width, GRASS_SIZES.year.slot.height],
+        [GRASS_SIZES.year.slot.width, GRASS_SIZES.year.slot.height],
       ]);
       // 読めるまでは前の絵
-      expect(srcs(t, GRASS)).toEqual([url("aa"), url("b0")]);
-      for (const img of created) {
-        img.dispatchEvent(new Event("load"));
-      }
-      expect(srcs(t, GRASS)).toEqual([`${url("aa")}?year=2026`, `${url("b0")}?year=2026`]);
-      expect(srcs(t, OVERVIEW)).toEqual([
-        `${overviewOf("aa")}?year=2026`,
-        `${overviewOf("b0")}?year=2026`,
+      expect(srcsOf(t.find())).toEqual([cardOf("aa"), cardOf("b0", "?l=p0")]);
+      loadAll(created);
+      expect(srcsOf(t.find())).toEqual([
+        cardOf("aa", "?span=year"),
+        cardOf("b0", "?span=year&l=p0"),
       ]);
     });
 
-    it("**読み直せなければ、前の期間の絵を残さず文言に替える** (別の年の絵と取り違えない)", () => {
-      const t = setup(undefined, undefined, IN_2027);
-      t.open(graphs([]));
-      const created: HTMLImageElement[] = [];
-      const original = document.createElement.bind(document);
-      vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
-        const node = original(tag);
-        if (tag === "img") created.push(node as HTMLImageElement);
-        return node;
-      });
+    it("**1 年 × 1 日を選ぶと `{publicId}.svg` を使い、クエリを付けない** (貼ってある草と同じ URL)", () => {
+      const t = setup();
+      t.open(graphs([{ label: "alpha", sent: true }]));
+      const created = captureImages();
 
-      choose(t, "2026");
-      created[0]?.dispatchEvent(new Event("error"));
-
-      expect(t.find()?.querySelector(GRASS)).toBeNull();
-      expect(t.find()?.textContent).toContain("草を表示できませんでした");
+      chooseCell(t, "day");
+      expect(created.map((img) => img.getAttribute("src"))).toEqual([
+        cardOf("aa", "?cell=day"),
+        cardOf("b0", "?cell=day&l=p0"),
+      ]);
+      choosePeriod(t, "year");
+      expect(created.slice(2).map((img) => img.getAttribute("src"))).toEqual([
+        graphOf("aa"),
+        graphOf("b0", "?l=p0"),
+      ]);
+      expect([created[2]?.width, created[2]?.height]).toEqual([
+        GRASS_SIZES.year.day.width,
+        GRASS_SIZES.year.day.height,
+      ]);
     });
 
-    it("**コピーする草と概観の URL にも ?year= が付き、`?l=` は残る。JSON は全期間のまま**", async () => {
+    it("**年を選ぶと 1 年の形で `?year=` を付ける** (期間の `span` は付けない)", () => {
       const t = setup(undefined, undefined, IN_2027);
-      const labelled = `${url("aa")}?l=villagepump`;
-      t.open({
-        kind: "graphs",
-        total: {
-          label: TOTAL_LABEL,
-          url: labelled,
-          overviewUrl: overviewOf("aa"),
-          dataUrl: dataOf("aa"),
-          cardUrl: cardOf("aa"),
-          cardLine: lineOf("aa"),
-          sent: true,
-        },
-        projects: [],
-        sync: SYNC,
-      });
+      t.open(graphs([]));
+      const created = captureImages();
 
-      choose(t, "2026");
-      for (const copy of t.buttons("URL をコピー")) {
-        copy.click();
+      choosePeriod(t, "2026");
+      chooseCell(t, "day");
+
+      expect(created.map((img) => img.getAttribute("src"))).toEqual([
+        cardOf("aa", "?year=2026"),
+        graphOf("aa", "?year=2026"),
+      ]);
+    });
+
+    it("**続けて替えたら、最後に選んだ形の絵だけを出す** (先に頼んだ古い形の読み込みが後から終わっても差し替えない)", () => {
+      const t = setup();
+      t.open(graphs([]));
+      const created = captureImages();
+
+      choosePeriod(t, "year");
+      chooseCell(t, "day");
+      const [stale, latest] = created;
+      // 新しい形が先に読め、古い形が後から読めた (失敗した) とき
+      latest?.dispatchEvent(new Event("load"));
+      stale?.dispatchEvent(new Event("load"));
+      expect(srcsOf(t.find())).toEqual([graphOf("aa")]);
+      stale?.dispatchEvent(new Event("error"));
+      expect(srcsOf(t.find())).toEqual([graphOf("aa")]);
+      expect(t.find()?.textContent).not.toContain("図を表示できませんでした");
+    });
+
+    it("**形を替えた後に、最初に出した図の失敗が届いても文言で上書きしない**", () => {
+      const t = setup();
+      t.open(graphs([]));
+      const first = t.find()?.querySelector<HTMLImageElement>(FIGURE);
+      const created = captureImages();
+
+      choosePeriod(t, "year");
+      created[0]?.dispatchEvent(new Event("load"));
+      first?.dispatchEvent(new Event("error"));
+
+      expect(srcsOf(t.find())).toEqual([cardOf("aa", "?span=year")]);
+      expect(t.find()?.textContent).not.toContain("図を表示できませんでした");
+    });
+
+    it("**読み直せなければ、前の形の絵を残さず文言に替える** (別の形の絵と取り違えない)", () => {
+      const t = setup();
+      t.open(graphs([]));
+      const created = captureImages();
+
+      choosePeriod(t, "year");
+      created[0]?.dispatchEvent(new Event("error"));
+
+      expect(t.find()?.querySelector(FIGURE)).toBeNull();
+      expect(t.find()?.textContent).toContain("図を表示できませんでした");
+    });
+
+    it("**コピーする図の URL と貼る行も選んでいる形になり、`l` は残る。JSON は全期間のまま**", async () => {
+      const t = setup(undefined, undefined, IN_2027);
+      t.open(graphs([{ label: "alpha", sent: true }]));
+
+      choosePeriod(t, "2026");
+      for (const copy of t.find()?.querySelectorAll<HTMLButtonElement>("section section button") ??
+        []) {
+        if (copy.closest("section")?.querySelector("h4")?.textContent === "alpha") {
+          copy.click();
+        }
       }
       await settle();
       expect(t.copied).toEqual([
-        `${labelled}&year=2026`,
-        `${overviewOf("aa")}?year=2026`,
-        dataOf("aa"),
+        cardOf("b0", "?year=2026&l=p0"),
+        `[${cardOf("b0", "?year=2026&l=p0")}]`,
+        dataOf("b0"),
       ]);
 
-      // 直近 1 年に戻すと、付けない
-      choose(t, "");
+      // 直近 26 週に戻すと、形のクエリを付けない
+      choosePeriod(t, "half");
       t.buttons("URL をコピー")[0]?.click();
-      expect(t.copied.at(-1)).toBe(labelled);
+      expect(t.copied.at(-1)).toBe(cardOf("aa"));
     });
 
-    it("**送った後の取り直しも、選んでいる年の URL で行う**。開き直すと直近 1 年に戻る", async () => {
+    it("**送った後の取り直しも、選んでいる形の URL で行う**。開き直すと既定の形に戻る", async () => {
       const t = setup(
         undefined,
         () => Promise.resolve({ text: "送りました。", view: SYNC, refresh: true }),
         IN_2027,
       );
       t.open(graphs([], true, { lines: [], canSend: true }));
-      choose(t, "2026");
-      const created: HTMLImageElement[] = [];
-      const original = document.createElement.bind(document);
-      vi.spyOn(document, "createElement").mockImplementation((tag: string) => {
-        const node = original(tag);
-        if (tag === "img") created.push(node as HTMLImageElement);
-        return node;
-      });
+      choosePeriod(t, "2026");
+      const created = captureImages();
 
       t.buttons(SEND_NOW_LABEL)[0]?.click();
       await settle();
       expect(created.map((img) => img.getAttribute("src"))).toEqual([
-        expect.stringMatching(/\/aa0+\.svg\?year=2026&r=\d+$/),
-        expect.stringMatching(/\/aa0+\/overview\.svg\?year=2026&r=\d+$/),
-        // カードは期間で変わらない (直近 26 週)
-        expect.stringMatching(/\/aa0+\/card\.svg\?r=\d+$/),
+        expect.stringMatching(/\/aa0+\/card\.svg\?year=2026&r=\d+$/),
       ]);
 
       vi.restoreAllMocks();
       t.open(graphs([]));
-      expect(t.find()?.querySelector("select")?.value).toBe("");
-      expect(srcs(t, GRASS)).toEqual([url("aa")]);
+      expect(t.find()?.querySelector("select")?.value).toBe("half");
+      expect(t.find()?.querySelector<HTMLInputElement>("input[type=radio]:checked")?.value).toBe(
+        "slot",
+      );
+      expect(srcsOf(t.find())).toEqual([cardOf("aa")]);
     });
   });
 });
