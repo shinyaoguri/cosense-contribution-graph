@@ -1,6 +1,6 @@
 import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
 import { isValidProjectName, isValidUserName } from "../shared/project-name.ts";
-import type { Lang } from "./graph/card.ts";
+import type { Lang } from "./graph/grass.ts";
 import { DEFAULT_PARAMS, MAX_WEEKS, type Params } from "./graph/grid.ts";
 import { isSchemeName } from "./graph/scheme.ts";
 

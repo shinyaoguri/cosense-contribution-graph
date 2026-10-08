@@ -19,9 +19,9 @@ import {
   PRIVACY_PATH,
   REPOSITORY_URL,
 } from "../shared/links.ts";
+import { DEMO_PUBLIC_ID } from "./demo.ts";
 import { FAVICON_LINK } from "./favicon.ts";
 import { renderMarkdown } from "./markdown.ts";
-import { DEMO_PUBLIC_ID } from "./svg.ts";
 
 export const HOME_PATH = "/";
 

@@ -5,7 +5,7 @@
  * **本文を変えると ETag が変わる。** 属性とグループの順は `test/worker/overview-golden.test.ts` が固定している。
  */
 import { layoutOverview, type OverviewInput, type OverviewLayout } from "./graph/overview.ts";
-import { escapeXml } from "./svg.ts";
+import { escapeXml } from "./xml.ts";
 
 /** % の前の間隔 */
 const PERCENT_GAP = 4;

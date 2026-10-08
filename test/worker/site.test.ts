@@ -1,7 +1,7 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { AUTH_START_PATH } from "../../src/shared/auth.ts";
-import { DEMO_PUBLIC_ID } from "../../src/worker/svg.ts";
+import { DEMO_PUBLIC_ID } from "../../src/worker/demo.ts";
 
 const ORIGIN = "https://example.com";
 

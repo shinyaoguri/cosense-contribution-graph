@@ -1,8 +1,8 @@
 import { env, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { PH_ALL, publicIdOf } from "../../src/shared/ids.ts";
+import { sumAxes } from "../../src/worker/graph/axes.ts";
 import { DEFAULT_PARAMS } from "../../src/worker/graph/grid.ts";
-import { sumOverview } from "../../src/worker/graph/overview.ts";
 import { renderStoredOverview } from "../../src/worker/graph-data.ts";
 import { renderOverview } from "../../src/worker/overview-svg.ts";
 import { randomUid } from "./beacon-helpers.ts";
@@ -31,7 +31,7 @@ async function store(uid: string, ph: string, rows: readonly Row[]): Promise<str
 
 function expected(rows: readonly Row[]): string {
   return renderOverview({
-    totals: sumOverview(rows.map(([, w, r, wc, wo]) => ({ w, r, wc, wo }))),
+    totals: sumAxes(rows.map(([, w, r, wc, wo]) => ({ w, r, wc, wo }))),
     theme: DEFAULT_PARAMS.theme,
     palette: DEFAULT_PARAMS.palette,
   });

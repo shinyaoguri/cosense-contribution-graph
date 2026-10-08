@@ -98,6 +98,9 @@ src/worker/
   graph-data.ts             共有グラフを D1 の記録から描く (publicId を引いて、草と概観の入力を作る)
   svg.ts                    GET /v1/g/{publicId}.svg。graph/layout.ts のレイアウトを文字列にする
   overview-svg.ts           GET /v1/g/{publicId}/overview.svg。graph/overview.ts のレイアウトを文字列にする (ADR-0021)
+  grass-svg.ts              GET /v1/g/{publicId}/card.svg。graph/grass.ts のレイアウトを文字列にする (ADR-0024・0026)
+  card-icon.ts              図に埋め込むアイコンを Cosense から取って data: URI にする (ADR-0024 決定 5)
+  xml.ts                    SVG に書く文字列のエスケープ。外から来る名前の XSS を塞ぐ要点
   json.ts                   GET /v1/g/{publicId}/{dataKey}.json。日ごとの集計値 (ADR-0020)
   demo.ts                   デモの草 (publicId = demo)。実データを持たず、決定論的に作る
   cron.ts                   古いビットマップの削除
@@ -112,6 +115,9 @@ src/worker/
   graph/                    草を描く一式。**Worker だけが持つ** (ADR-0019、Issue #110)
     layout.ts               草の寸法・色・ラベルの位置。SVG の文字列にも DOM にもしない
     overview.ts             活動の概観 (4 軸のレーダー) の寸法・色・ラベルの位置 (ADR-0021)
+    grass.ts                カードの図の寸法・色・ラベルの位置。形 (期間 × マス) ごとの寸法の表を持つ (ADR-0024・0026)
+    axes.ts                 4 軸 (作る / 育てる / 関わる / 読む) の合計と % (ADR-0021)
+    style.ts                図の間で共有する文字の並び・文字色と合算の印
     grid.ts                 53 週グリッドの格子と描画パラメータ
     scale.ts                四分位スケール
     balance.ts              読み書きのバランス (配色に依らない)
@@ -1234,7 +1240,7 @@ const balance = d => Math.tanh((odds(d) - center) / 1.2);   // -1 (読) .. +1 (�
 
 ### カード (`card.svg`)
 
-**ADR-0024。2026-10-07 に決め、#212 で実装した (#208)。** 草と同じく「layout → 文字列」に分ける (`src/worker/graph/card.ts` → `src/worker/card-svg.ts`)。
+**ADR-0024。2026-10-07 に決め、#212 で実装した (#208)。** 草と同じく「layout → 文字列」に分ける (`src/worker/graph/grass.ts` → `src/worker/grass-svg.ts`。#220 の作り替えで `card.ts` / `card-svg.ts` から改名した)。
 `width` / `height` / `viewBox` の 3 つを出す。形の根拠と却下した案は ADR-0024 決定 3。
 
 - **500 × 400 (5:4)。** ページカードのサムネの枠 (広い画面で約 145 × 122) に合わせる (research §3)。カードでは 1 マスが約 4px でラベルは読めないので、
@@ -1254,7 +1260,8 @@ const balance = d => Math.tanh((odds(d) - center) / 1.2);   // -1 (読) .. +1 (�
 - 名前の行: 左から `/プロジェクト名` (太字、`<a href>` を持つ)・丸く切り抜いたアイコン・ユーザー名 (控えめ、`@` なし)。
   合算は `layoutMark` の印とユーザー名だけ (アイコンは入れない)。**時間帯の凡例は置かない**
 - ラベルの文言は `ja` / `en` の表で持つ (`lang`)。英語の軸名はトップページ (`site.ts`) と同じ Create / Grow / Engage / Read、計は Sum、曜日は Mon..Sun。背景は透明で、色は `theme` で変える
-- 部品は草と概観のものを使う (`scale.ts`・`balance.ts`・`scheme.ts`・`overview.ts` の `sumOverview`・`layout.ts` の `FONT_FAMILY` / `TEXT_COLOR` / `layoutMark`・`svg.ts` の `escapeXml`)
+- 部品は草と概観のものを使う (`scale.ts`・`balance.ts`・`scheme.ts`・`axes.ts` の `sumAxes`・`style.ts` の `FONT_FAMILY` / `layoutMark`・`xml.ts` の `escapeXml`)
+- **寸法は形 (期間 × マス) ごとの表 (`GEOMETRIES`) から引く** (#220)。今は半年 × 3 分割だけで、段階 11 で 4 つの形を並べる
 
 ### 1 つにした図 (段階 11、未実装)
 

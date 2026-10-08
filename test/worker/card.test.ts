@@ -1,13 +1,13 @@
 import { env, SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 import { PH_ALL, publicIdOf } from "../../src/shared/ids.ts";
-import { renderCard } from "../../src/worker/card-svg.ts";
 import { DEMO_ICON } from "../../src/worker/demo.ts";
 import { centerOf } from "../../src/worker/graph/balance.ts";
-import { type CardDay, slotPopulation } from "../../src/worker/graph/card.ts";
+import { type GrassDay, slotPopulation } from "../../src/worker/graph/grass.ts";
 import { buildScale } from "../../src/worker/graph/scale.ts";
 import { DEFAULT_SCHEME } from "../../src/worker/graph/scheme.ts";
 import { type CardOptions, renderStoredCard } from "../../src/worker/graph-data.ts";
+import { renderGrass } from "../../src/worker/grass-svg.ts";
 import { randomUid } from "./beacon-helpers.ts";
 
 // 2026-09-14 15:30 UTC は日本時間で 2026-09-15 (火) の 0:30。「今日」は Asia/Tokyo で決まる
@@ -44,7 +44,7 @@ async function store(uid: string, ph: string, rows: readonly Row[]): Promise<str
   return publicId;
 }
 
-function cardDayOf([, w, r, wc, wo, s]: Row): CardDay {
+function cardDayOf([, w, r, wc, wo, s]: Row): GrassDay {
   return s === null
     ? { w, r, wc, wo }
     : {
@@ -68,7 +68,7 @@ function expected(
   const all = new Map(population.map((row) => [row[0], cardDayOf(row)]));
   const slots = slotPopulation(all);
   const dayMinutes = population.map(([, w, r]) => ({ w, r }));
-  return renderCard({
+  return renderGrass({
     today: TODAY,
     days: new Map(display.map((row) => [row[0], cardDayOf(row)])),
     slotScale: buildScale(slots.map((m) => m.w + m.r)),

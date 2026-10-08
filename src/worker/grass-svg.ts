@@ -1,17 +1,17 @@
 /**
- * カードの図の SVG を組み立てる (design §8、ADR-0024)。寸法と色は `graph/card.ts` が決め、ここは文字列にするだけ。
+ * カードの図の SVG を組み立てる (design §8、ADR-0024)。寸法と色は `graph/grass.ts` が決め、ここは文字列にするだけ。
  *
  * 草と同じく `<img>` で描かれるので、すべてインラインで自己完結させる。**アイコンも `data:` で埋め込む**
  * (`<img>` で読まれた SVG は外部の画像を読まない)。応答の CSP はカードだけ `img-src data:` を足す (`index.ts`)。
  * **本文を変えると ETag が変わる。** 属性とグループの順は `test/worker/card-golden.test.ts` が固定している。
  */
-import { type CardCell, type CardInput, type CardLayout, layoutCard } from "./graph/card.ts";
-import { escapeXml } from "./svg.ts";
+import { type GrassCell, type GrassInput, type GrassLayout, layoutGrass } from "./graph/grass.ts";
+import { escapeXml } from "./xml.ts";
 
 const n = (v: number) => Math.round(v * 100) / 100;
 
 /** 角を丸めたマスの path。上のマスは上の角だけ、下のマスは下の角だけ、真ん中は四角 */
-function cellPath(cell: CardCell, w: number, h: number, r: number): string {
+function cellPath(cell: GrassCell, w: number, h: number, r: number): string {
   const { x, y } = cell;
   if (cell.shape === "top") {
     return `M${x} ${n(y + h)}V${n(y + r)}A${r} ${r} 0 0 1 ${n(x + r)} ${y}H${n(x + w - r)}A${r} ${r} 0 0 1 ${n(x + w)} ${n(y + r)}V${n(y + h)}Z`;
@@ -22,9 +22,9 @@ function cellPath(cell: CardCell, w: number, h: number, r: number): string {
   return `M${x} ${y}H${n(x + w)}V${n(y + h)}H${x}Z`;
 }
 
-function toSvg(layout: CardLayout): string {
+function toSvg(layout: GrassLayout): string {
   const { width, height } = layout;
-  const cell = (c: CardCell) =>
+  const cell = (c: GrassCell) =>
     `<path d="${cellPath(c, layout.cellWidth, layout.cellHeight, layout.cellRadius)}" fill="${c.fill}"${c.opacity === undefined ? "" : ` fill-opacity="${c.opacity}"`}/>`;
   const text = (t: { x: number; y: number; text: string; anchor: string; fill: string }) =>
     `<text x="${t.x}" y="${t.y}"${t.anchor === "start" ? "" : ` text-anchor="${t.anchor}"`} fill="${t.fill}">${escapeXml(t.text)}</text>`;
@@ -80,6 +80,6 @@ function toSvg(layout: CardLayout): string {
 }
 
 /** カードの図の SVG を返す。 */
-export function renderCard(input: CardInput): string {
-  return toSvg(layoutCard(input));
+export function renderGrass(input: GrassInput): string {
+  return toSvg(layoutGrass(input));
 }
