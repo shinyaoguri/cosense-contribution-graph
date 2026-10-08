@@ -1,12 +1,20 @@
 {
   "images": [
     {
+      "name": "demo-card",
+      "path": "/v1/g/demo/card.svg",
+      "alt": "直近 26 週の図の例 (デモ)",
+      "width": 532,
+      "sha256": "59ee5c5e2604d749ede78390bb969b3e17c998f8d411f1e43564bbd6001673aa",
+      "url": "https://i.gyazo.com/56acdf9d676e829f22f052855892081c.png"
+    },
+    {
       "name": "demo-grass",
       "path": "/v1/g/demo.svg",
-      "alt": "草の例 (デモ)",
+      "alt": "1 年分の草の例 (デモ)",
       "width": 807,
-      "sha256": "9af2545fee5a08614702b8c93fb44c7cfad92044f8f4cb8975ae61c355d7e8c1",
-      "url": "https://i.gyazo.com/c5e55702dd6049f1de9092b74a5d35b7.png"
+      "sha256": "28f0251986e810d600450da0a89a42748872ca485a1581aa670b8b2b5123f981",
+      "url": "https://i.gyazo.com/75bfb8b6837acc7ede16c5f876e08016.png"
     },
     {
       "name": "guide-minutes",
@@ -23,14 +31,6 @@
       "width": 672,
       "sha256": "3be9d7508ff09cca9f4c96525b12294b489f57d6342d42ab640446eb2f743baf",
       "url": "https://i.gyazo.com/db197ac239510760b66085a313348329.png"
-    },
-    {
-      "name": "demo-overview",
-      "path": "/v1/g/demo/overview.svg",
-      "alt": "活動の概観の例 (デモ)",
-      "width": 332,
-      "sha256": "fdf7594dec9114bf9d1dcca948ee57086bb323f9ecaaaba1db4a1f3395fe8328",
-      "url": "https://i.gyazo.com/5e86939433b622728aee4beb4e177915.png"
     },
     {
       "name": "guide-overview",

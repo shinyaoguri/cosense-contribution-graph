@@ -32,7 +32,7 @@ export function fromEpochDay(epochDay: number): string {
 /**
  * 曜日。0 = 日曜 .. 6 = 土曜。
  *
- * **呼ぶのは Worker の格子 (`src/worker/graph/grid.ts`) だけだが、ここに置く。**
+ * **呼ぶのは Worker の図 (`src/worker/graph/grass.ts`) とデモだけだが、ここに置く。**
  * タイムゾーンに依らないことの検証を jsdom でも走らせたいので、両環境で走る `test/shared/` に
  * テストを残している (ADR-0019 の移設で描画は worker へ移ったが、これは日付の性質の話)。
  */

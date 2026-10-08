@@ -17,8 +17,10 @@
  * - 値をスクリプトに埋め込まない。スタイルは固定の文字列で、CSP はハッシュで書く (`auth-page.ts` と同じ)
  */
 import { ACCOUNT_PATH, AUTH_START_PATH, AUTH_TO_ACCOUNT, AUTH_TO_PARAM } from "../shared/auth.ts";
+import { CARD_FORM, GRAPH_FORM } from "../shared/grass.ts";
 import { dataKeyOf, isValidKid, PH_ALL, publicIdOf } from "../shared/ids.ts";
 import { FAVICON_LINK } from "./favicon.ts";
+import { grassImage } from "./grass-image.ts";
 import { csrfToken, openSession, type Session, verifyCsrf } from "./session.ts";
 
 /** 全削除のフォームに打ち込む言葉。**押し間違いで消えないように**する (design §6 の `confirm=1` の代わり) */
@@ -173,21 +175,22 @@ async function shareSection(session: Session, deps: AccountDeps): Promise<string
   if (!exists) {
     return "<p>まだ草がありません。Cosense のページメニュー「cosense-grass」→「設定」からサインインすると作られます。</p>";
   }
-  const path = `/v1/g/${publicId}.svg`;
-  const url = `${deps.publicOrigin}${path}`;
-  // 活動の概観は草と同じ publicId (ADR-0021)
-  const overviewPath = `/v1/g/${publicId}/overview.svg`;
+  // カードと 1 年の草は同じ描画で、既定の形だけが違う (ADR-0026 決定 6)
+  const cardPath = `/v1/g/${publicId}/card.svg`;
+  const graphPath = `/v1/g/${publicId}.svg`;
   // 草の URL からは導けない鍵を並べる (ADR-0020)
   const dataUrl = `${deps.publicOrigin}/v1/g/${publicId}/${await dataKeyOf(session.uid, PH_ALL)}.json`;
-  return `<p>全プロジェクトを合算した草です。<strong>URL を知っている人は誰でも見られます。</strong></p>
-<img src="${escapeHtml(path)}" width="775" height="146" alt="全プロジェクトを合算した草">
-<p><code>${escapeHtml(url)}</code></p>
-<p>活動の概観です。書いた時間を、新しく作ったページ (作る)・自分が前に作ったページ (育てる)・他の人のページ (関わる) に分け、
-読んだ時間 (読む) と並べた割合です。<strong>草と同じ URL の末尾を変えたもので、草の URL を知っている人は見られます。</strong></p>
-<img src="${escapeHtml(overviewPath)}" width="300" height="220" alt="全プロジェクトを合算した活動の概観">
-<p><code>${escapeHtml(`${deps.publicOrigin}${overviewPath}`)}</code></p>
+  return `<p>全プロジェクトを合算した直近 26 週の図です。1 日を朝・昼・夜に分けて塗り、草の下の線は、書いた時間を
+新しく作ったページ (作る)・自分が前に作ったページ (育てる)・他の人のページ (関わる) に分けて、読んだ時間 (読む) と並べた割合です。
+<strong>URL を知っている人は誰でも見られます。</strong></p>
+${grassImage(cardPath, CARD_FORM, "全プロジェクトを合算した直近 26 週の図")}
+<p><code>${escapeHtml(`${deps.publicOrigin}${cardPath}`)}</code></p>
+<p>同じ図の 1 年分 (1 日 1 マス) です。<strong>上の URL の末尾を変えたもので、上の URL を知っている人は見られます。</strong>
+クエリの <code>span=year</code> で 1 年、<code>cell=day</code> で 1 日 1 マス、<code>year=2025</code> のように年を付けるとその年の図になります。</p>
+${grassImage(graphPath, GRAPH_FORM, "全プロジェクトを合算した 1 年分の草")}
+<p><code>${escapeHtml(`${deps.publicOrigin}${graphPath}`)}</code></p>
 <p>日ごとの数値 (書いた分・読んだ分・編集したページ数・作ったページ数・作る分・関わる分) の JSON です。
-<strong>この URL を知っている人は、草には出ない内訳まで読めます。</strong>草の URL からは作れない別の URL です。</p>
+<strong>この URL を知っている人は、草には出ない内訳まで読めます。</strong>図の URL からは作れない別の URL です。</p>
 <p><code>${escapeHtml(dataUrl)}</code></p>
 <p><small>プロジェクト別の草の URL は、Cosense のページメニュー「cosense-grass」にプロジェクト名つきで並びます
 (サーバはプロジェクト名を持たないので、この画面では名前を出せません)。</small></p>`;

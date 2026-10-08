@@ -7,7 +7,7 @@ import { centerOf } from "../../src/worker/graph/balance.ts";
 import { type GrassDay, type GrassInput, slotPopulation } from "../../src/worker/graph/grass.ts";
 import { buildScale } from "../../src/worker/graph/scale.ts";
 import { DEFAULT_SCHEME } from "../../src/worker/graph/scheme.ts";
-import { type CardOptions, renderStoredCard } from "../../src/worker/graph-data.ts";
+import { type GrassOptions, renderStoredGrass } from "../../src/worker/graph-data.ts";
 import { renderGrass } from "../../src/worker/grass-svg.ts";
 import { randomUid } from "./beacon-helpers.ts";
 
@@ -17,7 +17,7 @@ const TODAY = "2026-09-15";
 const PH = "0123456789abcdef";
 const DEMO_URL = "https://example.com/v1/g/demo/card.svg";
 const CARD_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:";
-const OPTIONS: CardOptions = {
+const OPTIONS: GrassOptions = {
   form: CARD_FORM,
   theme: "light",
   mode: "bi",
@@ -112,13 +112,15 @@ describe("GET /v1/g/demo/card.svg", () => {
     expect(await res.text()).toMatch(/^<svg [^>]*width="500" height="400" viewBox="0 0 500 400"/);
   });
 
-  it("**草と概観の CSP は変えない**", async () => {
+  it("**図を返す経路はどれも `img-src data:` を許す。説明の図は画像を読まないので許さない** (ADR-0026 決定 6)", async () => {
     for (const path of ["/v1/g/demo.svg", "/v1/g/demo/overview.svg"]) {
       const res = await SELF.fetch(`https://example.com${path}`);
-      expect(res.headers.get("content-security-policy"), path).toBe(
-        "default-src 'none'; style-src 'unsafe-inline'",
-      );
+      expect(res.headers.get("content-security-policy"), path).toBe(CARD_CSP);
     }
+    const guide = await SELF.fetch("https://example.com/v1/guide/grass.svg");
+    expect(guide.headers.get("content-security-policy")).toBe(
+      "default-src 'none'; style-src 'unsafe-inline'",
+    );
   });
 
   it("**span と cell で 4 つの形を描き分ける。外寸は GRASS_SIZES どおり** (ADR-0026)", async () => {
@@ -187,7 +189,7 @@ describe("GET /v1/g/demo/card.svg", () => {
   });
 });
 
-describe("renderStoredCard", () => {
+describe("renderStoredGrass", () => {
   it("**表示範囲の行と `*` の母集団から描く。区間が NULL の日は内訳なし**", async () => {
     const uid = randomUid();
     // 母集団 (`*`) は時間帯のマスが 40〜60 分。表示する行 (10〜12 分) は Level 1 になるはずで、
@@ -208,7 +210,7 @@ describe("renderStoredCard", () => {
     ];
     const publicId = await store(uid, PH, [...display, ["2026-03-22", 50, 50, 0, 0, null]]);
 
-    const svg = await renderStoredCard(env.DB, publicId, OPTIONS, NOW, iconSpy().icon);
+    const svg = await renderStoredGrass(env.DB, publicId, OPTIONS, NOW, iconSpy().icon);
 
     expect(svg).toBe(expected(population, display));
     expect(svg).toContain('fill-opacity="0.35"');
@@ -218,7 +220,7 @@ describe("renderStoredCard", () => {
     const publicId = await store(randomUid(), PH, [[TODAY, 4, 2, 1, 0, null]]);
 
     const both = iconSpy();
-    const svg = await renderStoredCard(
+    const svg = await renderStoredGrass(
       env.DB,
       publicId,
       { ...OPTIONS, label: "proj", user: "taro" },
@@ -230,7 +232,7 @@ describe("renderStoredCard", () => {
 
     for (const names of [{ label: "proj" }, { user: "taro" }, {}]) {
       const spy = iconSpy();
-      const body = await renderStoredCard(
+      const body = await renderStoredGrass(
         env.DB,
         publicId,
         { ...OPTIONS, ...names },
@@ -243,7 +245,7 @@ describe("renderStoredCard", () => {
 
     // 取れなければ名前だけ
     const failed = iconSpy(null);
-    const plain = await renderStoredCard(
+    const plain = await renderStoredGrass(
       env.DB,
       publicId,
       { ...OPTIONS, label: "proj", user: "taro" },
@@ -259,7 +261,7 @@ describe("renderStoredCard", () => {
     const publicId = await store(randomUid(), PH_ALL, rows);
     const spy = iconSpy();
 
-    const svg = await renderStoredCard(
+    const svg = await renderStoredGrass(
       env.DB,
       publicId,
       { ...OPTIONS, label: "proj", user: "taro" },
@@ -280,13 +282,13 @@ describe("renderStoredCard", () => {
       ["2026-01-01", 30, 0, 0, 0, [30, 0, 0, 0, 0, 0, 0, 0]],
     ];
     const publicId = await store(randomUid(), PH, rows);
-    const options: CardOptions = {
+    const options: GrassOptions = {
       ...OPTIONS,
       form: { span: "year", cell: "slot" },
       end: "2025-12-31",
     };
 
-    const svg = await renderStoredCard(env.DB, publicId, options, NOW, iconSpy().icon);
+    const svg = await renderStoredGrass(env.DB, publicId, options, NOW, iconSpy().icon);
 
     expect(svg).toBe(expected([], rows, { form: options.form, end: "2025-12-31" }));
     // 翌日の行を読まなかったときの絵とは違う
@@ -295,7 +297,7 @@ describe("renderStoredCard", () => {
 
   it("graphs に無い publicId は undefined", async () => {
     expect(
-      await renderStoredCard(env.DB, "0".repeat(32), OPTIONS, NOW, iconSpy().icon),
+      await renderStoredGrass(env.DB, "0".repeat(32), OPTIONS, NOW, iconSpy().icon),
     ).toBeUndefined();
   });
 });
