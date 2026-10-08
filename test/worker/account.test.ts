@@ -231,26 +231,29 @@ describe("あなたの草", () => {
     expect(html).toContain("草には出ない内訳まで読めます");
   });
 
-  it("**草そのものを画像で出す** (URL を別のタブで開かなくてよい)", async () => {
+  it("**図そのものを画像で出す** (URL を別のタブで開かなくてよい)。寸法は外寸の表から取る", async () => {
     const { uid, publicId } = await withGraph();
 
     const html = await (await get(await cookieFor(uid))).text();
 
-    // 草の寸法は 775×146 (layout.test.ts)。`<img>` が違うと縦横比が崩れる (Issue #156)
-    expect(html).toContain(`<img src="/v1/g/${publicId}.svg" width="775" height="146"`);
+    // `<img>` が図の外寸と違うと縦横比が崩れる (Issue #156)
+    expect(html).toContain(`<img src="/v1/g/${publicId}/card.svg" width="500" height="400"`);
+    expect(html).toContain(`<img src="/v1/g/${publicId}.svg" width="775" height="198"`);
+    expect(html).toContain(`${ORIGIN}/v1/g/${publicId}/card.svg`);
+    expect(html).toContain(`${ORIGIN}/v1/g/${publicId}.svg`);
   });
 
-  it("**草の下に活動の概観を出し、草の URL を知っている人に見えると添える** (ADR-0021)", async () => {
+  it("**直近 26 週の図を先に、同じ図の 1 年分を後に出し、上の URL を知っている人に見えると添える** (ADR-0026)", async () => {
     const { uid, publicId } = await withGraph();
 
     const html = await (await get(await cookieFor(uid))).text();
 
-    expect(html).toContain(`<img src="/v1/g/${publicId}/overview.svg" width="300" height="220"`);
-    expect(html).toContain(`${ORIGIN}/v1/g/${publicId}/overview.svg`);
-    expect(html).toContain("草の URL を知っている人は見られます");
-    expect(html.indexOf(`/v1/g/${publicId}.svg`)).toBeLessThan(
-      html.indexOf(`/v1/g/${publicId}/overview.svg`),
+    expect(html).toContain("上の URL を知っている人は見られます");
+    expect(html.indexOf(`/v1/g/${publicId}/card.svg`)).toBeLessThan(
+      html.indexOf(`/v1/g/${publicId}.svg`),
     );
+    // 活動の概観は廃止した
+    expect(html).not.toContain("overview.svg");
   });
 
   it("**草を出すので CSP は同じオリジンの画像を許す**", async () => {

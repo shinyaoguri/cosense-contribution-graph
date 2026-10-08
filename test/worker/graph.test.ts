@@ -1,25 +1,18 @@
 import { SELF } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
-import { DEMO_TODAY, demoData } from "../../src/worker/demo.ts";
-import { balanceOf, centerOf } from "../../src/worker/graph/balance.ts";
-import { DEFAULT_PARAMS, gridCells, MAX_WEEKS } from "../../src/worker/graph/grid.ts";
-import { buildScale, levelOf } from "../../src/worker/graph/scale.ts";
-import {
-  DEFAULT_SCHEME,
-  SCHEMES,
-  type SchemeName,
-  schemeOf,
-  type Theme,
-} from "../../src/worker/graph/scheme.ts";
-import { renderGraph } from "../../src/worker/svg.ts";
+import { CARD_FORM, GRAPH_FORM, GRASS_SIZES } from "../../src/shared/grass.ts";
 
-const SCHEME_NAMES = Object.keys(SCHEMES) as SchemeName[];
+/**
+ * 図の経路 (ADR-0026 決定 6)。`{publicId}.svg`・`card.svg`・`overview.svg` は同じ描画で、**既定の形だけが違う**。
+ * 描画そのもの (マス・色・線) は `graph/grass.test.ts`、D1 から読むところは `graph-data.test.ts` と `card.test.ts` が見る
+ */
+const ORIGIN = "https://example.com";
+const GRAPH_URL = `${ORIGIN}/v1/g/demo.svg`;
+const CARD_URL = `${ORIGIN}/v1/g/demo/card.svg`;
+const OVERVIEW_URL = `${ORIGIN}/v1/g/demo/overview.svg`;
+const CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:";
 
-const DEMO_URL = "https://example.com/v1/g/demo.svg";
-
-function fetchDemo(query = "", init?: RequestInit) {
-  return SELF.fetch(`${DEMO_URL}${query}`, init);
-}
+const fetchText = async (url: string, init?: RequestInit) => (await SELF.fetch(url, init)).text();
 
 /** ルート要素の属性。workerd には DOMParser が無いので正規表現で見る。 */
 function rootAttributes(svg: string): Record<string, string> {
@@ -32,419 +25,198 @@ function rootAttributes(svg: string): Record<string, string> {
   );
 }
 
-/** `<g data-part="...">` の中身。グループは入れ子にしていない。 */
-function part(svg: string, name: string): string {
-  return new RegExp(`<g data-part="${name}"[^>]*>(.*?)</g>`).exec(svg)?.[1] ?? "";
+/** SVG の月ラベルを左から順に読む */
+function monthLabels(svg: string): string[] {
+  return [...svg.matchAll(/>(\d{1,2}月)<\/text>/g)].map((m) => m[1] ?? "");
 }
 
-function fills(fragment: string): string[] {
-  return [...fragment.matchAll(/fill="(#[0-9a-f]{6})"/g)].map((m) => m[1] ?? "");
-}
+describe("既定の形は経路ごとに違い、描画は同じ (ADR-0026 決定 6)", () => {
+  it("**`{publicId}.svg` の既定は 1 年 × 1 日** (貼ってある草の意味を保つ)", async () => {
+    expect(await fetchText(GRAPH_URL)).toBe(await fetchText(`${CARD_URL}?span=year&cell=day`));
+    const { width, height } = GRASS_SIZES[GRAPH_FORM.span][GRAPH_FORM.cell];
+    expect(rootAttributes(await fetchText(GRAPH_URL))).toMatchObject({
+      xmlns: "http://www.w3.org/2000/svg",
+      width: String(width),
+      height: String(height),
+      viewBox: `0 0 ${width} ${height}`,
+    });
+  });
 
-function rectCount(fragment: string): number {
-  return fragment.match(/<rect\b/g)?.length ?? 0;
-}
+  it("**`overview.svg` は廃止し、`card.svg` の既定を返す** (貼ったページで画像を壊さない)", async () => {
+    expect(await fetchText(OVERVIEW_URL)).toBe(await fetchText(CARD_URL));
+    const { width, height } = GRASS_SIZES[CARD_FORM.span][CARD_FORM.cell];
+    expect(rootAttributes(await fetchText(OVERVIEW_URL))).toMatchObject({
+      width: String(width),
+      height: String(height),
+    });
+  });
 
-describe("GET /v1/g/demo.svg の応答", () => {
-  it("200 と、Cosense で表示されるのに要るヘッダ", async () => {
-    const res = await fetchDemo();
+  it("**どの経路も同じクエリを受ける**", async () => {
+    expect(await fetchText(`${GRAPH_URL}?span=half&cell=slot&theme=dark`)).toBe(
+      await fetchText(`${CARD_URL}?theme=dark`),
+    );
+    expect(await fetchText(`${OVERVIEW_URL}?span=year&cell=day`)).toBe(await fetchText(GRAPH_URL));
+  });
+
+  it("**weeks は読まない** (貼ってある `weeks=26` の草も 1 年で描く)", async () => {
+    expect(await fetchText(`${GRAPH_URL}?weeks=26`)).toBe(await fetchText(GRAPH_URL));
+  });
+});
+
+describe.each([GRAPH_URL, CARD_URL, OVERVIEW_URL])("%s の応答", (url) => {
+  it("200 と、Cosense で表示されるのに要るヘッダ。**CSP はアイコンの `data:` だけを許す**", async () => {
+    const res = await SELF.fetch(url);
 
     expect(res.status).toBe(200);
-    // これが無いと Cosense で表示されない (research §3 で過去に踏まれた唯一の落とし穴)
     expect(res.headers.get("content-type")).toBe("image/svg+xml; charset=utf-8");
     expect(res.headers.get("cache-control")).toBe("public, max-age=900");
-    expect(res.headers.get("content-security-policy")).toBe(
-      "default-src 'none'; style-src 'unsafe-inline'",
-    );
+    expect(res.headers.get("content-security-policy")).toBe(CSP);
     expect(res.headers.get("x-content-type-options")).toBe("nosniff");
   });
 
   it("HEAD でも 200 を返す", async () => {
-    expect((await fetchDemo("", { method: "HEAD" })).status).toBe(200);
+    expect((await SELF.fetch(url, { method: "HEAD" })).status).toBe(200);
+  });
+
+  it("CSS の oklch() も外部参照も含まない (design §7 / §8)", async () => {
+    const svg = await fetchText(url);
+
+    expect(svg).not.toContain("oklch");
+    expect(svg).not.toMatch(/(?:href|src)="https?:\/\/(?!scrapbox\.io\/)/);
+    expect(svg).not.toContain("<style");
   });
 });
 
 describe("ETag (本文の SHA-256、ADR-0015 決定 2)", () => {
-  it("強い ETag を付ける", async () => {
-    const res = await fetchDemo();
+  it("強い ETag を付け、If-None-Match が一致すれば 304。ETag と Cache-Control を付け、本文は空", async () => {
+    const etag = (await SELF.fetch(GRAPH_URL)).headers.get("etag") ?? "";
+    expect(etag).toMatch(/^"[0-9a-f]{32}"$/);
 
-    expect(res.headers.get("etag")).toMatch(/^"[0-9a-f]{32}"$/);
-  });
-
-  it("If-None-Match が一致すれば 304。ETag と Cache-Control を付け、本文は空", async () => {
-    const etag = (await fetchDemo()).headers.get("etag") ?? "";
-
-    const res = await fetchDemo("", { headers: { "if-none-match": etag } });
-
-    expect(res.status).toBe(304);
-    expect(res.headers.get("etag")).toBe(etag);
-    expect(res.headers.get("cache-control")).toBe("public, max-age=900");
-    expect(await res.text()).toBe("");
+    const again = await SELF.fetch(GRAPH_URL, { headers: { "if-none-match": etag } });
+    expect(again.status).toBe(304);
+    expect(again.headers.get("etag")).toBe(etag);
+    expect(again.headers.get("cache-control")).toBe("public, max-age=900");
+    expect(await again.text()).toBe("");
   });
 
   it("弱い比較: W/ 付きでも一致とみなす (Cloudflare が圧縮時に弱い ETag に変えることがある)", async () => {
-    const etag = (await fetchDemo()).headers.get("etag") ?? "";
-
-    const res = await fetchDemo("", { headers: { "if-none-match": `W/${etag}` } });
-
+    const etag = (await SELF.fetch(GRAPH_URL)).headers.get("etag") ?? "";
+    const res = await SELF.fetch(GRAPH_URL, { headers: { "if-none-match": `W/${etag}` } });
     expect(res.status).toBe(304);
   });
 
-  it("一致しなければ 200", async () => {
-    const res = await fetchDemo("", { headers: { "if-none-match": '"0000"' } });
+  it("一致しなければ 200。描画が変わると ETag も変わる", async () => {
+    const light = (await SELF.fetch(GRAPH_URL)).headers.get("etag");
+    const res = await SELF.fetch(`${GRAPH_URL}?theme=dark`, {
+      headers: { "if-none-match": light ?? "" },
+    });
 
     expect(res.status).toBe(200);
-  });
-
-  it("描画が変わると ETag も変わる (テーマを変えた場合)", async () => {
-    const light = (await fetchDemo()).headers.get("etag");
-    const dark = (await fetchDemo("?theme=dark")).headers.get("etag");
-
-    expect(dark).not.toBe(light);
+    expect(res.headers.get("etag")).not.toBe(light);
   });
 });
 
 describe("クエリ (design §6)", () => {
-  it("不正な値と範囲外は既定値に落とす (ETag が既定と同じになる)", async () => {
-    const defaultEtag = (await fetchDemo()).headers.get("etag");
+  it("**不正な値は既定に落とす** (400 にしない。ETag が既定と同じになる)", async () => {
+    const base = (await SELF.fetch(GRAPH_URL)).headers.get("etag");
 
     for (const query of [
       "?theme=blue",
       "?mode=read",
-      "?weeks=0",
-      "?weeks=54",
-      "?weeks=10abc",
-      "?weeks=-3",
-      "?palette=unknown",
-      "?palette=",
+      "?palette=nope",
       "?palette=toString",
-      "?palette=__proto__",
+      "?span=month",
+      "?cell=hour",
+      "?lang=fr",
+      "?weeks=0",
       "?unknown=1",
     ]) {
-      expect((await fetchDemo(query)).headers.get("etag"), query).toBe(defaultEtag);
+      const res = await SELF.fetch(`${GRAPH_URL}${query}`);
+      expect(res.status, query).toBe(200);
+      expect(res.headers.get("etag"), query).toBe(base);
     }
   });
 
   it("既定の配色を palette で明示しても同じ画像", async () => {
-    const defaultEtag = (await fetchDemo()).headers.get("etag");
-
-    expect((await fetchDemo(`?palette=${DEFAULT_SCHEME}`)).headers.get("etag")).toBe(defaultEtag);
+    expect(await fetchText(`${GRAPH_URL}?palette=violet-amber`)).toBe(await fetchText(GRAPH_URL));
   });
 
-  it("登録済みの palette はそれぞれ違う画像になる", async () => {
-    const etags = await Promise.all(
-      SCHEME_NAMES.map(async (name) => (await fetchDemo(`?palette=${name}`)).headers.get("etag")),
-    );
+  it("**`l` でプロジェクト名を描き、プロジェクトへのリンクを埋める** (`<img>` では押せないが、画像を開けば飛べる)", async () => {
+    const svg = await fetchText(`${GRAPH_URL}?l=villagepump`);
 
-    expect(new Set(etags).size).toBe(SCHEME_NAMES.length);
+    expect(svg).toContain(">/villagepump</text>");
+    expect(svg).toContain('<a href="https://scrapbox.io/villagepump/">');
   });
 
-  it("範囲内の weeks は反映する", async () => {
-    const svg = await (await fetchDemo("?weeks=10")).text();
+  it("**形の違うプロジェクト名は描かない** (エラーにはせず、名前だけ落とす)", async () => {
+    const res = await SELF.fetch(`${GRAPH_URL}?l=${encodeURIComponent('"><script>')}`);
 
-    expect(rectCount(part(svg, "grid"))).toBe(7 * 9 + 1);
-  });
-});
-
-describe("存在しない経路は 404 (design §6)", () => {
-  it("demo 以外の publicId", async () => {
-    expect((await SELF.fetch("https://example.com/v1/g/unknown.svg")).status).toBe(404);
-  });
-
-  it("拡張子が違う", async () => {
-    expect((await SELF.fetch("https://example.com/v1/g/demo.png")).status).toBe(404);
-  });
-
-  it("GET と HEAD 以外", async () => {
-    expect((await fetchDemo("", { method: "POST" })).status).toBe(404);
-  });
-});
-
-describe("SVG の構造", () => {
-  it("ルート要素に xmlns / width / height / viewBox を持ち、viewBox が寸法に一致する", async () => {
-    const attrs = rootAttributes(await (await fetchDemo()).text());
-
-    expect(attrs.xmlns).toBe("http://www.w3.org/2000/svg");
-    expect(attrs.viewBox).toBe(`0 0 ${attrs.width} ${attrs.height}`);
-  });
-
-  it("格子は 365 マス、凡例は量の 4 マス + 読み書きの 5 マス = 9 マス (1 行。Issue #133)", async () => {
-    const svg = await (await fetchDemo()).text();
-
-    expect(rectCount(part(svg, "grid"))).toBe(365);
-    expect(rectCount(part(svg, "legend"))).toBe(9);
-  });
-
-  it("write の凡例は 1 行 × 4 マス (バランスが 0 の 1 列なので 2 次元にしない)", async () => {
-    const svg = await (await fetchDemo("?mode=write")).text();
-
-    expect(rectCount(part(svg, "grid"))).toBe(365);
-    expect(rectCount(part(svg, "legend"))).toBe(4);
-  });
-
-  it("月と曜日と凡例の軸のラベルを日本語で出す", async () => {
-    const labels = part(await (await fetchDemo()).text(), "labels");
-
-    const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
-    for (const text of ["9月", "1月", ...weekdays, "読む", "書く", "少ない", "多い"]) {
-      expect(labels).toContain(`>${text}</text>`);
-    }
-  });
-
-  it("CSS の oklch() も外部参照も含まない (design §7 / §8)", async () => {
-    const svg = await (await fetchDemo()).text();
-
-    expect(svg).not.toMatch(/oklch\(/);
-    expect(svg).not.toMatch(/href=|url\(|@import/);
-  });
-});
-
-describe.each(SCHEME_NAMES)("palette=%s の格子", (name) => {
-  const { days, population } = demoData();
-  const scale = buildScale(population.map((d) => d.w + d.r));
-  const center = centerOf(population);
-  const scheme = schemeOf(name);
-
-  /** 表示範囲のマスを、スキームにバランスを渡して塗った色。 */
-  function expectedGrid(balanceOfDay: (minutes: { w: number; r: number }) => number): string[] {
-    return gridCells(DEMO_TODAY, MAX_WEEKS).map((cell) => {
-      const minutes = days.get(cell.day) ?? { w: 0, r: 0 };
-      const level = levelOf(minutes.w + minutes.r, scale);
-      return scheme.cell({ level, balance: balanceOfDay(minutes) }, "light");
-    });
-  }
-
-  it("指定した配色で塗る", async () => {
-    const grid = fills(part(await (await fetchDemo(`?palette=${name}`)).text(), "grid"));
-
-    expect(grid).toEqual(expectedGrid((minutes) => balanceOf(minutes, center)));
-  });
-
-  it("write モードは**全マスのバランスを 0 とみなして塗る** (描画側が 0 を渡していること)", async () => {
-    // スキームの側でバランス 0 の色を確かめても、描画側が 0 を渡していなければ意味が無い。
-    // 描画側の配線を、スキームにバランス 0 を渡した色と突き合わせて固定する
-    const svg = await (await fetchDemo(`?palette=${name}&mode=write`)).text();
-
-    expect(fills(part(svg, "grid"))).toEqual(expectedGrid(() => 0));
-    expect(rectCount(part(svg, "legend"))).toBe(4);
-  });
-});
-
-describe("デモの草", () => {
-  it("既定の配色の列 (凡例の見本) がすべて格子に出る", async () => {
-    // 読み書きの割合が偏ると間の列が出ず、見た目の確認にならない
-    const scheme = schemeOf(DEFAULT_SCHEME);
-    const grid = fills(part(await (await fetchDemo()).text(), "grid"));
-
-    for (const balance of scheme.legendBalances) {
-      const column = new Set(
-        ([1, 2, 3, 4] as const).map((level) => scheme.cell({ level, balance }, "light")),
-      );
-      const days = grid.filter((fill) => column.has(fill)).length;
-      expect(days, `balance=${balance}`).toBeGreaterThanOrEqual(30);
-    }
-  });
-});
-
-describe.each(SCHEME_NAMES)("palette=%s の凡例 (スキームから組み立てる)", (name) => {
-  /**
-   * 凡例は 量の帯 (Level 1〜4、バランス 0) → 読み書きの帯 (Level 3、スキームのバランスの見本)。
-   */
-  function expectedLegend(theme: Theme): string[] {
-    const scheme = schemeOf(name);
-    const cell = (level: 1 | 2 | 3 | 4, balance: number) => scheme.cell({ level, balance }, theme);
-    return [
-      ...([1, 2, 3, 4] as const).map((level) => cell(level, 0)),
-      ...scheme.legendBalances.map((balance) => cell(3, balance)),
-    ];
-  }
-
-  it("ライトの凡例は、量の帯とスキームのバランスの見本の帯の色", async () => {
-    const legend = fills(part(await (await fetchDemo(`?palette=${name}`)).text(), "legend"));
-
-    expect(legend).toEqual(expectedLegend("light"));
-  });
-
-  it("ダークの凡例はダークの色", async () => {
-    const svg = await (await fetchDemo(`?palette=${name}&theme=dark`)).text();
-
-    expect(fills(part(svg, "legend"))).toEqual(expectedLegend("dark"));
-  });
-});
-
-describe("表示範囲と母集団を取り違えない (design §7)", () => {
-  it("四分位を母集団 (全期間) から取った SVG と、表示範囲だけから取った SVG は違う", () => {
-    const { days, population } = demoData();
-    const params = DEFAULT_PARAMS;
-    const center = centerOf(population);
-
-    const fromPopulation = renderGraph({
-      today: DEMO_TODAY,
-      days,
-      scale: buildScale(population.map((d) => d.w + d.r)),
-      center,
-      params,
-    });
-    const fromDisplayOnly = renderGraph({
-      today: DEMO_TODAY,
-      days,
-      scale: buildScale([...days.values()].map((d) => d.w + d.r)),
-      center,
-      params,
-    });
-
-    // デモは表示範囲より古い日を分布を変えて母集団に入れてあるので、取り違えると色が変わる
-    expect(fromPopulation).not.toBe(fromDisplayOnly);
-  });
-
-  it("経路は母集団 (全期間) から取った四分位で描く", async () => {
-    const { days, population } = demoData();
-    const expected = renderGraph({
-      today: DEMO_TODAY,
-      days,
-      scale: buildScale(population.map((d) => d.w + d.r)),
-      center: centerOf(population),
-      params: DEFAULT_PARAMS,
-    });
-
-    expect(await (await fetchDemo()).text()).toBe(expected);
-  });
-
-  it("weeks が小さいと全体の幅は凡例で決まる", () => {
-    const { days, population } = demoData();
-    const svg = renderGraph({
-      today: DEMO_TODAY,
-      days,
-      scale: buildScale(population.map((d) => d.w + d.r)),
-      center: centerOf(population),
-      params: { ...DEFAULT_PARAMS, weeks: 1 },
-    });
-
-    expect(Number(rootAttributes(svg).width)).toBeGreaterThan(8 * 2 + 20 + 11);
-    expect(MAX_WEEKS).toBe(53);
-  });
-});
-
-describe("プロジェクト名 (Issue #119)", () => {
-  it("**`?l=` で渡された名前を `scrapbox.io/<名前>` として描く**", async () => {
-    const svg = await (await fetchDemo("?l=villagepump")).text();
-
-    expect(svg).toContain(">scrapbox.io/villagepump</text>");
-    expect(svg).toContain('font-weight="bold"');
-  });
-
-  it("**プロジェクトへのリンクを埋める** (`<img>` では押せないが、画像を開けば飛べる)", async () => {
-    const svg = await (await fetchDemo("?l=villagepump")).text();
-
-    expect(svg).toContain('<a href="https://scrapbox.io/villagepump">');
-  });
-
-  it("**名前が無ければリンクも出さない**", async () => {
-    const svg = await (await fetchDemo()).text();
-
-    expect(svg).not.toContain("<a ");
-  });
-
-  it("**渡さなければ描かない**", async () => {
-    const svg = await (await fetchDemo()).text();
-
-    expect(svg).not.toContain("font-weight");
-  });
-
-  it("**形の違う名前は描かない** (エラーにはせず、名前だけ落とす)", async () => {
-    for (const raw of ["-a", "a_b", "a b", "日本語", "a".repeat(65), ""]) {
-      const res = await fetchDemo(`?l=${encodeURIComponent(raw)}`);
-      const svg = await res.text();
-
-      expect(res.status).toBe(200);
-      expect(svg).not.toContain("font-weight");
-    }
-  });
-
-  it("**SVG を壊そうとする値も描かない** (形で落ちるので `escapeXml` の出番が来ない)", async () => {
-    const attack = '"><script>alert(1)</script>';
-
-    const svg = await (await fetchDemo(`?l=${encodeURIComponent(attack)}`)).text();
-
-    expect(svg).not.toContain("script");
-    expect(svg).not.toContain("alert");
-  });
-
-  it("**名前が違えば ETag も違う** (本文から作るので自動で追従する)", async () => {
-    const a = await fetchDemo("?l=aaa");
-    const b = await fetchDemo("?l=bbb");
-    const none = await fetchDemo();
-
-    const etags = [a, b, none].map((res) => res.headers.get("etag"));
-    expect(new Set(etags).size).toBe(3);
+    expect(res.status).toBe(200);
+    expect(await res.text()).not.toContain("script");
   });
 });
 
 describe("年を振り返る (Issue #128)", () => {
-  /** SVG の月ラベルを左から順に読む */
-  function monthLabels(svg: string): string[] {
-    return [...svg.matchAll(/>(\d{1,2}月)<\/text>/g)].map((m) => m[1] ?? "");
-  }
+  it("**`?year=` でその年の 12/31 を右端にし、1 月から 12 月までの月ラベルが並ぶ**", async () => {
+    const past = await fetchText(`${GRAPH_URL}?year=2025`);
 
-  it("**`?year=` でその年の 12/31 を右端にする** (月ラベルの並びが変わる)", async () => {
-    const now = await (await fetchDemo()).text();
-    const past = await (await fetchDemo("?year=2025")).text();
-
-    expect(monthLabels(past)).not.toEqual(monthLabels(now));
-    expect(monthLabels(past)).toHaveLength(monthLabels(now).length);
+    expect(monthLabels(past)).toEqual([
+      "1月",
+      "2月",
+      "3月",
+      "4月",
+      "5月",
+      "6月",
+      "7月",
+      "8月",
+      "9月",
+      "10月",
+      "11月",
+      "12月",
+    ]);
+    expect(past).not.toBe(await fetchText(GRAPH_URL));
   });
 
-  it("**1 月 1 日は必ず入る** (53 週 = 371 日 > 365 日。前年の末尾も少し入る)", async () => {
-    const svg = await (await fetchDemo("?year=2025")).text();
-
-    // 2025 年を指定すると、1 月から 12 月までのすべての月ラベルが出る
-    expect(monthLabels(svg)).toContain("1月");
-    expect(monthLabels(svg)).toContain("12月");
+  it("**`card.svg` でも year は 1 年の期間になる** (span によらない)", async () => {
+    expect(await fetchText(`${CARD_URL}?year=2025&cell=day`)).toBe(
+      await fetchText(`${GRAPH_URL}?year=2025`),
+    );
   });
 
   it("**記録より前の年を指定すると、塗られたマスが 1 つも無くなる** (右端が本当に動いている)", async () => {
-    const svg = await (await fetchDemo("?year=2020")).text();
+    const svg = await fetchText(`${GRAPH_URL}?year=2020`);
 
-    // デモの記録は 2026 年。2020 年の 53 週には 1 日も無いので、格子は Level 0 の色だけ
+    // デモの記録は 2026 年まで。2020 年の 53 週には 1 日も無いので、格子は空きマスの色だけ
     const grid = /<g data-part="grid">(.*?)<\/g>/s.exec(svg)?.[1] ?? "";
     const gridFills = new Set([...grid.matchAll(/fill="([^"]+)"/g)].map((m) => m[1]));
-    expect([...gridFills]).toEqual(["#ebedf0"]);
+    expect([...gridFills]).toEqual(["#eff1f4"]);
   });
 
-  it("**今年と未来の年は今日が右端になる** (未来のマスを描いても意味がない)", async () => {
-    const now = await (await fetchDemo()).text();
-    const thisYear = await (await fetchDemo("?year=2026")).text();
-    const future = await (await fetchDemo("?year=2099")).text();
+  it("**今年と未来の年は今日が右端になる**。形の違う値も今日に落とす (400 にはしない)", async () => {
+    const now = await fetchText(GRAPH_URL);
 
-    // デモの「今日」は 2026 年。今年を指定しても未来を指定しても既定と同じ絵になる
-    expect(thisYear).toBe(now);
-    expect(future).toBe(now);
+    for (const raw of ["2026", "2099", "abc", "20", "20255", "2025-03", ""]) {
+      const res = await SELF.fetch(`${GRAPH_URL}?year=${encodeURIComponent(raw)}`);
+      expect(res.status, raw).toBe(200);
+      expect(await res.text(), raw).toBe(now);
+    }
   });
+});
 
-  it("**形の違う値は今日に落とす** (400 にはしない)", async () => {
-    const now = await (await fetchDemo()).text();
-
-    for (const raw of ["abc", "20", "202", "20255", "2025-03", "-2025", ""]) {
-      const res = await fetchDemo(`?year=${encodeURIComponent(raw)}`);
-
-      expect(res.status).toBe(200);
-      expect(await res.text()).toBe(now);
+describe("存在しない経路は 404 (design §6)", () => {
+  it("demo 以外の形の違う publicId・拡張子が違う・経路が深い", async () => {
+    for (const path of [
+      "/v1/g/unknown.svg",
+      "/v1/g/unknown/card.svg",
+      "/v1/g/demo.png",
+      "/v1/g/demo/other.svg",
+      "/v1/g/demo/card.svg/x",
+    ]) {
+      expect((await SELF.fetch(`${ORIGIN}${path}`)).status, path).toBe(404);
     }
   });
 
-  it("**年が違えば ETag も違う**", async () => {
-    const a = await fetchDemo("?year=2024");
-    const b = await fetchDemo("?year=2025");
-
-    expect(a.headers.get("etag")).not.toBe(b.headers.get("etag"));
-  });
-
-  it("ほかのクエリと組み合わせられる", async () => {
-    const res = await fetchDemo("?year=2025&weeks=10&l=villagepump");
-    const svg = await res.text();
-
-    expect(res.status).toBe(200);
-    expect(svg).toContain("scrapbox.io/villagepump");
-    expect(monthLabels(svg).length).toBeLessThan(6);
+  it("GET と HEAD 以外", async () => {
+    expect((await SELF.fetch(GRAPH_URL, { method: "POST" })).status).toBe(404);
   });
 });

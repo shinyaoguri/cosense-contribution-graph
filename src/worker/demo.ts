@@ -5,10 +5,10 @@
  */
 
 import { fromEpochDay, toEpochDay, weekdayOf } from "../shared/epoch-day.ts";
+import { SPAN_WEEKS } from "../shared/grass.ts";
 import type { AxisDay } from "./graph/axes.ts";
 import type { Minutes } from "./graph/balance.ts";
 import type { GrassDay } from "./graph/grass.ts";
-import { DAYS, MAX_WEEKS } from "./graph/grid.ts";
 import { type Quad, quadOf } from "./segments.ts";
 
 /**
@@ -63,7 +63,8 @@ function demoDay(epochDay: number, minTotal: number, spread: number): Minutes | 
 
 export function demoData(): DemoData {
   const today = toEpochDay(DEMO_TODAY);
-  const displayStart = today - DAYS * (MAX_WEEKS - 1);
+  // 直近 53 週ぶん (今日の 7 × 52 日前から)
+  const displayStart = today - 7 * (SPAN_WEEKS.year - 1);
 
   const days = new Map<string, Minutes>();
   const population: Minutes[] = [];
@@ -92,10 +93,10 @@ export function demoData(): DemoData {
 }
 
 /**
- * 活動の概観のデモ (ADR-0021)。草のデモの日から、書いた分の一部を作る・関わるに振り分ける。
- * **草のデモデータ (`demoData`) は変えない** (草のゴールデンテストと ETag を保つ)。
+ * 4 軸のデモ (ADR-0021)。日ごとの分 (`demoData`) から、書いた分の一部を作る・関わるに振り分ける。
+ * もとは活動の概観のデモで、今は図の下の線の値になる (ADR-0026)
  */
-export function demoOverviewDays(): ReadonlyMap<string, AxisDay> {
+function demoAxisDays(): ReadonlyMap<string, AxisDay> {
   const result = new Map<string, AxisDay>();
   for (const [day, minutes] of demoData().days) {
     // 草の割合と相関させないよう、別の種から取る
@@ -160,13 +161,13 @@ function splitTotal(total: number, weights: readonly number[], h: number): Quad 
 }
 
 /**
- * カードの図のデモ (ADR-0024)。概観のデモの日から、書いた分と読んだ分を 4 区間に振り分ける。
- * **草と概観のデモデータ (`demoData` / `demoOverviewDays`) は変えない** (ゴールデンテストと ETag を保つ)。
+ * 図のデモ (ADR-0024・0026)。4 軸のデモの日から、書いた分と読んだ分を 4 区間に振り分ける。
+ * **元のデモデータ (`demoData` / `demoAxisDays`) は変えない** (ゴールデンテストと ETag を保つ)。
  * 区間の合計はその日の w / r に一致する (本番と同じ)
  */
 export function demoCardDays(): ReadonlyMap<string, GrassDay> {
   const result = new Map<string, GrassDay>();
-  for (const [day, values] of demoOverviewDays()) {
+  for (const [day, values] of demoAxisDays()) {
     if (day < DEMO_SEGMENTS_FROM) {
       result.set(day, values);
       continue;

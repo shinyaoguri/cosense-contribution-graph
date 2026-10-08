@@ -2,36 +2,7 @@ import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
 import { CELLS, type Cell, type GrassForm, SPANS, type Span } from "../shared/grass.ts";
 import { isValidProjectName, isValidUserName } from "../shared/project-name.ts";
 import type { Lang, Mode } from "./graph/grass.ts";
-import { DEFAULT_PARAMS, MAX_WEEKS, type Params } from "./graph/grid.ts";
-import { isSchemeName } from "./graph/scheme.ts";
-
-const WEEKS_PATTERN = /^\d{1,2}$/;
-
-/**
- * 描画パラメータをクエリから読む (design §6)。
- *
- * **不正な値と範囲外は既定値に落とす。** 画像として読まれるので、400 を返しても Cosense では
- * 壊れた画像になるだけで、何が悪いかは伝わらない。未知のキーは無視する。
- * どのプロジェクトを描くかはクエリで指定しない (URL の publicId が決める)。
- */
-export function parseParams(search: URLSearchParams): Params {
-  const theme = search.get("theme") === "dark" ? "dark" : DEFAULT_PARAMS.theme;
-  const mode = search.get("mode") === "write" ? "write" : DEFAULT_PARAMS.mode;
-  const rawPalette = search.get("palette");
-  const palette = isSchemeName(rawPalette) ? rawPalette : DEFAULT_PARAMS.palette;
-
-  // parseInt("10abc") は 10 になるので、先に形を見る
-  const raw = search.get("weeks");
-  let weeks = DEFAULT_PARAMS.weeks;
-  if (raw !== null && WEEKS_PATTERN.test(raw)) {
-    const n = Number(raw);
-    if (n >= 1 && n <= MAX_WEEKS) {
-      weeks = n;
-    }
-  }
-
-  return { theme, weeks, mode, palette };
-}
+import { DEFAULT_SCHEME, isSchemeName, type SchemeName, type Theme } from "./graph/scheme.ts";
 
 /**
  * 画像に描くプロジェクト名 (`?l=`。Issue #119、ADR-0007 決定 2 の再改訂)。
@@ -64,13 +35,13 @@ const YEAR_PATTERN = /^\d{4}$/;
  * (2026-09-18 に決めた)。返した日は呼び出し側が草の右端にし、**今日より後なら今日に落とす** —
  * 今年を指定したときは自然と「今日が右端」になる。
  *
- * **左端は厳密な 1 月 1 日にはならない。** 草は週単位の列で並ぶので、12/31 を右端に 53 週
- * (371 日) 遡ると前年の末尾が 5〜13 日ぶん入る。**1 月 1 日は必ず含まれる** (365 < 371)。
- * 週数を年ごとに変えると SVG の幅が変わり、`<img>` に寸法を固定している UserScript 側で絵が崩れる。
+ * **左端は厳密な 1 月 1 日にはならない。** 図は月曜始まりの週の列で並ぶので、12/31 の週の月曜から 52 週前の月曜が左端で、
+ * 前年の末尾が 0〜6 日入る。**閏年で 12/31 が月曜の年 (次は 2040 年) だけは 1 月 1 日が入らない** (ADR-0026 の帰結)。
+ * 週数を年ごとに変えると SVG の外寸が変わり、`<img>` に寸法を固定している UserScript 側で絵が崩れる。
  *
  * 形が外れていれば `undefined` を返し、呼び出し側が今日を使う。ほかのクエリと同じく **400 にはしない**。
  */
-export function parseYear(search: URLSearchParams): string | undefined {
+function parseYear(search: URLSearchParams): string | undefined {
   const raw = search.get("year");
   if (raw === null || !YEAR_PATTERN.test(raw)) {
     return undefined;
@@ -87,12 +58,13 @@ function parseLang(search: URLSearchParams): Lang {
   return search.get("lang") === "en" ? "en" : "ja";
 }
 
-/** 図 (`card.svg`) の描画パラメータ (ADR-0026 決定 1)。 */
+/** 図の描画パラメータ (ADR-0026 決定 1)。 */
 export type GrassParams = {
   readonly form: GrassForm;
-  readonly theme: "light" | "dark";
+  readonly theme: Theme;
   readonly mode: Mode;
-  readonly palette: Params["palette"];
+  /** 配色 (design §6)。四分位のスケールには効かないので、どの配色でも Level は同じ */
+  readonly palette: SchemeName;
   readonly lang: Lang;
   /** `?year=` の年の 12/31。今日より後かどうかは描く側が見る */
   readonly end?: string;
@@ -102,14 +74,18 @@ const isSpan = (value: string | null): value is Span => SPANS.some((span) => spa
 const isCell = (value: string | null): value is Cell => CELLS.some((cell) => cell === value);
 
 /**
- * 図の描画パラメータをクエリから読む (ADR-0026 決定 1)。**既定の形は URL ごとに違う**ので呼び出し側が渡す (決定 6)。
+ * 図の描画パラメータをクエリから読む (ADR-0026 決定 1、design §6)。**既定の形は URL ごとに違う**ので呼び出し側が渡す (決定 6)。
+ *
+ * **不正な値と範囲外は既定値に落とす。** 画像として読まれるので、400 を返しても Cosense では
+ * 壊れた画像になるだけで、何が悪いかは伝わらない。未知のキーは無視する。
+ * どのプロジェクトを描くかはクエリで指定しない (URL の publicId が決める)。
  *
  * - `span` (`half` / `year`) と `cell` (`slot` / `day`) は独立に選べる。外れた値は既定に落とす (400 にしない)
  * - **`year` があれば、`span` によらず 1 年にする** (年を振り返るのに半年では足りない)
  * - `weeks` は読まない (期間は 2 つに絞った。未知のキーと同じく無視する)
  */
 export function parseGrassParams(search: URLSearchParams, defaults: GrassForm): GrassParams {
-  const { theme, mode, palette } = parseParams(search);
+  const rawPalette = search.get("palette");
   const end = parseYear(search);
   const span = search.get("span");
   const cell = search.get("cell");
@@ -118,9 +94,9 @@ export function parseGrassParams(search: URLSearchParams, defaults: GrassForm): 
       span: end !== undefined ? "year" : isSpan(span) ? span : defaults.span,
       cell: isCell(cell) ? cell : defaults.cell,
     },
-    theme,
-    mode,
-    palette,
+    theme: search.get("theme") === "dark" ? "dark" : "light",
+    mode: search.get("mode") === "write" ? "write" : "bi",
+    palette: isSchemeName(rawPalette) ? rawPalette : DEFAULT_SCHEME,
     lang: parseLang(search),
     ...(end === undefined ? {} : { end }),
   };

@@ -13,6 +13,7 @@
 import privacyEnMarkdown from "../../docs/privacy.en.md";
 import privacyMarkdown from "../../docs/privacy.md";
 import { ACCOUNT_PATH } from "../shared/auth.ts";
+import { CARD_FORM, GRAPH_FORM, type GrassForm } from "../shared/grass.ts";
 import {
   DISTRIBUTION_URL,
   PRIVACY_JA_PATH,
@@ -21,6 +22,7 @@ import {
 } from "../shared/links.ts";
 import { DEMO_PUBLIC_ID } from "./demo.ts";
 import { FAVICON_LINK } from "./favicon.ts";
+import { grassImage } from "./grass-image.ts";
 import { renderMarkdown } from "./markdown.ts";
 
 export const HOME_PATH = "/";
@@ -79,6 +81,12 @@ export function handlePrivacy(lang: Lang): Promise<Response> {
       );
 }
 
+/** デモの図の `<img>`。`path` は `/v1/g/demo` に続く部分 (`card.svg?lang=en` か `.svg`) */
+function demoImage(path: string, form: GrassForm, alt: string): string {
+  const separator = path.startsWith(".") ? "" : "/";
+  return grassImage(`/v1/g/${DEMO_PUBLIC_ID}${separator}${path}`, form, alt);
+}
+
 /**
  * 英語のトップ。**最初の本文 (h1 の直後) はアプリの目的と Google のデータの用途**にする (Issue #141)。
  * 日本語のトップ (`HOME_JA`) と同じ節を同じ順に並べる
@@ -89,11 +97,11 @@ A user script counts the minutes you spend writing and reading in each Cosense p
 that you can embed or share. The amount of activity per day is shown by the depth of color, and the balance of writing and reading by the hue.</p>
 <p><small>cosense-grass is not an official Cosense service. It is a personal project and is not affiliated with Helpfeel Inc., the operator of Cosense.</small></p>
 
-<img src="/v1/g/${DEMO_PUBLIC_ID}.svg" width="775" height="146" alt="Example graph (demo)">
-<p>Minutes written are split into pages you newly created (Create), pages you created before (Grow), and pages created by others (Engage),
-and shown as an "activity overview" together with minutes read (Read).</p>
-<img src="/v1/g/${DEMO_PUBLIC_ID}/overview.svg" width="300" height="220" alt="Example activity overview (demo)">
-<p><small>The graph and activity overview above are demos, not real records.</small></p>
+${demoImage("card.svg?lang=en", CARD_FORM, "Example card for the last 26 weeks (demo)")}
+<p>Each day is split into morning, afternoon, and night. Minutes written are split into pages you newly created (Create),
+pages you created before (Grow), and pages created by others (Engage), and the line below the graph shows their ratio together with minutes read (Read).</p>
+${demoImage(".svg?lang=en", GRAPH_FORM, "Example graph for one year (demo)")}
+<p><small>The images above are demos, not real records. The same image can show half a year or one year, with each day as three cells or one.</small></p>
 
 <h2>Why we use Google Sign-In</h2>
 <p>Activity is counted separately on each device (computer or browser) where you open Cosense.
@@ -130,11 +138,11 @@ const HOME_JA = `<h1>cosense-grass</h1>
 書いた時間と読んだ時間を分単位で数え、日ごとの量を色の濃さ、読み書きの比を色合いで表します。</p>
 <p><small>Cosense の公式サービスではありません。運営元の株式会社 Helpfeel とは関係のない、個人のプロジェクトです。</small></p>
 
-<img src="/v1/g/${DEMO_PUBLIC_ID}.svg" width="775" height="146" alt="草の例 (デモ)">
-<p>書いた時間は、新しく作ったページ (作る)・自分が前に作ったページ (育てる)・他の人のページ (関わる) に分けて数え、
-読んだ時間 (読む) と並べた割合を「活動の概観」として出します。</p>
-<img src="/v1/g/${DEMO_PUBLIC_ID}/overview.svg" width="300" height="220" alt="活動の概観の例 (デモ)">
-<p><small>デモの草と活動の概観です。実際の記録ではありません。</small></p>
+${demoImage("card.svg", CARD_FORM, "直近 26 週の図の例 (デモ)")}
+<p>1 日を朝・昼・夜に分けて塗ります。書いた時間は、新しく作ったページ (作る)・自分が前に作ったページ (育てる)・他の人のページ (関わる) に分けて数え、
+読んだ時間 (読む) と並べた割合を草の下の線で示します。</p>
+${demoImage(".svg", GRAPH_FORM, "1 年分の草の例 (デモ)")}
+<p><small>どちらもデモで、実際の記録ではありません。同じ図で、半年と 1 年、1 日を 3 マスにするか 1 マスにするかを選べます。</small></p>
 
 <h2>Google サインインを使う理由</h2>
 <p>記録は Cosense を開いた端末 (PC やブラウザ) ごとに数えます。

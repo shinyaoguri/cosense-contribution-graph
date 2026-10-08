@@ -41,7 +41,7 @@ const UPLOAD_URL = "https://upload.gyazo.com/api/upload";
 export type ReadmeImage = {
   /** README のマーカーの名前 */
   readonly name: string;
-  /** Worker のパス。**決定論的に描かれるもの**に限る (デモの草・概観と説明図) */
+  /** Worker のパス。**決定論的に描かれるもの**に限る (デモの図と説明図) */
   readonly path: string;
   readonly alt: string;
   /** 以下はスクリプトが書く。表示幅 (余白込み・等倍) */

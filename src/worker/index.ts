@@ -1,8 +1,7 @@
 import { ACCOUNT_PATH, AUTH_CALLBACK_PATH, AUTH_START_PATH } from "../shared/auth.ts";
 import { INGEST_PATH } from "../shared/beacon.ts";
 import { ENROLL_PATH } from "../shared/enroll.ts";
-import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
-import { CARD_FORM } from "../shared/grass.ts";
+import { CARD_FORM, GRAPH_FORM, type GrassForm } from "../shared/grass.ts";
 import { sha256Hex } from "../shared/hash.ts";
 import { isValidDataKey, isValidPublicId } from "../shared/ids.ts";
 import { PRIVACY_JA_PATH, PRIVACY_PATH } from "../shared/links.ts";
@@ -25,47 +24,46 @@ import {
   DEMO_TODAY,
   demoCardDays,
   demoData,
-  demoOverviewDays,
 } from "./demo.ts";
 import { handleEnroll, handleRevoke } from "./enroll.ts";
 import { FAVICON_CACHE_CONTROL, FAVICON_PATH, FAVICON_SVG } from "./favicon.ts";
-import { sumAxes } from "./graph/axes.ts";
 import { centerOf } from "./graph/balance.ts";
 import { slotPopulation } from "./graph/grass.ts";
-import { DAYS } from "./graph/grid.ts";
 import { buildScale } from "./graph/scale.ts";
-import { renderStoredCard, renderStoredGraph, renderStoredOverview } from "./graph-data.ts";
+import { renderStoredGrass } from "./graph-data.ts";
 import { renderGrass } from "./grass-svg.ts";
 import { GUIDE_CACHE_CONTROL, GUIDE_PATH, renderGuide } from "./guide-svg.ts";
 import { googleKeys } from "./idtoken.ts";
 import { handleIngest } from "./ingest.ts";
 import { type GraphData, loadGraphData } from "./json.ts";
 import { d1KeyResolver } from "./keys.ts";
-import { renderOverview } from "./overview-svg.ts";
-import { parseGrassParams, parseLabel, parseParams, parseUser, parseYear } from "./params.ts";
+import { parseGrassParams, parseLabel, parseUser } from "./params.ts";
 import { handleProbe } from "./probe.ts";
 import { HOME_JA_PATH, HOME_PATH, handleHome, handlePrivacy } from "./site.ts";
-import { renderGraph } from "./svg.ts";
 
 /**
  * Worker のエントリ。
  *
  * 経路は `/v1/p.gif` (記録の受け口)、`/v1/enroll.gif` (デバイスの登録)、`/v1/revoke.gif` (デバイスの失効)、
- * `/account` (端末の一覧と失効・共有 URL・全削除)、`/` と `/privacy` (人が読むページ)、`/v1/g/{publicId}.svg`、
- * `/v1/g/{publicId}/overview.svg` (活動の概観。ADR-0021)、`/v1/g/{publicId}/card.svg` (カードの図。ADR-0024)、
+ * `/account` (端末の一覧と失効・共有 URL・全削除)、`/` と `/privacy` (人が読むページ)、
+ * 図 `/v1/g/{publicId}.svg`・`/v1/g/{publicId}/card.svg`・`/v1/g/{publicId}/overview.svg` (同じ描画で既定の形だけが違う。ADR-0026)、
  * `/v1/g/{publicId}/{dataKey}.json` (日ごとの集計値。ADR-0020)、
  * `/v1/probe.gif` (送信の疎通確認)、`/v1/guide/{name}.svg` (草のダイアログの説明の図。Issue #182)、`/auth/start` と `/auth/callback` (Google サインイン)、`/favicon.svg`。
  * グラフは `demo` ならデモを、それ以外は D1 の記録から描く。
  */
 
-/** `publicId` は URL で決まる。どのプロジェクトを描くかをクエリで指定しない (design §6)。 */
-const GRAPH_PATH = /^\/v1\/g\/([^/]+)\.svg$/;
-
-/** 活動の概観 (ADR-0021)。**草と同じ publicId** から作る (草の URL を受け取った人にも見える)。 */
-const OVERVIEW_PATH = /^\/v1\/g\/([^/]+)\/overview\.svg$/;
-
-/** カードの図 (ADR-0024)。概観と同じく**草と同じ publicId** から作る。 */
-const CARD_PATH = /^\/v1\/g\/([^/]+)\/card\.svg$/;
+/**
+ * 図の経路 (ADR-0026 決定 6)。**3 つとも同じ描画で、既定の形だけが違う** (どれも同じクエリを受ける)。
+ * `publicId` は URL で決まる。どのプロジェクトを描くかをクエリで指定しない (design §6)
+ */
+const GRASS_ROUTES = [
+  // カード (ADR-0024)。プロフィールページに自動で貼るのもこれ (ADR-0025)
+  { path: /^\/v1\/g\/([^/]+)\/card\.svg$/, form: CARD_FORM, event: "card" },
+  // 貼ってある草の意味を保つため、既定は 1 年 × 1 日
+  { path: /^\/v1\/g\/([^/]+)\.svg$/, form: GRAPH_FORM, event: "graph" },
+  // 活動の概観 (ADR-0021) は廃止した。**壊れた画像にしないよう、カードの既定を返す**
+  { path: /^\/v1\/g\/([^/]+)\/overview\.svg$/, form: CARD_FORM, event: "overview" },
+] as const;
 
 /** 日ごとの集計値。**草の URL からは導けない鍵を並べる** (ADR-0020)。 */
 const GRAPH_DATA_PATH = /^\/v1\/g\/([^/]+)\/([^/]+)\.json$/;
@@ -167,44 +165,25 @@ export default {
       return notFound();
     }
 
-    const overviewId = OVERVIEW_PATH.exec(url.pathname)?.[1];
-    if (overviewId === DEMO_PUBLIC_ID) {
-      return svgResponse(request, renderDemoOverview(url.searchParams));
-    }
-    // 形の違う publicId は D1 を引かずに 404
-    if (overviewId !== undefined && isValidPublicId(overviewId)) {
+    for (const route of GRASS_ROUTES) {
+      const id = route.path.exec(url.pathname)?.[1];
+      if (id === undefined) {
+        continue;
+      }
+      if (id === DEMO_PUBLIC_ID) {
+        return grassResponse(request, renderDemoGrass(url.searchParams, route.form));
+      }
+      // 形の違う publicId は D1 を引かずに 404
+      if (!isValidPublicId(id)) {
+        break;
+      }
       let body: string | undefined;
       try {
-        body = await renderStoredOverview(
+        body = await renderStoredGrass(
           env.DB,
-          overviewId,
-          parseParams(url.searchParams),
-          Date.now(),
-          parseYear(url.searchParams),
-        );
-      } catch {
-        console.log(JSON.stringify({ event: "overview", status: 503 }));
-        return unavailable();
-      }
-      if (body !== undefined) {
-        return svgResponse(request, body);
-      }
-      return notFound();
-    }
-
-    const cardId = CARD_PATH.exec(url.pathname)?.[1];
-    if (cardId === DEMO_PUBLIC_ID) {
-      return cardResponse(request, renderDemoCard(url.searchParams));
-    }
-    // 形の違う publicId は D1 を引かずに 404
-    if (cardId !== undefined && isValidPublicId(cardId)) {
-      let body: string | undefined;
-      try {
-        body = await renderStoredCard(
-          env.DB,
-          cardId,
+          id,
           {
-            ...parseGrassParams(url.searchParams, CARD_FORM),
+            ...parseGrassParams(url.searchParams, route.form),
             label: parseLabel(url.searchParams),
             user: parseUser(url.searchParams),
           },
@@ -216,39 +195,13 @@ export default {
             }),
         );
       } catch {
-        console.log(JSON.stringify({ event: "card", status: 503 }));
+        console.log(JSON.stringify({ event: route.event, status: 503 }));
         return unavailable();
       }
       if (body !== undefined) {
-        return cardResponse(request, body);
+        return grassResponse(request, body);
       }
-      return notFound();
-    }
-
-    const publicId = GRAPH_PATH.exec(url.pathname)?.[1];
-    if (publicId === DEMO_PUBLIC_ID) {
-      return svgResponse(request, renderDemo(url.searchParams));
-    }
-    // 形の違う publicId は D1 を引かずに 404
-    if (publicId !== undefined && isValidPublicId(publicId)) {
-      let body: string | undefined;
-      try {
-        body = await renderStoredGraph(
-          env.DB,
-          publicId,
-          parseParams(url.searchParams),
-          Date.now(),
-          parseLabel(url.searchParams),
-          parseYear(url.searchParams),
-          parseUser(url.searchParams),
-        );
-      } catch {
-        console.log(JSON.stringify({ event: "graph", status: 503 }));
-        return unavailable();
-      }
-      if (body !== undefined) {
-        return svgResponse(request, body);
-      }
+      break;
     }
 
     // **存在しない publicId は 404** (design §6)。Cosense では画像が壊れて表示されるので、
@@ -290,46 +243,12 @@ function accountDeps(env: Env): AccountDeps {
   };
 }
 
-function renderDemo(search: URLSearchParams): string {
-  const { days, population } = demoData();
-  // 四分位と中心は**表示範囲とは別の母集団** (全期間) から取る (design §7)
-  const scale = buildScale(population.map((d) => d.w + d.r));
-  const center = centerOf(population);
-  const end = parseYear(search);
-  return renderGraph({
-    // デモも同じ扱いにする (過去を指定すれば、記録の無い期間として空の草が出る)
-    today: end !== undefined && end < DEMO_TODAY ? end : DEMO_TODAY,
-    days,
-    scale,
-    center,
-    params: parseParams(search),
-    label: parseLabel(search),
-    user: parseUser(search),
-  });
-}
-
-/** 活動の概観のデモ。期間の決め方は草のデモと同じ。 */
-function renderDemoOverview(search: URLSearchParams): string {
-  const params = parseParams(search);
-  const end = parseYear(search);
-  const today = end !== undefined && end < DEMO_TODAY ? end : DEMO_TODAY;
-  const start = fromEpochDay(toEpochDay(today) - DAYS * (params.weeks - 1));
-  const days = [...demoOverviewDays()]
-    .filter(([day]) => day >= start && day <= today)
-    .map(([, values]) => values);
-  return renderOverview({
-    totals: sumAxes(days),
-    theme: params.theme,
-    palette: params.palette,
-  });
-}
-
 /**
  * 図のデモ (ADR-0024・0026)。右端は `DEMO_TODAY` で、`year` が過去ならその年の 12/31 (記録の無い期間として空の図が出る)。
  * 名前は既定でデモの名前を描き、アイコンは固定の画像を埋め込む (外へ取りに行かない)。
  */
-function renderDemoCard(search: URLSearchParams): string {
-  const params = parseGrassParams(search, CARD_FORM);
+function renderDemoGrass(search: URLSearchParams, defaults: GrassForm): string {
+  const params = parseGrassParams(search, defaults);
   const days = demoCardDays();
   const slots = slotPopulation(days);
   // 内訳なしの日の色は草のデモと同じ母集団から取る
@@ -354,7 +273,7 @@ function renderDemoCard(search: URLSearchParams): string {
 }
 
 /**
- * SVG の応答ヘッダ。
+ * SVG の応答ヘッダ (favicon と説明の図)。
  *
  * - **Content-Type が無いと Cosense で表示されない。** Cosense は拡張子で <img> にするかを決め、
  *   描画できるかはブラウザが Content-Type で決める (research §3、過去に踏まれた唯一の落とし穴)
@@ -367,10 +286,10 @@ const SVG_HEADERS = {
 };
 
 /**
- * カードの図の応答ヘッダ (ADR-0024 決定 5)。**埋め込んだアイコン (`data:`) のために `img-src data:` だけ足す。**
- * 草と概観のヘッダ (`SVG_HEADERS`) は変えない
+ * 図の応答ヘッダ (ADR-0024 決定 5・ADR-0026 決定 6)。**埋め込んだアイコン (`data:`) のために `img-src data:` だけ足す。**
+ * 図を返す 3 つの経路すべてに付ける
  */
-const CARD_SVG_HEADERS = {
+const GRASS_SVG_HEADERS = {
   ...SVG_HEADERS,
   "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:",
 };
@@ -398,8 +317,8 @@ function svgResponse(
   return cachedResponse(request, body, SVG_HEADERS, cacheControl);
 }
 
-function cardResponse(request: Request, body: string): Promise<Response> {
-  return cachedResponse(request, body, CARD_SVG_HEADERS);
+function grassResponse(request: Request, body: string): Promise<Response> {
+  return cachedResponse(request, body, GRASS_SVG_HEADERS);
 }
 
 /**
