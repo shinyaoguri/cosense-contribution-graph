@@ -28,7 +28,7 @@ function rightEdge(nowMs: number, end?: string): string {
 }
 
 /** 図で読む列 (`daily` の w / r と 4 軸、時間帯の区間) */
-type GrassRow = {
+export type GrassRow = {
   readonly day: string;
   readonly w: number;
   readonly r: number;
@@ -47,7 +47,7 @@ type GrassRow = {
 const GRASS_COLUMNS = "day, w, r, wc, wo, sw0, sw1, sw2, sw3, sr0, sr1, sr2, sr3";
 
 /** 行を `GrassDay` にする。**区間の 8 列のどれかが NULL なら内訳なし** (8 列はそろって NULL か、そろって値を持つ) */
-function grassDayOf(row: GrassRow): GrassDay {
+export function grassDayOf(row: GrassRow): GrassDay {
   const { w, r, wc, wo, sw0, sw1, sw2, sw3, sr0, sr1, sr2, sr3 } = row;
   const base = { w, r, wc, wo };
   if (

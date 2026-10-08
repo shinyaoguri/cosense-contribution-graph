@@ -83,6 +83,75 @@ describe("GET /v1/g/{publicId}/{dataKey}.json", () => {
     expect(body).not.toContain(PH);
   });
 
+  describe("**時間帯は 1 日 3 分割 (朝 9–13 / 昼 13–18 / 夜 18–翌 9) の slots で返す** (ADR-0024 決定 1)", () => {
+    type Quad = readonly [number, number, number, number];
+
+    /** 区間 (sw0..sw3 / sr0..sr3) つきの行を入れる。w / r は区間の和にする */
+    async function storeSegments(
+      uid: string,
+      rows: readonly (readonly [day: string, sw: Quad, sr: Quad])[],
+    ): Promise<string> {
+      const url = await store(uid, PH_ALL, []);
+      const sum = (q: Quad) => q.reduce((a, b) => a + b, 0);
+      await env.DB.batch(
+        rows.map(([day, sw, sr]) =>
+          env.DB.prepare(
+            "INSERT INTO daily (uid, ph, day, w, r, sw0, sw1, sw2, sw3, sr0, sr1, sr2, sr3) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          ).bind(uid, PH_ALL, day, sum(sw), sum(sr), ...sw, ...sr),
+        ),
+      );
+      return url;
+    }
+
+    async function slotsOfBody(url: string): Promise<Record<string, unknown>> {
+      const { days } = (await (await SELF.fetch(url)).json()) as {
+        days: { day: string; slots?: unknown }[];
+      };
+      return Object.fromEntries(days.map(({ day, slots }) => [day, slots]));
+    }
+
+    it("**夜は その日の 18–24 時 + 翌日の 0–9 時**。朝と昼はその日の区間 1・2", async () => {
+      const url = await storeSegments(randomUid(), [
+        ["2026-09-01", [1, 2, 3, 4], [10, 20, 30, 40]],
+        ["2026-09-02", [5, 6, 7, 8], [50, 60, 70, 80]],
+      ]);
+
+      expect(await slotsOfBody(url)).toEqual({
+        "2026-09-01": [
+          { w: 2, r: 20 },
+          { w: 3, r: 30 },
+          { w: 4 + 5, r: 40 + 50 },
+        ],
+        // 翌日の行が無ければ、夜はその日の 18–24 時だけ
+        "2026-09-02": [
+          { w: 6, r: 60 },
+          { w: 7, r: 70 },
+          { w: 8, r: 80 },
+        ],
+      });
+    });
+
+    it("翌日が内訳なし (区間が NULL) なら、夜はその日の 18–24 時だけ", async () => {
+      const uid = randomUid();
+      const url = await storeSegments(uid, [["2026-09-01", [1, 2, 3, 4], [0, 0, 0, 0]]]);
+      await store(uid, PH_ALL, [["2026-09-02", 9, 9, 1, 0]]);
+
+      expect((await slotsOfBody(url))["2026-09-01"]).toEqual([
+        { w: 2, r: 0 },
+        { w: 3, r: 0 },
+        { w: 4, r: 0 },
+      ]);
+    });
+
+    it("**内訳なしの日は slots のキー自体を出さない** (0 で埋めると活動なしと区別できない)", async () => {
+      const url = await store(randomUid(), PH_ALL, [["2026-09-01", 5, 5, 1, 0]]);
+
+      const { days } = (await (await SELF.fetch(url)).json()) as { days: object[] };
+
+      expect(days[0]).not.toHaveProperty("slots");
+    });
+  });
+
   it("記録が 1 行も無ければ days は空", async () => {
     const url = await store(randomUid(), PH_ALL, []);
 
