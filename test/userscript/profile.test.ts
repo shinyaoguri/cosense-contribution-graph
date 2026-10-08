@@ -462,6 +462,74 @@ describe("createProfileCard — ensure", () => {
     expect(t.warnings).toEqual([]);
   });
 
+  describe("非公開プロジェクトのアイコン (ADR-0028)", () => {
+    const GYAZO = "fedcba9876543210fedcba9876543210";
+    const pageWith = (image: string | null, texts: readonly string[] = PROFILE) =>
+      JSON.stringify({ ...pageOf(texts, { image }), lines: linesOf(texts) });
+
+    it("**ページの画像が Gyazo なら、貼る行に `i=` を付ける。** 追加の取得はしない (今読んだページの `image` を使う)", async () => {
+      const t = await harness({ pages: [pageWith(`https://gyazo.com/${GYAZO}/raw`)] });
+
+      expect(await t.card.ensure("p")).toBe("inserted");
+
+      const names = { project: "p", user: "alice", icon: GYAZO };
+      expect(t.commits[0]?.changes[0]).toMatchObject({
+        lines: { text: cardLine(t.publicId, names) },
+      });
+      expect(cardLine(t.publicId, names)).toContain(`&i=${GYAZO}]`);
+      expect(t.fetched).toEqual(["/api/pages/p/alice", "/api/users/me", "/api/projects/p"]);
+    });
+
+    it("**カードの図がページの画像になるときも、行と画像が同じ URL** (`i=` 付き)", async () => {
+      // 今の画像の行が足す位置より後ろにあるので、カードが最初の画像になる
+      const texts = [...PROFILE, `[https://gyazo.com/${GYAZO}/raw]`];
+      const t = await harness({ pages: [pageWith(`https://gyazo.com/${GYAZO}/raw`, texts)] });
+
+      expect(await t.card.ensure("p")).toBe("inserted");
+
+      const names = { project: "p", user: "alice", icon: GYAZO };
+      const src = cardUrl(t.publicId, names);
+      expect(src).toContain(`&i=${GYAZO}`);
+      expect(t.commits[0]?.changes).toContainEqual({ image: src });
+      expect(t.commits[0]?.changes[0]).toMatchObject({ lines: { text: `[${src}]` } });
+    });
+
+    it("**画像が Gyazo でなければ (Cosense のファイル・外部 URL・画像なし) `i=` は付けない**", async () => {
+      for (const image of [
+        "https://scrapbox.io/files/0123456789abcdef01234567.png",
+        "https://example.com/a.png",
+        null,
+      ]) {
+        const t = await harness({ pages: [pageWith(image)] });
+
+        expect(await t.card.ensure("p"), String(image)).toBe("inserted");
+
+        const text = t.commits[0]?.changes[0].lines.text ?? "";
+        expect(text, String(image)).toBe(cardLine(t.publicId, { project: "p", user: "alice" }));
+        expect(text, String(image)).not.toContain("&i=");
+      }
+    });
+
+    it("**読み直したページの画像で作り直す** (NotFastForward の後に画像が替わっていたら、その `i=` で送る)", async () => {
+      const t = await harness({
+        pages: [pageWith(null), pageWith(`https://gyazo.com/${GYAZO}/raw`)],
+      });
+      t.state.results = [
+        { kind: "rejected", name: "NotFastForwardError" },
+        { kind: "committed", commitId: "commit-3" },
+      ];
+
+      expect(await t.card.ensure("p")).toBe("inserted");
+
+      expect(t.commits).toHaveLength(2);
+      const texts = t.commits.map((commit) => commit.changes[0].lines.text);
+      expect(texts[0]).toBe(cardLine(t.publicId, { project: "p", user: "alice" }));
+      expect(texts[0]).not.toContain("&i=");
+      expect(texts[1]).toBe(cardLine(t.publicId, { project: "p", user: "alice", icon: GYAZO }));
+      expect(texts[1]).toContain(`&i=${GYAZO}]`);
+    });
+  });
+
   it("**行があれば何もしない** (普段は GET 1 回で終わる)", async () => {
     const t = await harness();
     t.state.pages = [t.pageBody([...PROFILE, cardLine(t.publicId, { project: "p" })])];

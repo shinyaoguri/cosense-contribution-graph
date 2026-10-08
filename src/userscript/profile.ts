@@ -9,6 +9,8 @@
  *   中に入ると配信される script.js が変わり、SHA1 の承認ゲートで UserScript そのものが止まる (research §2)
  * - 親が古ければ (`NotFastForwardError`) 読み直して確かめ直す (最大 3 回)。タブどうしは Web Locks で直列にする (決定 5)
  * - **1 回のページ読み込みで、1 つのプロジェクトにつき 1 回だけ** 確かめる
+ * - **行の URL には、今読んだページの `image` が Gyazo ならその ID を `i=` で添える** (ADR-0028)。非公開プロジェクトのアイコンは
+ *   Worker が引けないので、ログイン中のブラウザが読んだものを渡す。追加の取得はしない
  * - **URL・publicId・ページの中身はログに出さない** (`graph-dialog.ts` と同じ方針)
  *
  * commit とメタデータの形は `@cosense/std` (GitHub takker99/scrapbox-userscript-std) を 2026-10-07 に読んで合わせた。
@@ -24,6 +26,7 @@
  * リンク (`links` / `projectLinks`)・アイコン・ファイル (`scrapbox.io/files/…` ではない)・helpfeel・infobox を足さない。
  */
 import type { CommitResult } from "./cosense-socket.ts";
+import { gyazoIdOf } from "./icon.ts";
 import type { DeviceStore } from "./keys.ts";
 import { DISTRIBUTION_PATH, ME_PATH } from "./sensor.ts";
 import { cardLine, cardUrl, graphIds } from "./worker-origin.ts";
@@ -388,9 +391,6 @@ async function insertIfMissing(
   deps: ProfileCardDependencies,
 ): Promise<ProfileOutcome> {
   const { publicId } = await graphIds(uid, project);
-  const names = { project, user };
-  const text = cardLine(publicId, names);
-  const src = cardUrl(publicId, names);
   const pagePath = `/api/pages/${encodeURIComponent(project)}/${encodeURIComponent(user)}`;
   let ids: { userId: string; projectId: string } | undefined;
 
@@ -404,6 +404,11 @@ async function insertIfMissing(
     if (hasCardLine(page.lines, publicId)) {
       return "present";
     }
+    // **今読んだページの `image` が Gyazo なら、その ID を行に添える** (ADR-0028)。非公開プロジェクトでは Worker がアイコンを引けないので、
+    // ここで読めるログイン中のブラウザが渡す。追加の取得は要らない。読み直したページで作り直す (画像が替わっていてもその版に合う)
+    const names = { project, user, icon: gyazoIdOf(page.image) };
+    const text = cardLine(publicId, names);
+    const src = cardUrl(publicId, names);
     const point = insertionPoint(page.lines);
     if (point === undefined) {
       return "no-position";

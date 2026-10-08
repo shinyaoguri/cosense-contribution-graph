@@ -29,6 +29,7 @@ import { AUTH_POPUP_FEATURES, AUTH_POPUP_NAME, createSignIn } from "./auth.ts";
 import { CLEAR_TEXT, type Cleaner, createCleaner } from "./cleaner.ts";
 import { sendCommit } from "./cosense-socket.ts";
 import { createGraphDialog, type GraphDialog } from "./graph-dialog.ts";
+import { createIconResolver } from "./icon.ts";
 import { requestImage } from "./image.ts";
 import { createIndexedDbDeviceStore } from "./keys.ts";
 import { describeMenuState, type MenuState, menuIcon } from "./menu-icon.ts";
@@ -99,6 +100,9 @@ export type Dependencies = {
 /** 導入判定 (`checking`) が終わるのを待ち直す間隔と回数。3 秒で諦め、次のきっかけに任せる */
 const RECHECK_MS = 500;
 const RECHECK_LIMIT = 6;
+
+/** 草のダイアログが、プロジェクト別の図の最初の読み込みの前にアイコンの手がかりを待つ上限 (ADR-0028)。同一オリジンの GET なので普段は一瞬 */
+const ICON_LOOKUP_TIMEOUT_MS = 3000;
 
 export function start(cosense: Cosense, deps: Dependencies): void {
   const sensor = deps.startSensor();
@@ -309,6 +313,11 @@ if (typeof window !== "undefined" && window.scrapbox) {
         window.navigator.clipboard
           ? window.navigator.clipboard.writeText(text)
           : Promise.reject(new Error("clipboard が無い")),
+      // 非公開プロジェクトのアイコンの手がかり (ADR-0028)。**最初の図の読み込みを待たせるので、待つ上限を持つ**
+      iconOf: createIconResolver({
+        fetchText: (path) =>
+          fetchText(path, { signal: AbortSignal.timeout(ICON_LOOKUP_TIMEOUT_MS) }),
+      }),
     }),
     signIn: createSignIn({
       openPopup: (url) => window.open(url, AUTH_POPUP_NAME, AUTH_POPUP_FEATURES),
