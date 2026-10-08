@@ -23,6 +23,16 @@ import {
 } from "./grid.ts";
 import { levelOf, type Scale } from "./scale.ts";
 import { type ColorScheme, schemeOf, type Theme } from "./scheme.ts";
+import {
+  FONT_FAMILY,
+  layoutMark,
+  MARK_CELL,
+  MARK_RADIUS,
+  MARK_SIZE,
+  MUTED_COLOR,
+  type Swatch,
+  TEXT_COLOR,
+} from "./style.ts";
 
 export type GraphInput = {
   readonly today: string;
@@ -77,8 +87,6 @@ type Label = {
    */
   readonly suffix?: { readonly text: string; readonly fill: string };
 };
-
-export type Swatch = { readonly x: number; readonly y: number; readonly fill: string };
 
 export type GraphLayout = {
   readonly width: number;
@@ -140,29 +148,11 @@ const WIDE_CHAR_WIDTH = 10;
 export const SUFFIX_GAP = 6;
 /** ユーザー名の前に付ける印 (Issue #134) */
 const USER_PREFIX = "@";
-/**
- * 合算の印 (2026-09-24)。一辺 `MARK_CELL` のマスを `MARK_OFFSET` ずつずらして 3 枚重ねる。
- * **全体の一辺は格子のマス (`CELL`) と同じ**にして、凡例の行の高さに収める
- */
-export const MARK_CELL = 7;
-const MARK_OFFSET = 2;
-export const MARK_SIZE = MARK_CELL + MARK_OFFSET * 2;
-/** マスが格子より小さいので、丸みも小さくする */
-export const MARK_RADIUS = 1.5;
-/** 印を塗る Level。奥ほど薄く、手前ほど濃い。**白の縁取りは使わない** (ダークで浮く)。濃淡の差で重なりを見せる */
-const MARK_LEVELS = [1, 2, 3] as const;
 /** 印と後ろの名前の間 */
 const MARK_GAP = 5;
 const LABEL_BASELINE = 9;
 const FONT_SIZE = 9;
 const CELL_RADIUS = 2;
-
-// 外部フォントは読めないので OS の日本語フォントを並べる。CJK フォントの無い環境では文字化けする
-export const FONT_FAMILY =
-  "'Hiragino Sans','Hiragino Kaku Gothic ProN','Noto Sans CJK JP','Yu Gothic',Meiryo,sans-serif";
-
-// 背景は両テーマとも透明。埋め込み側がテーマを選ぶ前提で、文字色だけ変える
-export const TEXT_COLOR: Record<Theme, string> = { light: "#57606a", dark: "#9198a1" };
 
 /**
  * ユーザー名の文字色 (2026-09-24)。ほかのラベルより濃くして、誰の草かを先に読ませる。
@@ -183,9 +173,6 @@ const BALANCE_STRIP_LEVEL = 3;
  * **write モードの全マスと同じ値** (`WRITE_MODE_BALANCES`) なので、write モードの凡例は量の帯そのもの
  */
 const AMOUNT_STRIP_BALANCE = 0;
-
-/** 計測開始前のマスの枠 (design §8)。文字色より薄くして、記録のあるマスと取り違えないようにする */
-export const MUTED_COLOR: Record<Theme, string> = { light: "#d0d7de", dark: "#3d444d" };
 
 /**
  * プロジェクトのページ (Issue #119)。**ラベルにも `href` にも同じものを使う** —
@@ -248,22 +235,6 @@ function projectLine(
       ...(user === undefined ? {} : { suffix: user }),
     },
   ];
-}
-
-/**
- * 合算の印 (2026-09-24)。**マスを 3 枚ずらして重ね、「複数の草を束ねた草」を絵で示す。**
- * 奥 (右上) を薄く、手前 (左下) を濃く。色はスキームから量の帯と同じ取り方 (バランス 0) で取るので、
- * 配色とテーマに追従する。`(x, y)` は印の左上。カードの図 (`card.ts`) の合算の印も同じものを使う
- */
-export function layoutMark(scheme: ColorScheme, theme: Theme, x: number, y: number): Swatch[] {
-  return MARK_LEVELS.map((level, i) => {
-    const depth = MARK_LEVELS.length - 1 - i;
-    return {
-      x: x + depth * MARK_OFFSET,
-      y: y + i * MARK_OFFSET,
-      fill: scheme.cell({ level, balance: AMOUNT_STRIP_BALANCE }, theme),
-    };
-  });
 }
 
 /**

@@ -7,16 +7,16 @@
 import { describe, expect, it } from "vitest";
 import { sha256Hex } from "../../src/shared/hash.ts";
 import { demoOverviewDays } from "../../src/worker/demo.ts";
-import { type OverviewTotals, sumOverview } from "../../src/worker/graph/overview.ts";
+import { type AxisTotals, sumAxes } from "../../src/worker/graph/axes.ts";
 import { DEFAULT_SCHEME, type Theme } from "../../src/worker/graph/scheme.ts";
 import { renderOverview } from "../../src/worker/overview-svg.ts";
 
-function render(totals: OverviewTotals, theme: Theme = "light") {
+function render(totals: AxisTotals, theme: Theme = "light") {
   return renderOverview({ totals, theme, palette: DEFAULT_SCHEME });
 }
 
-const demo = () => sumOverview(demoOverviewDays().values());
-const ZERO: OverviewTotals = { grow: 0, create: 0, join: 0, read: 0 };
+const demo = () => sumAxes(demoOverviewDays().values());
+const ZERO: AxisTotals = { grow: 0, create: 0, join: 0, read: 0 };
 
 const CASES: readonly (readonly [string, () => string, string])[] = [
   [

@@ -12,15 +12,15 @@
 
 import { fromEpochDay, toEpochDay } from "../shared/epoch-day.ts";
 import { PH_ALL } from "../shared/ids.ts";
-import { renderCard } from "./card-svg.ts";
 import { DEFAULT_TIME_ZONE, todayIn } from "./days.ts";
+import { type AxisDay, sumAxes } from "./graph/axes.ts";
 import type { Minutes } from "./graph/balance.ts";
 import { centerOf } from "./graph/balance.ts";
-import { type CardDay, cardStart, type Lang, slotPopulation } from "./graph/card.ts";
+import { type GrassDay, grassStart, HALF_WEEKS, type Lang, slotPopulation } from "./graph/grass.ts";
 import { DAYS, MAX_WEEKS, type Params } from "./graph/grid.ts";
-import { type OverviewDay, sumOverview } from "./graph/overview.ts";
 import { buildScale } from "./graph/scale.ts";
 import type { SchemeName, Theme } from "./graph/scheme.ts";
+import { renderGrass } from "./grass-svg.ts";
 import { renderOverview } from "./overview-svg.ts";
 import { renderGraph } from "./svg.ts";
 
@@ -126,9 +126,9 @@ export async function renderStoredOverview(
   const { results } = await db
     .prepare("SELECT w, r, wc, wo FROM daily WHERE uid = ? AND ph = ? AND day >= ? AND day <= ?")
     .bind(graph.uid, graph.ph, start, today)
-    .all<OverviewDay>();
+    .all<AxisDay>();
   return renderOverview({
-    totals: sumOverview(results),
+    totals: sumAxes(results),
     theme: params.theme,
     palette: params.palette,
   });
@@ -184,8 +184,8 @@ type CardRow = {
 
 const CARD_COLUMNS = "day, w, r, wc, wo, sw0, sw1, sw2, sw3, sr0, sr1, sr2, sr3";
 
-/** 行を `CardDay` にする。**区間の 8 列のどれかが NULL なら内訳なし** (8 列はそろって NULL か、そろって値を持つ) */
-function cardDayOf(row: CardRow): CardDay {
+/** 行を `GrassDay` にする。**区間の 8 列のどれかが NULL なら内訳なし** (8 列はそろって NULL か、そろって値を持つ) */
+function cardDayOf(row: CardRow): GrassDay {
   const { w, r, wc, wo, sw0, sw1, sw2, sw3, sr0, sr1, sr2, sr3 } = row;
   const base = { w, r, wc, wo };
   if (
@@ -252,7 +252,7 @@ export async function renderStoredCard(
         .prepare(
           `SELECT ${CARD_COLUMNS} FROM daily WHERE uid = ? AND ph = ? AND day >= ? AND day <= ?`,
         )
-        .bind(graph.uid, graph.ph, cardStart(today), today),
+        .bind(graph.uid, graph.ph, grassStart(today, HALF_WEEKS), today),
     ]);
     return [population?.results ?? [], display?.results ?? []];
   };
@@ -267,7 +267,7 @@ export async function renderStoredCard(
   const population = new Map(populationRows.map((row) => [row.day, cardDayOf(row)]));
   const slots = slotPopulation(population);
   const dayMinutes = populationRows.map((row): Minutes => ({ w: row.w, r: row.r }));
-  return renderCard({
+  return renderGrass({
     today,
     days: total ? population : new Map(displayRows.map((row) => [row.day, cardDayOf(row)])),
     slotScale: buildScale(slots.map((m) => m.w + m.r)),

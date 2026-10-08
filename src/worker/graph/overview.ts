@@ -9,73 +9,9 @@
  * - % は合計が 100 になる整数。0 の軸は % も頂点の円も出さず、頂点を中心に置く
  * - 全部 0 なら四角形を描かない (十字と軸名は出す)
  */
-import { FONT_FAMILY, MUTED_COLOR, TEXT_COLOR } from "./layout.ts";
+import { type AxisTotals, percentages } from "./axes.ts";
 import { type SchemeName, schemeOf, type Theme } from "./scheme.ts";
-
-/** 期間の 4 軸の合計 (分)。 */
-export type OverviewTotals = {
-  /** 育てる (自分が前に作ったページに書いた分) */
-  readonly grow: number;
-  /** 作る (その日に自分が作ったページに書いた分) */
-  readonly create: number;
-  /** 関わる (他の人が作ったページに書いた分) */
-  readonly join: number;
-  /** 読む (読んだだけの分) */
-  readonly read: number;
-};
-
-/** `daily` の 1 日。 */
-export type OverviewDay = {
-  readonly w: number;
-  readonly r: number;
-  readonly wc: number;
-  readonly wo: number;
-};
-
-/**
- * 日ごとの値を期間で合計する。**育てるは日ごとに 0 で打ち切ってから足す** (design §4)。
- * 端末をまたぐと `wc` / `wo` を max で守るので、`wc + wo` が `w` を超える日がある。
- */
-export function sumOverview(days: Iterable<OverviewDay>): OverviewTotals {
-  let grow = 0;
-  let create = 0;
-  let join = 0;
-  let read = 0;
-  for (const day of days) {
-    grow += Math.max(0, day.w - day.wc - day.wo);
-    create += day.wc;
-    join += day.wo;
-    read += day.r;
-  }
-  return { grow, create, join, read };
-}
-
-/**
- * 合計が 100 になる整数の % (最大剰余法)。切り捨てた後、端数の大きい順に 1 ずつ足す。
- * **端数が同じなら並びの先を優先する。** 全部 0 なら全部 0。
- *
- * GitHub の丸め方は推定しかできず、四捨五入では合計が 99 や 101 になるので、必ず 100 になる方にした (design §8)。
- */
-export function percentages(values: readonly number[]): number[] {
-  const sum = values.reduce((a, b) => a + b, 0);
-  if (sum === 0) {
-    return values.map(() => 0);
-  }
-  const exact = values.map((v) => (v * 100) / sum);
-  const result = exact.map(Math.floor);
-  const order = exact
-    .map((v, i) => ({ i, remainder: v - Math.floor(v) }))
-    .sort((a, b) => b.remainder - a.remainder || a.i - b.i);
-  let rest = 100 - result.reduce((a, b) => a + b, 0);
-  for (const { i } of order) {
-    if (rest === 0) {
-      break;
-    }
-    result[i] = (result[i] ?? 0) + 1;
-    rest--;
-  }
-  return result;
-}
+import { FONT_FAMILY, MUTED_COLOR, TEXT_COLOR } from "./style.ts";
 
 /** 軸の並び。上・右・下・左の順 (% の端数が同じときの優先もこの順)。 */
 const AXES = [
@@ -84,7 +20,7 @@ const AXES = [
   { key: "create", name: "作る", dx: 0, dy: 1 },
   { key: "grow", name: "育てる", dx: -1, dy: 0 },
 ] as const satisfies readonly {
-  key: keyof OverviewTotals;
+  key: keyof AxisTotals;
   name: string;
   dx: number;
   dy: number;
@@ -144,7 +80,7 @@ export type OverviewLayout = {
 };
 
 export type OverviewInput = {
-  readonly totals: OverviewTotals;
+  readonly totals: AxisTotals;
   readonly theme: Theme;
   readonly palette: SchemeName;
 };

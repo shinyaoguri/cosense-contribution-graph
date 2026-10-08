@@ -3,15 +3,15 @@ import { fromEpochDay, toEpochDay, weekdayOf } from "../../../src/shared/epoch-d
 import { MAX_USER_NAME_LENGTH } from "../../../src/shared/project-name.ts";
 import { balanceOf } from "../../../src/worker/graph/balance.ts";
 import {
-  CARD_WEEKS,
-  type CardDay,
-  type CardInput,
-  cardStart,
   estimateWidth,
-  layoutCard,
+  type GrassDay,
+  type GrassInput,
+  grassStart,
+  HALF_WEEKS,
+  layoutGrass,
   slotPopulation,
   slotsOf,
-} from "../../../src/worker/graph/card.ts";
+} from "../../../src/worker/graph/grass.ts";
 import { levelOf, type Scale } from "../../../src/worker/graph/scale.ts";
 import { DEFAULT_SCHEME, schemeOf } from "../../../src/worker/graph/scheme.ts";
 import type { Quad } from "../../../src/worker/segments.ts";
@@ -23,12 +23,12 @@ const day = (offset: number) => fromEpochDay(toEpochDay(TODAY) + offset);
 const SCALE: Scale = { q1: 10, q2: 20, q3: 30 };
 const scheme = schemeOf(DEFAULT_SCHEME);
 
-function withSegments(w: Quad, r: Quad, extra: Partial<CardDay> = {}): CardDay {
+function withSegments(w: Quad, r: Quad, extra: Partial<GrassDay> = {}): GrassDay {
   const sum = (q: Quad) => q[0] + q[1] + q[2] + q[3];
   return { w: sum(w), r: sum(r), wc: 0, wo: 0, segments: { w, r }, ...extra };
 }
 
-function input(overrides: Partial<CardInput> = {}): CardInput {
+function input(overrides: Partial<GrassInput> = {}): GrassInput {
   return {
     today: TODAY,
     days: new Map(),
@@ -43,11 +43,11 @@ function input(overrides: Partial<CardInput> = {}): CardInput {
   };
 }
 
-const cellsOf = (layout: ReturnType<typeof layoutCard>, d: string) =>
+const cellsOf = (layout: ReturnType<typeof layoutGrass>, d: string) =>
   layout.grid.filter((cell) => cell.day === d);
 
 describe("夜の組み立て (slotsOf)", () => {
-  const days = new Map<string, CardDay>([
+  const days = new Map<string, GrassDay>([
     [day(-2), withSegments([1, 2, 3, 4], [10, 20, 30, 40])],
     [day(-1), withSegments([5, 6, 7, 8], [50, 60, 70, 80])],
     [TODAY, withSegments([9, 0, 0, 11], [90, 0, 0, 110])],
@@ -69,7 +69,7 @@ describe("夜の組み立て (slotsOf)", () => {
   });
 
   it("翌日の行が無いか内訳なしなら 0 を足す。D が内訳なしなら undefined", () => {
-    const sparse = new Map<string, CardDay>([
+    const sparse = new Map<string, GrassDay>([
       [day(-5), withSegments([0, 0, 0, 4], [0, 0, 0, 1])],
       [day(-3), withSegments([0, 0, 0, 2], [0, 0, 0, 2])],
       [day(-2), { w: 9, r: 9, wc: 0, wo: 0 }],
@@ -97,17 +97,17 @@ describe("夜の組み立て (slotsOf)", () => {
 
 describe("草のマス", () => {
   it("**行は月曜始まり**。左端の列は月曜から始まり欠けず、右端は今日で終わる", () => {
-    const layout = layoutCard(input());
+    const layout = layoutGrass(input());
     const first = layout.grid[0];
     const last = layout.grid.at(-1);
 
-    expect(first?.day).toBe(cardStart(TODAY));
+    expect(first?.day).toBe(grassStart(TODAY, HALF_WEEKS));
     expect(weekdayOf(toEpochDay(first?.day ?? ""))).toBe(1);
     expect(last?.day).toBe(TODAY);
-    const dayCount = toEpochDay(TODAY) - toEpochDay(cardStart(TODAY)) + 1;
+    const dayCount = toEpochDay(TODAY) - toEpochDay(grassStart(TODAY, HALF_WEEKS)) + 1;
     expect(layout.grid).toHaveLength(dayCount * 3);
     // 26 列。月曜 (2026-09-14) の列が右端
-    expect(Math.floor(dayCount / 7)).toBe(CARD_WEEKS - 1);
+    expect(Math.floor(dayCount / 7)).toBe(HALF_WEEKS - 1);
 
     // 月曜は最上段、日曜は最下段
     const monday = cellsOf(layout, day(-2));
@@ -118,11 +118,11 @@ describe("草のマス", () => {
   });
 
   it("時間帯のマスは、組み立てた分から Level と釣り合いを取って塗る", () => {
-    const days = new Map<string, CardDay>([
+    const days = new Map<string, GrassDay>([
       [day(-2), withSegments([0, 25, 0, 2], [0, 0, 4, 3])],
       [day(-1), withSegments([1, 0, 0, 0], [5, 0, 0, 0])],
     ]);
-    const cells = cellsOf(layoutCard(input({ days })), day(-2));
+    const cells = cellsOf(layoutGrass(input({ days })), day(-2));
 
     expect(cells.map((c) => c.minutes)).toEqual([
       { w: 25, r: 0 },
@@ -139,9 +139,9 @@ describe("草のマス", () => {
   });
 
   it("**内訳なしの日は、日の合計の色を 3 マスに薄く塗る**", () => {
-    const whole: CardDay = { w: 20, r: 5, wc: 0, wo: 0 };
+    const whole: GrassDay = { w: 20, r: 5, wc: 0, wo: 0 };
     const cells = cellsOf(
-      layoutCard(input({ days: new Map([[day(-2), whole]]), dayCenter: 0.3 })),
+      layoutGrass(input({ days: new Map([[day(-2), whole]]), dayCenter: 0.3 })),
       day(-2),
     );
     const expected = scheme.cell(
@@ -157,13 +157,13 @@ describe("草のマス", () => {
   });
 
   it("行の無い日と 0 分の時間帯は空きマス (朝 → 昼 → 夜 の順に濃くなる灰色)", () => {
-    const days = new Map<string, CardDay>([[day(-2), withSegments([0, 0, 0, 0], [0, 0, 0, 0])]]);
-    const layout = layoutCard(input({ days }));
+    const days = new Map<string, GrassDay>([[day(-2), withSegments([0, 0, 0, 0], [0, 0, 0, 0])]]);
+    const layout = layoutGrass(input({ days }));
     const empty = ["#f6f8fa", "#eff1f4", "#e6e9ed"];
 
     expect(cellsOf(layout, day(-2)).map((c) => c.fill)).toEqual(empty);
     expect(cellsOf(layout, day(-1)).map((c) => c.fill)).toEqual(empty);
-    expect(cellsOf(layoutCard(input({ theme: "dark" })), day(-1)).map((c) => c.fill)).toEqual([
+    expect(cellsOf(layoutGrass(input({ theme: "dark" })), day(-1)).map((c) => c.fill)).toEqual([
       "#161b22",
       "#1b2028",
       "#21262d",
@@ -171,12 +171,12 @@ describe("草のマス", () => {
   });
 
   it("「計」の列は曜日 × 時間帯の合計で、最大を一番濃くする", () => {
-    const days = new Map<string, CardDay>([
+    const days = new Map<string, GrassDay>([
       // 月曜の朝に 30 分、火曜の昼に 10 分
       [day(-2), withSegments([0, 30, 0, 0], [0, 0, 0, 0])],
       [day(-8), withSegments([0, 0, 0, 0], [0, 0, 10, 0])],
     ]);
-    const sum = layoutCard(input({ days })).sum;
+    const sum = layoutGrass(input({ days })).sum;
 
     expect(sum).toHaveLength(21);
     expect(sum[0]?.fill).toBe("rgba(87,96,106,0.88)");
@@ -187,8 +187,8 @@ describe("草のマス", () => {
 
 describe("ラベル", () => {
   it("**lang=en で曜日・月・「計」が英語になる**", () => {
-    const ja = layoutCard(input()).labels.map((l) => l.text);
-    const en = layoutCard(input({ lang: "en" })).labels.map((l) => l.text);
+    const ja = layoutGrass(input()).labels.map((l) => l.text);
+    const en = layoutGrass(input({ lang: "en" })).labels.map((l) => l.text);
 
     expect(ja).toEqual(expect.arrayContaining(["月", "日", "4月", "計"]));
     expect(en).toEqual(expect.arrayContaining(["Mon", "Sun", "Apr", "Sum"]));
@@ -196,7 +196,7 @@ describe("ラベル", () => {
   });
 
   const monthLabels = (today: string) =>
-    layoutCard(input({ today }))
+    layoutGrass(input({ today }))
       .labels.filter((l) => /月$/.test(l.text) && l.text.length > 1)
       .map((l) => ({ text: l.text, x: l.x, anchor: l.anchor }));
 
@@ -223,7 +223,7 @@ describe("ラベル", () => {
     // 12/1 (火) は右端の列 (11/30 の週)
     const december = monthLabels("2026-12-02").find((l) => l.text === "12月");
     expect(december?.anchor).toBe("end");
-    const sum = layoutCard(input({ today: "2026-12-02" })).labels.find((l) => l.text === "計");
+    const sum = layoutGrass(input({ today: "2026-12-02" })).labels.find((l) => l.text === "計");
     expect(december?.x ?? Number.POSITIVE_INFINITY).toBeLessThan(sum?.x ?? 0);
   });
 
@@ -237,10 +237,10 @@ describe("ラベル", () => {
 describe("4 軸の線", () => {
   const axisOf = (create: number, grow: number, join: number, read: number) => {
     // 育てる = w − wc − wo なので、w に 3 つを足して渡す
-    const days = new Map<string, CardDay>([
+    const days = new Map<string, GrassDay>([
       [day(-1), { w: create + grow + join, r: read, wc: create, wo: join }],
     ]);
-    return layoutCard(input({ days })).axis;
+    return layoutGrass(input({ days })).axis;
   };
   const visible = (line: { x1: number; x2: number }) => line.x2 - line.x1 + 3;
 
@@ -272,11 +272,11 @@ describe("4 軸の線", () => {
   });
 
   it("期間 (26 週) の外の日は数えない", () => {
-    const days = new Map<string, CardDay>([
+    const days = new Map<string, GrassDay>([
       [day(-1), { w: 0, r: 10, wc: 0, wo: 0 }],
-      [fromEpochDay(toEpochDay(cardStart(TODAY)) - 1), { w: 50, r: 0, wc: 50, wo: 0 }],
+      [fromEpochDay(toEpochDay(grassStart(TODAY, HALF_WEEKS)) - 1), { w: 50, r: 0, wc: 50, wo: 0 }],
     ]);
-    const axis = layoutCard(input({ days })).axis;
+    const axis = layoutGrass(input({ days })).axis;
 
     expect(axis.lines).toHaveLength(1);
     expect(axis.names.map((n) => n.text)).toEqual(["読む"]);
@@ -284,11 +284,11 @@ describe("4 軸の線", () => {
 });
 
 describe("名前の行", () => {
-  const gridRight = (layout: ReturnType<typeof layoutCard>) =>
+  const gridRight = (layout: ReturnType<typeof layoutGrass>) =>
     Math.max(...layout.grid.map((c) => c.x)) + layout.cellWidth;
 
   it("`/プロジェクト名`・アイコン・ユーザー名 (`@` なし) の順。プロジェクト名はリンクを持つ", () => {
-    const name = layoutCard(
+    const name = layoutGrass(
       input({ label: "my-proj", user: "taro", icon: "data:image/png;base64,AA==" }),
     ).name;
 
@@ -302,11 +302,11 @@ describe("名前の行", () => {
   });
 
   it("アイコンが無ければユーザー名だけ。名前が無ければ何も描かない", () => {
-    const noIcon = layoutCard(input({ label: "p", user: "taro" })).name;
+    const noIcon = layoutGrass(input({ label: "p", user: "taro" })).name;
     expect(noIcon.icon).toBeUndefined();
     expect(noIcon.user?.text).toBe("taro");
 
-    const none = layoutCard(input({ icon: "data:image/png;base64,AA==" })).name;
+    const none = layoutGrass(input({ icon: "data:image/png;base64,AA==" })).name;
     expect([none.project, none.icon, none.user, none.mark.length]).toEqual([
       undefined,
       undefined,
@@ -317,7 +317,7 @@ describe("名前の行", () => {
 
   it("**長い名前は `…` を付けて切り、草の右端を超えない**", () => {
     const user = "漢".repeat(MAX_USER_NAME_LENGTH);
-    const layout = layoutCard(
+    const layout = layoutGrass(
       input({ label: "a".repeat(64), user, icon: "data:image/png;base64,AA==" }),
     );
     const { project, user: shown } = layout.name;
@@ -332,12 +332,12 @@ describe("名前の行", () => {
   });
 
   it("短い名前は切らない", () => {
-    const name = layoutCard(input({ label: "a".repeat(20), user: "b".repeat(20) })).name;
+    const name = layoutGrass(input({ label: "a".repeat(20), user: "b".repeat(20) })).name;
     expect([name.project?.text, name.user?.text]).toEqual([`/${"a".repeat(20)}`, "b".repeat(20)]);
   });
 
   it("**合算はプロジェクト名の代わりに合算の印を描き、アイコンを入れない**", () => {
-    const name = layoutCard(
+    const name = layoutGrass(
       input({ total: true, label: "p", user: "taro", icon: "data:image/png;base64,AA==" }),
     ).name;
 

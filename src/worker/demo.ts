@@ -5,10 +5,10 @@
  */
 
 import { fromEpochDay, toEpochDay, weekdayOf } from "../shared/epoch-day.ts";
+import type { AxisDay } from "./graph/axes.ts";
 import type { Minutes } from "./graph/balance.ts";
-import type { CardDay } from "./graph/card.ts";
+import type { GrassDay } from "./graph/grass.ts";
 import { DAYS, MAX_WEEKS } from "./graph/grid.ts";
-import type { OverviewDay } from "./graph/overview.ts";
 import { type Quad, quadOf } from "./segments.ts";
 
 /**
@@ -16,6 +16,9 @@ import { type Quad, quadOf } from "./segments.ts";
  * 欠け方の回帰が見えなくなる。
  */
 export const DEMO_TODAY = "2026-09-09";
+
+/** 疎通確認と見た目の確認のために予約した publicId。 */
+export const DEMO_PUBLIC_ID = "demo";
 
 export type DemoData = {
   /** 表示範囲 (直近 53 週) の日ごとの分数。活動の無い日は入れない。 */
@@ -92,8 +95,8 @@ export function demoData(): DemoData {
  * 活動の概観のデモ (ADR-0021)。草のデモの日から、書いた分の一部を作る・関わるに振り分ける。
  * **草のデモデータ (`demoData`) は変えない** (草のゴールデンテストと ETag を保つ)。
  */
-export function demoOverviewDays(): ReadonlyMap<string, OverviewDay> {
-  const result = new Map<string, OverviewDay>();
+export function demoOverviewDays(): ReadonlyMap<string, AxisDay> {
+  const result = new Map<string, AxisDay>();
   for (const [day, minutes] of demoData().days) {
     // 草の割合と相関させないよう、別の種から取る
     const h = hash32(toEpochDay(day) ^ 0x5bd1e995);
@@ -161,8 +164,8 @@ function splitTotal(total: number, weights: readonly number[], h: number): Quad 
  * **草と概観のデモデータ (`demoData` / `demoOverviewDays`) は変えない** (ゴールデンテストと ETag を保つ)。
  * 区間の合計はその日の w / r に一致する (本番と同じ)
  */
-export function demoCardDays(): ReadonlyMap<string, CardDay> {
-  const result = new Map<string, CardDay>();
+export function demoCardDays(): ReadonlyMap<string, GrassDay> {
+  const result = new Map<string, GrassDay>();
   for (const [day, values] of demoOverviewDays()) {
     if (day < DEMO_SEGMENTS_FROM) {
       result.set(day, values);

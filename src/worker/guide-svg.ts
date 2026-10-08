@@ -7,12 +7,12 @@
  * - 草と同じく `<img>` で描かれるので、すべてインラインで自己完結させる
  */
 import { GUIDE_HEIGHTS, GUIDE_WIDTH, type GuideName, isGuideName } from "../shared/guide.ts";
-import { FONT_FAMILY, MUTED_COLOR, TEXT_COLOR } from "./graph/layout.ts";
-import type { OverviewTotals } from "./graph/overview.ts";
+import type { AxisTotals } from "./graph/axes.ts";
 import type { Level } from "./graph/scale.ts";
 import { DEFAULT_SCHEME, schemeOf } from "./graph/scheme.ts";
+import { FONT_FAMILY, MUTED_COLOR, TEXT_COLOR } from "./graph/style.ts";
 import { renderOverview } from "./overview-svg.ts";
-import { escapeXml } from "./svg.ts";
+import { escapeXml } from "./xml.ts";
 
 export const GUIDE_PATH = /^\/v1\/guide\/([^/]+)\.svg$/;
 
@@ -349,14 +349,14 @@ function grassSvg(): string {
 }
 
 /** 概観の例の分。**読むが最も多い** — 読む時間が長いのはふつうのことで、実際の概観もたいていこの形になる */
-const EXAMPLE_TOTALS: OverviewTotals = { read: 240, grow: 90, join: 40, create: 30 };
+const EXAMPLE_TOTALS: AxisTotals = { read: 240, grow: 90, join: 40, create: 30 };
 
 const OVERVIEW_ROWS = [
   { key: "read", name: "読む", note: "読んだだけ" },
   { key: "grow", name: "育てる", note: "前に作った自分のページに書いた" },
   { key: "join", name: "関わる", note: "他の人が作ったページに書いた" },
   { key: "create", name: "作る", note: "その日に作ったページに書いた" },
-] as const satisfies readonly { key: keyof OverviewTotals; name: string; note: string }[];
+] as const satisfies readonly { key: keyof AxisTotals; name: string; note: string }[];
 
 function overviewSvg(): string {
   const tableX = 20;

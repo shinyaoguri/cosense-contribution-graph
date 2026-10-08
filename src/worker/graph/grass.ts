@@ -1,7 +1,10 @@
 /**
- * カードの図 (`/v1/g/{publicId}/card.svg`) のレイアウト (design §8、ADR-0024 決定 3)。
- * **寸法・色・ラベルの位置を決めるだけで、SVG の文字列は作らない** (文字列にするのは `card-svg.ts`)。
+ * 図のレイアウト (design §8、ADR-0024 決定 3・ADR-0026)。今は `/v1/g/{publicId}/card.svg` のカードを描く。
+ * **寸法・色・ラベルの位置を決めるだけで、SVG の文字列は作らない** (文字列にするのは `grass-svg.ts`)。
  * 草の `layout.ts` / 概観の `overview.ts` と同じ分け方。
+ *
+ * **形 (期間 × マス) ごとの寸法は `GEOMETRIES` の表から引く** (ADR-0026 決定 2)。段階 11 (#220) で草と概観をここへまとめ、
+ * 表に 4 つの形を並べる。今は半年 × 3 分割だけ。
  *
  * - 500 × 400。草 (曜日 × 時間帯の 21 行 × 26 週) を上に、4 軸の線をその下に、名前の行を下端に置く
  *   (カードのサムネでは下が切れうるので、大事な絵を上に寄せる)
@@ -11,7 +14,10 @@
  */
 import { fromEpochDay, toEpochDay, weekdayOf } from "../../shared/epoch-day.ts";
 import type { Quad } from "../segments.ts";
+import { type AxisDay, sumAxes } from "./axes.ts";
 import { balanceOf, type Minutes } from "./balance.ts";
+import { levelOf, type Scale } from "./scale.ts";
+import { type SchemeName, schemeOf, type Theme } from "./scheme.ts";
 import {
   FONT_FAMILY,
   layoutMark,
@@ -19,13 +25,10 @@ import {
   MARK_RADIUS,
   MARK_SIZE,
   type Swatch,
-} from "./layout.ts";
-import { type OverviewDay, sumOverview } from "./overview.ts";
-import { levelOf, type Scale } from "./scale.ts";
-import { type SchemeName, schemeOf, type Theme } from "./scheme.ts";
+} from "./style.ts";
 
-/** 表示する週数。**クエリでは変えない** (寸法を固定してカードの見え方をそろえる。ADR-0024 決定 4) */
-export const CARD_WEEKS = 26;
+/** 半年の週数 (ADR-0024 決定 3)。1 年 (53 週) は段階 11 で足す (ADR-0026) */
+export const HALF_WEEKS = 26;
 
 export type Lang = "ja" | "en";
 
@@ -38,13 +41,13 @@ type CardSegments = {
 };
 
 /** `daily` の 1 日。**`segments` が無い日は内訳なし** (列を足す前の日。ADR-0024 決定 2)。 */
-export type CardDay = OverviewDay & { readonly segments?: CardSegments };
+export type GrassDay = AxisDay & { readonly segments?: CardSegments };
 
-export type CardInput = {
+export type GrassInput = {
   /** 右端の日 (今日) */
   readonly today: string;
   /** 表示範囲の日ごと。範囲外のキーがあっても無視する (夜の組み立てで翌日を引くのには使う) */
-  readonly days: ReadonlyMap<string, CardDay>;
+  readonly days: ReadonlyMap<string, GrassDay>;
   /** 時間帯のマスの四分位。`ph = '*'` の全期間の時間帯のマスの値から取る (`slotPopulation`) */
   readonly slotScale: Scale;
   readonly slotCenter: number;
@@ -67,7 +70,7 @@ export type CardInput = {
 /** 角の丸めの形。上のマスは上の角だけ、下のマスは下の角だけ丸める */
 type CellShape = "top" | "middle" | "bottom";
 
-export type CardCell = {
+export type GrassCell = {
   readonly x: number;
   readonly y: number;
   readonly shape: CellShape;
@@ -76,7 +79,7 @@ export type CardCell = {
   readonly opacity?: number;
 };
 
-type CardGridCell = CardCell & {
+type GrassGridCell = GrassCell & {
   readonly day: string;
   /** 0 朝 / 1 昼 / 2 夜 */
   readonly slot: number;
@@ -84,7 +87,7 @@ type CardGridCell = CardCell & {
   readonly minutes?: Minutes;
 };
 
-type CardText = {
+type GrassText = {
   readonly x: number;
   readonly y: number;
   readonly text: string;
@@ -92,13 +95,13 @@ type CardText = {
   readonly fill: string;
 };
 
-type CardLine = {
+type GrassLine = {
   readonly x1: number;
   readonly x2: number;
   readonly stroke: string;
 };
 
-export type CardLayout = {
+export type GrassLayout = {
   readonly width: number;
   readonly height: number;
   readonly fontFamily: string;
@@ -108,30 +111,30 @@ export type CardLayout = {
   readonly cellHeight: number;
   readonly cellRadius: number;
   /** 月 → 曜日 → 「計」の見出しの順 */
-  readonly labels: readonly CardText[];
+  readonly labels: readonly GrassText[];
   /** 古い日から、1 日ごとに 朝・昼・夜 の順 */
-  readonly grid: readonly CardGridCell[];
+  readonly grid: readonly GrassGridCell[];
   /** 「計」の列。月曜の朝から日曜の夜の順 */
-  readonly sum: readonly CardCell[];
+  readonly sum: readonly GrassCell[];
   readonly axis: {
     readonly y: number;
     readonly strokeWidth: number;
     /** 作る・育てる・関わる・読む のうち 0 でない軸の順。全部 0 なら淡い 1 本 */
-    readonly lines: readonly CardLine[];
-    readonly names: readonly CardText[];
+    readonly lines: readonly GrassLine[];
+    readonly names: readonly GrassText[];
     readonly nameSize: number;
     readonly letterSpacing: string;
     readonly nameColor: string;
   };
   readonly name: {
-    readonly project?: CardText & { readonly href: string; readonly size: number };
+    readonly project?: GrassText & { readonly href: string; readonly size: number };
     readonly icon?: {
       readonly cx: number;
       readonly cy: number;
       readonly r: number;
       readonly href: string;
     };
-    readonly user?: CardText & { readonly size: number };
+    readonly user?: GrassText & { readonly size: number };
     /** 合算の印 (奥から手前)。合算でなければ空 */
     readonly mark: readonly Swatch[];
     readonly markCellSize: number;
@@ -139,35 +142,108 @@ export type CardLayout = {
   };
 };
 
-// ---- 寸法 (500 × 400 の座標。作者と合意したモックの値) ----
+// ---- 寸法 ----
 
-const WIDTH = 500;
-const HEIGHT = 400;
-/** 草の左上 */
-const ORIGIN_X = 56;
-const ORIGIN_Y = 40;
-/** 草の下端 */
-const GRID_BOTTOM = 304;
-/** 列の間 */
-const COLUMN_GAP = 2.6;
-/** 日と日の間 (縦)。列の間と同じにして、縦横を均等に空ける */
-const DAY_GAP = COLUMN_GAP;
-/** 1 日の 3 マスの切れ目 */
-const SLOT_GAP = 0.7;
-const SLOTS = 3;
 const WEEKDAYS = 7;
-/** マスの一辺は高さから決める: 21 マス + 日の間 6 + 切れ目 14 が草の高さに収まる */
-const CELL =
-  (GRID_BOTTOM - ORIGIN_Y - (WEEKDAYS - 1) * DAY_GAP - WEEKDAYS * (SLOTS - 1) * SLOT_GAP) /
-  (WEEKDAYS * SLOTS);
-const COLUMN_STEP = CELL + COLUMN_GAP;
-const TILE_HEIGHT = SLOTS * CELL + (SLOTS - 1) * SLOT_GAP;
-const ROW_STEP = TILE_HEIGHT + DAY_GAP;
-const CELL_RADIUS = 2.8;
-const GRID_RIGHT = ORIGIN_X + CARD_WEEKS * CELL + (CARD_WEEKS - 1) * COLUMN_GAP;
-/** 「計」の列 */
-const SUM_X = GRID_RIGHT + 8;
-const SUM_RIGHT = SUM_X + CELL;
+/** 「計」の列と草の右端の間 */
+const SUM_GAP = 8;
+
+/**
+ * 形 (期間 × マス) ごとに変わる寸法 (ADR-0026 決定 2)。**座標はその形の外寸の中の値。**
+ * 形によらない寸法 (文字の大きさ・名前の行の部品など) は下の定数に置く
+ */
+type GeometrySpec = {
+  readonly width: number;
+  readonly height: number;
+  /** 列 (週) の数 */
+  readonly weeks: number;
+  /** 1 日のマスの数。3 なら朝・昼・夜 */
+  readonly slots: number;
+  /** 草の左上 */
+  readonly originX: number;
+  readonly originY: number;
+  /** マスの一辺 */
+  readonly cell: number;
+  /** 列の間 */
+  readonly columnGap: number;
+  /** 日と日の間 (縦) */
+  readonly dayGap: number;
+  /** 1 日のマスの切れ目 */
+  readonly slotGap: number;
+  readonly cellRadius: number;
+  /** 4 軸の線の y */
+  readonly axisY: number;
+  /** 軸名のベースライン */
+  readonly axisNameY: number;
+  /** 名前の行のベースライン */
+  readonly nameY: number;
+};
+
+/** 寸法の表の値から導く寸法も持たせたもの */
+type Geometry = GeometrySpec & {
+  readonly columnStep: number;
+  /** 1 日のタイル (マスと切れ目) の高さ */
+  readonly tileHeight: number;
+  readonly rowStep: number;
+  /** 草の右端 */
+  readonly gridRight: number;
+  /** 「計」の列の左端と右端 */
+  readonly sumX: number;
+  readonly sumRight: number;
+  /** ユーザー名 (11.5px) の文字の縦中央。アイコンと合算の印をここにそろえる */
+  readonly nameMiddle: number;
+};
+
+function geometryOf(spec: GeometrySpec): Geometry {
+  const tileHeight = spec.slots * spec.cell + (spec.slots - 1) * spec.slotGap;
+  const gridRight = spec.originX + spec.weeks * spec.cell + (spec.weeks - 1) * spec.columnGap;
+  const sumX = gridRight + SUM_GAP;
+  return {
+    ...spec,
+    columnStep: spec.cell + spec.columnGap,
+    tileHeight,
+    rowStep: tileHeight + spec.dayGap,
+    gridRight,
+    sumX,
+    sumRight: sumX + spec.cell,
+    nameMiddle: spec.nameY - 4,
+  };
+}
+
+/** 半年 × 3 分割 (ADR-0024 決定 3 のカード)。500 × 400 の座標で、作者と合意したモックの値 */
+const HALF_SLOT_COLUMN_GAP = 2.6;
+const HALF_SLOT_SLOT_GAP = 0.7;
+/** 草の下端。マスの一辺は高さから決める: 21 マス + 日の間 6 + 切れ目 14 がここまでに収まる */
+const HALF_SLOT_GRID_BOTTOM = 304;
+const HALF_SLOT_ORIGIN_Y = 40;
+
+/**
+ * 形ごとの寸法の表 (ADR-0026 決定 2)。**今は半年 × 3 分割だけ**で、ほかの 3 つの形は段階 11 (#220) で足す
+ */
+const GEOMETRIES = {
+  "half-slot": geometryOf({
+    width: 500,
+    height: 400,
+    weeks: HALF_WEEKS,
+    slots: 3,
+    originX: 56,
+    originY: HALF_SLOT_ORIGIN_Y,
+    cell:
+      (HALF_SLOT_GRID_BOTTOM -
+        HALF_SLOT_ORIGIN_Y -
+        (WEEKDAYS - 1) * HALF_SLOT_COLUMN_GAP -
+        WEEKDAYS * (3 - 1) * HALF_SLOT_SLOT_GAP) /
+      (WEEKDAYS * 3),
+    columnGap: HALF_SLOT_COLUMN_GAP,
+    // 日と日の間は列の間と同じにして、縦横を均等に空ける
+    dayGap: HALF_SLOT_COLUMN_GAP,
+    slotGap: HALF_SLOT_SLOT_GAP,
+    cellRadius: 2.8,
+    axisY: 324,
+    axisNameY: 334,
+    nameY: 362,
+  }),
+} as const satisfies Record<string, Geometry>;
 
 const FONT_SIZE = 10;
 /** 月ラベルのベースライン (草の上端から) */
@@ -183,16 +259,13 @@ const MONTH_LABEL_COLUMNS = 2;
 const NO_BREAKDOWN_OPACITY = 0.35;
 
 // 4 軸の線
-const AXIS_Y = 324;
 const AXIS_STROKE = 3;
 /** 区間の間 (見た目の隙間)。丸い端が線幅の半分はみ出すので、線はその分だけ内側に引く */
 const AXIS_GAP = 3;
-const AXIS_NAME_Y = 334;
 const AXIS_NAME_SIZE = 7.5;
 const AXIS_LETTER_SPACING_EM = 0.25;
 
 // 名前の行
-const NAME_Y = 362;
 const PROJECT_SIZE = 15;
 const USER_SIZE = 11.5;
 const ICON_RADIUS = 8;
@@ -202,8 +275,6 @@ const PROJECT_GAP = 10;
 const ICON_GAP = 5;
 /** 合算の印とユーザー名の間 */
 const MARK_GAP = 6;
-/** ユーザー名 (11.5px) の文字の縦中央。アイコンと合算の印をここにそろえる */
-const NAME_MIDDLE = NAME_Y - 4;
 const ELLIPSIS = "…";
 
 /**
@@ -275,10 +346,10 @@ function mondayIndex(epochDay: number): number {
   return (weekdayOf(epochDay) + 6) % WEEKDAYS;
 }
 
-/** 表示範囲の最初の日 (今日の週の月曜から 25 週前の月曜)。左端の列は欠けない */
-export function cardStart(today: string): string {
+/** 表示範囲の最初の日 (今日の週の月曜から `weeks − 1` 週前の月曜)。左端の列は欠けない */
+export function grassStart(today: string, weeks: number): string {
   const end = toEpochDay(today);
-  return fromEpochDay(end - mondayIndex(end) - WEEKDAYS * (CARD_WEEKS - 1));
+  return fromEpochDay(end - mondayIndex(end) - WEEKDAYS * (weeks - 1));
 }
 
 // ---- 時間帯 ----
@@ -293,7 +364,7 @@ export type Slots = readonly [Minutes, Minutes, Minutes];
  * - **D が `today` 以降なら翌日を足さない** (今日の夜は D の区間 3 だけ)。翌日の行が無いか内訳なしなら 0 を足す
  */
 export function slotsOf(
-  days: ReadonlyMap<string, CardDay>,
+  days: ReadonlyMap<string, GrassDay>,
   day: string,
   today: string,
 ): Slots | undefined {
@@ -313,7 +384,7 @@ export function slotsOf(
  * 時間帯のマスの四分位とバランスの中心を取る母集団。**内訳のある日の 朝・昼・夜 の値を全部並べる。**
  * 渡すのは `ph = '*'` の全期間 (今の草と同じく、プロジェクト別も共通のスケールで塗る。design §7)
  */
-export function slotPopulation(days: ReadonlyMap<string, CardDay>): Minutes[] {
+export function slotPopulation(days: ReadonlyMap<string, GrassDay>): Minutes[] {
   const result: Minutes[] = [];
   for (const day of days.keys()) {
     // 母集団では「今日」を区別しない。翌日の行があれば足す
@@ -368,30 +439,33 @@ const round = (n: number) => Math.round(n * 100) / 100;
 
 // ---- 各部 ----
 
-function cellShape(slot: number): CellShape {
-  return slot === 0 ? "top" : slot === SLOTS - 1 ? "bottom" : "middle";
+function cellShape(g: Geometry, slot: number): CellShape {
+  return slot === 0 ? "top" : slot === g.slots - 1 ? "bottom" : "middle";
 }
 
-function cellY(row: number, slot: number): number {
-  return round(ORIGIN_Y + row * ROW_STEP + slot * (CELL + SLOT_GAP));
+function cellY(g: Geometry, row: number, slot: number): number {
+  return round(g.originY + row * g.rowStep + slot * (g.cell + g.slotGap));
 }
 
-function layoutGrid(input: CardInput): {
-  readonly grid: CardGridCell[];
+function layoutGrid(
+  input: GrassInput,
+  g: Geometry,
+): {
+  readonly grid: GrassGridCell[];
   readonly sums: number[];
 } {
   const scheme = schemeOf(input.palette);
   const { theme } = input;
-  const start = toEpochDay(cardStart(input.today));
+  const start = toEpochDay(grassStart(input.today, g.weeks));
   const end = toEpochDay(input.today);
-  const sums = Array.from({ length: WEEKDAYS * SLOTS }, () => 0);
-  const grid: CardGridCell[] = [];
+  const sums = Array.from({ length: WEEKDAYS * g.slots }, () => 0);
+  const grid: GrassGridCell[] = [];
 
   for (let epoch = start; epoch <= end; epoch++) {
     const day = fromEpochDay(epoch);
     const column = Math.floor((epoch - start) / WEEKDAYS);
     const row = mondayIndex(epoch);
-    const x = round(ORIGIN_X + column * COLUMN_STEP);
+    const x = round(g.originX + column * g.columnStep);
     const slots = slotsOf(input.days, day, input.today);
     const whole = input.days.get(day);
     // 内訳なしの日は、今の草と同じ色 (日の合計) を 3 マスに薄く塗る
@@ -405,11 +479,11 @@ function layoutGrid(input: CardInput): {
           })()
         : undefined;
 
-    for (let slot = 0; slot < SLOTS; slot++) {
-      const base = { x, y: cellY(row, slot), shape: cellShape(slot), day, slot };
+    for (let slot = 0; slot < g.slots; slot++) {
+      const base = { x, y: cellY(g, row, slot), shape: cellShape(g, slot), day, slot };
       const minutes = slots?.[slot];
       if (minutes !== undefined) {
-        sums[row * SLOTS + slot] = (sums[row * SLOTS + slot] ?? 0) + minutes.w + minutes.r;
+        sums[row * g.slots + slot] = (sums[row * g.slots + slot] ?? 0) + minutes.w + minutes.r;
         const level = levelOf(minutes.w + minutes.r, input.slotScale);
         const fill =
           level === 0
@@ -426,32 +500,32 @@ function layoutGrid(input: CardInput): {
   return { grid, sums };
 }
 
-function layoutSum(sums: readonly number[], theme: Theme): CardCell[] {
+function layoutSum(sums: readonly number[], theme: Theme, g: Geometry): GrassCell[] {
   const max = Math.max(...sums);
   return sums.map((value, i) => {
-    const row = Math.floor(i / SLOTS);
-    const slot = i % SLOTS;
+    const row = Math.floor(i / g.slots);
+    const slot = i % g.slots;
     const alpha =
       Math.round((SUM_ALPHA_MIN + (max === 0 ? 0 : (SUM_ALPHA_RANGE * value) / max)) * 1000) / 1000;
     return {
-      x: round(SUM_X),
-      y: cellY(row, slot),
-      shape: cellShape(slot),
+      x: round(g.sumX),
+      y: cellY(g, row, slot),
+      shape: cellShape(g, slot),
       fill: `rgba(${SUM_RGB[theme]},${alpha})`,
     };
   });
 }
 
-function layoutLabels(input: CardInput, strings: Strings): CardText[] {
+function layoutLabels(input: GrassInput, strings: Strings, g: Geometry): GrassText[] {
   const { theme } = input;
-  const start = toEpochDay(cardStart(input.today));
-  const labels: CardText[] = [];
+  const start = toEpochDay(grassStart(input.today, g.weeks));
+  const labels: GrassText[] = [];
 
   // 月ラベル: **その月の 1 日を含む列**に出す (2026-10-07、#208。月曜が 1〜7 日の列に限ると、1 日が火〜日の月は
   // 翌週の列にずれ、今月が右端の列だと出せなかった)。まだ来ていない 1 日には出さない。
   // ラベルは 2 列ぶんの幅が要る (`MONTH_LABEL_COLUMNS`) ので、右端の列では右端をそろえて「計」の見出しと重ねない
   const today = toEpochDay(input.today);
-  for (let column = 0; column < CARD_WEEKS; column++) {
+  for (let column = 0; column < g.weeks; column++) {
     const monday = start + column * WEEKDAYS;
     const first = Array.from({ length: WEEKDAYS }, (_, i) => monday + i).find(
       (day) => day <= today && fromEpochDay(day).endsWith("-01"),
@@ -459,10 +533,10 @@ function layoutLabels(input: CardInput, strings: Strings): CardText[] {
     if (first === undefined) {
       continue;
     }
-    const tight = column > CARD_WEEKS - MONTH_LABEL_COLUMNS;
+    const tight = column > g.weeks - MONTH_LABEL_COLUMNS;
     labels.push({
-      x: round(tight ? GRID_RIGHT : ORIGIN_X + column * COLUMN_STEP),
-      y: ORIGIN_Y - MONTH_LABEL_OFFSET,
+      x: round(tight ? g.gridRight : g.originX + column * g.columnStep),
+      y: g.originY - MONTH_LABEL_OFFSET,
       text: strings.months[Number(fromEpochDay(first).slice(5, 7)) - 1] ?? "",
       anchor: tight ? "end" : "start",
       fill: FAINT[theme],
@@ -472,8 +546,8 @@ function layoutLabels(input: CardInput, strings: Strings): CardText[] {
   // 曜日: タイルの縦中央。土日は一段淡く
   strings.weekdays.forEach((text, row) => {
     labels.push({
-      x: ORIGIN_X - WEEKDAY_LABEL_GAP,
-      y: round(ORIGIN_Y + row * ROW_STEP + TILE_HEIGHT / 2 + WEEKDAY_BASELINE),
+      x: g.originX - WEEKDAY_LABEL_GAP,
+      y: round(g.originY + row * g.rowStep + g.tileHeight / 2 + WEEKDAY_BASELINE),
       text,
       anchor: "end",
       fill: row >= 5 ? FAINT[theme] : MID[theme],
@@ -481,8 +555,8 @@ function layoutLabels(input: CardInput, strings: Strings): CardText[] {
   });
 
   labels.push({
-    x: round(SUM_X + CELL / 2),
-    y: ORIGIN_Y - MONTH_LABEL_OFFSET,
+    x: round(g.sumX + g.cell / 2),
+    y: g.originY - MONTH_LABEL_OFFSET,
     text: strings.sum,
     anchor: "middle",
     fill: FAINT[theme],
@@ -494,18 +568,18 @@ function layoutLabels(input: CardInput, strings: Strings): CardText[] {
  * 4 軸の線。草の左端から「計」の列の右端までを、0 でない軸で**全体に対する割合**で分ける。
  * 名前は区間の左端の下に置き、見積もり幅が区間に収まらなければ省く
  */
-function layoutAxis(input: CardInput, strings: Strings): CardLayout["axis"] {
+function layoutAxis(input: GrassInput, strings: Strings, g: Geometry): GrassLayout["axis"] {
   const { theme } = input;
-  const start = cardStart(input.today);
+  const start = grassStart(input.today, g.weeks);
   const inRange = [...input.days]
     .filter(([day]) => day >= start && day <= input.today)
     .map(([, values]) => values);
-  const totals = sumOverview(inRange);
+  const totals = sumAxes(inRange);
   const values = [totals.create, totals.grow, totals.join, totals.read];
   const sum = values.reduce((a, b) => a + b, 0);
   const inset = AXIS_STROKE / 2;
   const base = {
-    y: AXIS_Y,
+    y: g.axisY,
     strokeWidth: AXIS_STROKE,
     nameSize: AXIS_NAME_SIZE,
     letterSpacing: `${AXIS_LETTER_SPACING_EM}em`,
@@ -515,17 +589,17 @@ function layoutAxis(input: CardInput, strings: Strings): CardLayout["axis"] {
     return {
       ...base,
       lines: [
-        { x1: round(ORIGIN_X + inset), x2: round(SUM_RIGHT - inset), stroke: FAINTEST[theme] },
+        { x1: round(g.originX + inset), x2: round(g.sumRight - inset), stroke: FAINTEST[theme] },
       ],
       names: [],
     };
   }
 
   const nonZero = values.flatMap((value, i) => (value > 0 ? [{ value, i }] : []));
-  const available = SUM_RIGHT - ORIGIN_X - AXIS_GAP * (nonZero.length - 1);
-  const lines: CardLine[] = [];
-  const names: CardText[] = [];
-  let cursor = ORIGIN_X;
+  const available = g.sumRight - g.originX - AXIS_GAP * (nonZero.length - 1);
+  const lines: GrassLine[] = [];
+  const names: GrassText[] = [];
+  let cursor = g.originX;
   for (const { value, i } of nonZero) {
     const length = (available * value) / sum;
     // 丸い端が線幅の半分はみ出すので、見た目の区間 [cursor, cursor + length] に収まるよう内側に引く。
@@ -540,7 +614,7 @@ function layoutAxis(input: CardInput, strings: Strings): CardLayout["axis"] {
     if (estimateWidth(name, AXIS_NAME_SIZE, spacing) <= length) {
       names.push({
         x: round(cursor),
-        y: AXIS_NAME_Y,
+        y: g.axisNameY,
         text: name,
         anchor: "start",
         fill: FAINTEST[theme],
@@ -555,12 +629,12 @@ function layoutAxis(input: CardInput, strings: Strings): CardLayout["axis"] {
  * 名前の行。`/プロジェクト名` (太字・リンク)、アイコン (丸く切り抜く)、ユーザー名 (控えめ、`@` なし) の順。
  * 合算は合算の印とユーザー名だけ。**草の右端を超えないよう、見積もり幅で切って `…` を付ける**
  */
-function layoutName(input: CardInput): CardLayout["name"] {
+function layoutName(input: GrassInput, g: Geometry): GrassLayout["name"] {
   const { theme } = input;
   const scheme = schemeOf(input.palette);
   const total = input.total === true;
   const mark = total
-    ? layoutMark(scheme, theme, ORIGIN_X, NAME_MIDDLE - MARK_SIZE / 2).map((s) => ({
+    ? layoutMark(scheme, theme, g.originX, g.nameMiddle - MARK_SIZE / 2).map((s) => ({
         ...s,
         y: round(s.y),
       }))
@@ -569,8 +643,8 @@ function layoutName(input: CardInput): CardLayout["name"] {
 
   const icon = total ? undefined : input.icon;
   const project = total ? undefined : input.label;
-  const left = total ? ORIGIN_X + MARK_SIZE + MARK_GAP : ORIGIN_X;
-  const available = GRID_RIGHT - left;
+  const left = total ? g.originX + MARK_SIZE + MARK_GAP : g.originX;
+  const available = g.gridRight - left;
   const iconBlock = icon === undefined ? 0 : ICON_RADIUS * 2 + ICON_GAP;
 
   const projectText = project === undefined ? undefined : `/${project}`;
@@ -590,14 +664,14 @@ function layoutName(input: CardInput): CardLayout["name"] {
   const projectWidth = projectShown === undefined ? 0 : estimateWidth(projectShown, PROJECT_SIZE);
 
   const result: {
-    project?: CardText & { href: string; size: number };
+    project?: GrassText & { href: string; size: number };
     icon?: { cx: number; cy: number; r: number; href: string };
-    user?: CardText & { size: number };
+    user?: GrassText & { size: number };
   } = {};
   if (projectShown !== undefined && project !== undefined) {
     result.project = {
       x: left,
-      y: NAME_Y,
+      y: g.nameY,
       text: projectShown,
       anchor: "start",
       fill: STRONG[theme],
@@ -607,15 +681,15 @@ function layoutName(input: CardInput): CardLayout["name"] {
   }
   if (input.user !== undefined) {
     let x = left + projectWidth + (projectShown === undefined ? 0 : PROJECT_GAP);
-    const userShown = truncate(input.user, USER_SIZE, GRID_RIGHT - x - iconBlock);
+    const userShown = truncate(input.user, USER_SIZE, g.gridRight - x - iconBlock);
     if (userShown !== undefined) {
       if (icon !== undefined) {
-        result.icon = { cx: round(x + ICON_RADIUS), cy: NAME_MIDDLE, r: ICON_RADIUS, href: icon };
+        result.icon = { cx: round(x + ICON_RADIUS), cy: g.nameMiddle, r: ICON_RADIUS, href: icon };
         x += iconBlock;
       }
       result.user = {
         x: round(x),
-        y: NAME_Y,
+        y: g.nameY,
         text: userShown,
         anchor: "start",
         fill: MID[theme],
@@ -626,22 +700,23 @@ function layoutName(input: CardInput): CardLayout["name"] {
   return { ...common, ...result };
 }
 
-export function layoutCard(input: CardInput): CardLayout {
+export function layoutGrass(input: GrassInput): GrassLayout {
+  const g = GEOMETRIES["half-slot"];
   const strings = STRINGS[input.lang];
-  const { grid, sums } = layoutGrid(input);
+  const { grid, sums } = layoutGrid(input, g);
   return {
     // width / height / viewBox の 3 つを必ず出す。欠けると Cosense でサイズが崩れる (design §8)
-    width: WIDTH,
-    height: HEIGHT,
+    width: g.width,
+    height: g.height,
     fontFamily: FONT_FAMILY,
     fontSize: FONT_SIZE,
-    cellWidth: round(CELL),
-    cellHeight: round(CELL),
-    cellRadius: CELL_RADIUS,
-    labels: layoutLabels(input, strings),
+    cellWidth: round(g.cell),
+    cellHeight: round(g.cell),
+    cellRadius: g.cellRadius,
+    labels: layoutLabels(input, strings, g),
     grid,
-    sum: layoutSum(sums, input.theme),
-    axis: layoutAxis(input, strings),
-    name: layoutName(input),
+    sum: layoutSum(sums, input.theme, g),
+    axis: layoutAxis(input, strings, g),
+    name: layoutName(input, g),
   };
 }

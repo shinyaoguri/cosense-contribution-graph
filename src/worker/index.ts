@@ -10,7 +10,6 @@ import { REVOKE_PATH } from "../shared/revoke.ts";
 import { type AccountDeps, handleAccount } from "./account.ts";
 import { type AuthDeps, handleAuthCallback, handleAuthStart } from "./auth.ts";
 import { cardIcon } from "./card-icon.ts";
-import { renderCard } from "./card-svg.ts";
 import {
   BACKFILL_LIMIT,
   backfillDailySegments,
@@ -21,6 +20,7 @@ import {
   DEMO_CARD_LABEL,
   DEMO_CARD_USER,
   DEMO_ICON,
+  DEMO_PUBLIC_ID,
   DEMO_TODAY,
   demoCardDays,
   demoData,
@@ -28,12 +28,13 @@ import {
 } from "./demo.ts";
 import { handleEnroll, handleRevoke } from "./enroll.ts";
 import { FAVICON_CACHE_CONTROL, FAVICON_PATH, FAVICON_SVG } from "./favicon.ts";
+import { sumAxes } from "./graph/axes.ts";
 import { centerOf } from "./graph/balance.ts";
-import { slotPopulation } from "./graph/card.ts";
+import { slotPopulation } from "./graph/grass.ts";
 import { DAYS } from "./graph/grid.ts";
-import { sumOverview } from "./graph/overview.ts";
 import { buildScale } from "./graph/scale.ts";
 import { renderStoredCard, renderStoredGraph, renderStoredOverview } from "./graph-data.ts";
+import { renderGrass } from "./grass-svg.ts";
 import { GUIDE_CACHE_CONTROL, GUIDE_PATH, renderGuide } from "./guide-svg.ts";
 import { googleKeys } from "./idtoken.ts";
 import { handleIngest } from "./ingest.ts";
@@ -43,7 +44,7 @@ import { renderOverview } from "./overview-svg.ts";
 import { parseLabel, parseLang, parseParams, parseUser, parseYear } from "./params.ts";
 import { handleProbe } from "./probe.ts";
 import { HOME_JA_PATH, HOME_PATH, handleHome, handlePrivacy } from "./site.ts";
-import { DEMO_PUBLIC_ID, renderGraph } from "./svg.ts";
+import { renderGraph } from "./svg.ts";
 
 /**
  * Worker のエントリ。
@@ -319,7 +320,7 @@ function renderDemoOverview(search: URLSearchParams): string {
     .filter(([day]) => day >= start && day <= today)
     .map(([, values]) => values);
   return renderOverview({
-    totals: sumOverview(days),
+    totals: sumAxes(days),
     theme: params.theme,
     palette: params.palette,
   });
@@ -335,7 +336,7 @@ function renderDemoCard(search: URLSearchParams): string {
   const slots = slotPopulation(days);
   // 内訳なしの日の色は草のデモと同じ母集団から取る
   const { population } = demoData();
-  return renderCard({
+  return renderGrass({
     today: DEMO_TODAY,
     days,
     slotScale: buildScale(slots.map((m) => m.w + m.r)),
