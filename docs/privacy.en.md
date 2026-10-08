@@ -28,8 +28,9 @@ The source code and design are public on [GitHub](https://github.com/shinyaoguri
 - **Authors of the pages you wrote on, or link targets.** Whether a page you wrote on was newly created by you or created by someone else is decided inside your browser;
   only minutes and the number of links are sent
 - **Private keys.** They stay inside each device's browser and are never sent
-- **Your Cosense icon image.** To draw it in the image of a share URL, the server fetches the icon of a page in a public project from Cosense, embeds it in the image,
-  and caches it temporarily, but does not store it. Icons in private projects cannot be fetched, so those images are drawn without an icon
+- **Your Cosense icon image.** To draw it in the image of a share URL, the server fetches the icon, embeds it in the image,
+  and caches it temporarily, but does not store it. Icons of pages in public projects are fetched from Cosense. Icons in private projects cannot be fetched from Cosense, so,
+  only when they are hosted on Gyazo, they are fetched with the Gyazo image ID that the UserScript adds to the URL (see "What is shared" below). Other icons in private projects cannot be fetched, so those images are drawn without an icon
 
 ## How we handle Google user data
 
@@ -109,13 +110,18 @@ your username is drawn in the image. As with project names, the server does not 
 it receives the name only to draw the image. **If you do not want to show it, remove `u=...`
 from the URL.**
 
+**Share URLs of private projects may contain the Gyazo image ID of your icon (`i=...`).** The server cannot fetch icons of private projects from Cosense, so
+the UserScript takes the ID from the image of your username page in the browser you are logged in to and adds it to the URL (only when the image is on Gyazo). The server does not store this ID either;
+it receives the ID only to draw the image. **Anyone who knows a Gyazo URL can open the image, so a person who receives a share URL can open the icon image at its original size,
+in addition to the small icon drawn in the image.** **If you do not want to show it, remove `i=...` from the URL** (the image is then drawn without an icon).
+
 ## Writing to your profile page
 
 The UserScript automatically writes a line with the project's card image to your page named after your username (your profile page) in each project where you installed it.
 The writing is done from your browser with the Cosense account you are logged in to, and does not go through the server.
 
 - It writes only when you have signed in and registered the device, and have installed the UserScript in that project
-- The line contains the URL of the card image, which includes the project name and your username. **In a public project, anyone who views the page can see the image,
+- The line contains the URL of the card image, which includes the project name and your username (and the Gyazo image ID, when the image of the page is on Gyazo). **In a public project, anyone who views the page can see the image,
   and can also open other forms of the same image (a year, past years, or how each day is divided) from its URL** (the URL for daily numbers cannot be derived from it)
 - **If you delete the line, it is placed again the next time you open the project.** To stop it, remove the UserScript line from `code:script.js` on your page
 - The automatically written line is not counted as writing activity
@@ -128,7 +134,7 @@ We use Cloudflare (Workers and D1) as infrastructure and Google's OpenID Connect
 authentication. Data is not passed to anyone else.
 
 However, to draw your icon in an image, the server asks Cosense for the icon using the project name and username in the share URL,
-and fetches the image from where the icon is hosted (such as Gyazo).
+and fetches the image from where the icon is hosted (such as Gyazo). When the share URL contains a Gyazo image ID (`i=`), the server fetches the image directly from Gyazo with that ID.
 
 ## Deleting your data
 

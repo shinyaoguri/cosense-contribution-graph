@@ -7,6 +7,7 @@
 import { ACCOUNT_PATH } from "../shared/auth.ts";
 import { CARD_FORM, GRAPH_FORM, type GrassForm } from "../shared/grass.ts";
 import type { GuideName } from "../shared/guide.ts";
+import { isValidGyazoId } from "../shared/gyazo-id.ts";
 import { PH_ALL, phOf, publicIdOf } from "../shared/ids.ts";
 import { PRIVACY_JA_PATH } from "../shared/links.ts";
 import { isValidProjectName, isValidUserName } from "../shared/project-name.ts";
@@ -35,8 +36,15 @@ export async function graphIds(
   return { ph, publicId: await publicIdOf(uid, ph) };
 }
 
-/** 図に描く名前。**サーバは保存しない** (ADR-0007) */
-export type Names = { readonly project?: string; readonly user?: string };
+/**
+ * 図に描く名前。**サーバは保存しない** (ADR-0007)。
+ * `icon` は Gyazo の画像 ID (ADR-0028)。非公開プロジェクトのアイコンを Worker が取るための手がかりで、`icon.ts` が読んだページから作る
+ */
+export type Names = {
+  readonly project?: string;
+  readonly user?: string;
+  readonly icon?: string;
+};
 
 /** 図の形と、振り返る年 (`?year=`)。年があれば期間は 1 年になる (ADR-0026 決定 1) */
 export type GrassView = GrassForm & { readonly year?: number };
@@ -66,21 +74,30 @@ export function guideUrl(name: GuideName): string {
  *   **貼った先でも名前が出る**ようにするため、`<img>` だけでなくコピーする URL にも同じものを使う。
  *   形が取り決めの外なら付けない (Worker 側も同じ形で弾くので、付けても描かれない)
  * - **年を選んだら期間は 1 年** (Worker も `year` があれば 1 年で描く)。`span` は付けず `year` だけを付ける
+ * - **`i=` (Gyazo の画像 ID。ADR-0028) は、`l=` と `u=` が付き、ID の形が正しいときだけ末尾に付ける。** Worker はアイコンを名前の行にしか描かず、
+ *   取りに行くのも `l` と `u` がそろうときだけなので、それ以外に付けても URL が長くなるだけ
  */
 export function grassUrl(publicId: string, view: GrassView, names: Names = {}): string {
   const span = view.year === undefined ? view.span : "year";
   const graph = span === GRAPH_FORM.span && view.cell === GRAPH_FORM.cell;
   const base = graph ? GRAPH_FORM : CARD_FORM;
+  const project =
+    names.project !== undefined && isValidProjectName(names.project) ? names.project : undefined;
+  const user = names.user !== undefined && isValidUserName(names.user) ? names.user : undefined;
+  const icon =
+    project !== undefined &&
+    user !== undefined &&
+    names.icon !== undefined &&
+    isValidGyazoId(names.icon)
+      ? names.icon
+      : undefined;
   const query = [
     view.year === undefined && span !== base.span ? `span=${span}` : undefined,
     view.cell !== base.cell ? `cell=${view.cell}` : undefined,
     view.year === undefined ? undefined : `year=${view.year}`,
-    names.project !== undefined && isValidProjectName(names.project)
-      ? `l=${encodeURIComponent(names.project)}`
-      : undefined,
-    names.user !== undefined && isValidUserName(names.user)
-      ? `u=${encodeURIComponent(names.user)}`
-      : undefined,
+    project === undefined ? undefined : `l=${encodeURIComponent(project)}`,
+    user === undefined ? undefined : `u=${encodeURIComponent(user)}`,
+    icon === undefined ? undefined : `i=${icon}`,
   ].filter((part) => part !== undefined);
   const url = `${WORKER_ORIGIN}/v1/g/${publicId}${graph ? ".svg" : "/card.svg"}`;
   return query.length === 0 ? url : `${url}?${query.join("&")}`;
@@ -90,7 +107,7 @@ export function grassUrl(publicId: string, view: GrassView, names: Names = {}): 
  * Cosense に貼る図の行 (ADR-0025 決定 6 の改訂)。**ただの画像の記法** `[<図の URL>]` で、リンク先は付けない。
  *
  * ```
- * [https://grass.soui.dev/v1/g/<publicId>/card.svg?l=<project>&u=<user>]
+ * [https://grass.soui.dev/v1/g/<publicId>/card.svg?l=<project>&u=<user>&i=<gyazo の画像 ID>]
  * ```
  *
  * - 最初はリンク付きの画像 (`[<図の URL> https://scrapbox.io/<project>/]`) にしていたが、作者が不要と判断した (2026-10-07、#213)。

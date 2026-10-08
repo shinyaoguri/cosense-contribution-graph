@@ -269,6 +269,62 @@ describe("renderStoredGrass", () => {
     expect(plain).toContain(">taro</text>");
   });
 
+  it("**Gyazo の ID (`gyazo`) は、アイコンを取りに行くときだけ注入関数へ渡す** (ADR-0028)", async () => {
+    const publicId = await store(randomUid(), PH, [[TODAY, 4, 2, 1, 0, null]]);
+    const ID = "0123456789abcdef0123456789abcdef";
+    const calls: (string | undefined)[] = [];
+    const icon = async (_project: string, _user: string, gyazo?: string) => {
+      calls.push(gyazo);
+      return ICON;
+    };
+
+    const withId = await renderStoredGrass(
+      env.DB,
+      publicId,
+      { ...OPTIONS, label: "proj", user: "taro", gyazo: ID },
+      NOW,
+      icon,
+    );
+    expect(calls).toEqual([ID]);
+    expect(withId).toContain(`<image href="${ICON}"`);
+
+    // ID が無ければ undefined を渡す (従来の `/icon` だけを引く)
+    await renderStoredGrass(
+      env.DB,
+      publicId,
+      { ...OPTIONS, label: "proj", user: "taro" },
+      NOW,
+      icon,
+    );
+    expect(calls).toEqual([ID, undefined]);
+
+    // `l` か `u` が欠けていれば、ID があっても取りに行かない
+    for (const names of [{ label: "proj" }, { user: "taro" }, {}]) {
+      await renderStoredGrass(env.DB, publicId, { ...OPTIONS, ...names, gyazo: ID }, NOW, icon);
+    }
+    expect(calls).toEqual([ID, undefined]);
+  });
+
+  it("**合算は ID があってもアイコンを取りに行かない**", async () => {
+    const publicId = await store(randomUid(), PH_ALL, [[TODAY, 4, 2, 1, 0, null]]);
+    const calls: string[] = [];
+    const icon = async (project: string) => {
+      calls.push(project);
+      return ICON;
+    };
+
+    const svg = await renderStoredGrass(
+      env.DB,
+      publicId,
+      { ...OPTIONS, label: "proj", user: "taro", gyazo: "0123456789abcdef0123456789abcdef" },
+      NOW,
+      icon,
+    );
+
+    expect(calls).toEqual([]);
+    expect(svg).not.toContain("<image");
+  });
+
   it("**合算はアイコンを取りに行かず、合算の印とユーザー名を描く**", async () => {
     const rows: Row[] = [[TODAY, 4, 2, 1, 0, [0, 2, 1, 1, 0, 1, 1, 0]]];
     const publicId = await store(randomUid(), PH_ALL, rows);

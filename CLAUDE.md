@@ -22,6 +22,7 @@ Cosense (旧 Scrapbox) の活動を草として可視化する。成果物は **
 段階 11 (#220) で **草・概観・カードを 1 つの描画 (`graph/grass.ts`) にまとめ、カードを基本形にした** (ADR-0026)。
 期間 (`span=half|year`) とマス (`cell=slot|day`) で 4 つの形を描き、`{publicId}.svg` は「1 年 × 1 日」を既定にした同じ描画、`overview.svg` は廃止してカードを返す。
 **外寸は `src/shared/grass.ts` の `GRASS_SIZES` が正本で、`<img>` の寸法を手で書かない。** ダイアログは 1 枚の図と形の切り替え (期間・マス) で、URL は選んだ形から `grassUrl` で作る。
+**アイコンは Worker が未認証で Cosense から引くので、非公開プロジェクトでは取れない。** UserScript が自分のページの `image` から Gyazo の画像 ID だけを取り出して図の URL の `i=` に添え、Worker が ID から Gyazo の URL を組み立てて取る (ADR-0028。Gyazo 以外は非公開では出ないまま)。
 本番は `https://grass.soui.dev` (独自ドメイン。`cosense-grass.soui.workers.dev` も有効) で、デモの草 `/v1/g/demo.svg` がある。設計の正本は `docs/`。
 
 ## docs の読み方

@@ -131,6 +131,31 @@ describe("grassUrl と grassLine (ADR-0026)", () => {
     expect(grassUrl(id, { span: "year", cell: "day" }, { project: "../x" })).toBe(graph);
   });
 
+  it("**`i=` (Gyazo の画像 ID) は project・user・icon がそろい、形が正しいときだけ末尾に付く** (ADR-0028)", () => {
+    const icon = "fedcba9876543210fedcba9876543210";
+    const names = { project: "p", user: "u", icon };
+    expect(grassUrl(id, { span: "half", cell: "day" }, names)).toBe(
+      `${card}?cell=day&l=p&u=u&i=${icon}`,
+    );
+    expect(cardLine(id, names)).toBe(`[${card}?l=p&u=u&i=${icon}]`);
+
+    // project か user が無ければ、Worker はアイコンを描かないので付けない
+    expect(grassUrl(id, { span: "half", cell: "slot" }, { project: "p", icon })).toBe(
+      `${card}?l=p`,
+    );
+    expect(grassUrl(id, { span: "half", cell: "slot" }, { user: "u", icon })).toBe(`${card}?u=u`);
+    // project が形の外れで付かないときも付けない
+    expect(grassUrl(id, { span: "half", cell: "slot" }, { project: "../x", user: "u", icon })).toBe(
+      `${card}?u=u`,
+    );
+    // ID の形が外れていれば付けない
+    for (const bad of ["x", icon.toUpperCase(), `${icon}0`, "../x", ""]) {
+      expect(grassUrl(id, { span: "half", cell: "slot" }, { ...names, icon: bad }), bad).toBe(
+        `${card}?l=p&u=u`,
+      );
+    }
+  });
+
   it("**貼る行はただの画像の記法で、空白と `]` を含まない**", () => {
     const line = grassLine(id, { span: "year", cell: "slot", year: 2026 }, { user: "a b]" });
     expect(line).toBe(`[${card}?year=2026&u=a%20b%5D]`);

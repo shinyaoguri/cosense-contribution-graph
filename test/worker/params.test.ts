@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CARD_FORM, GRAPH_FORM } from "../../src/shared/grass.ts";
-import { parseGrassParams } from "../../src/worker/params.ts";
+import { parseGrassParams, parseIcon } from "../../src/worker/params.ts";
 
 const parse = (query: string, defaults = CARD_FORM) =>
   parseGrassParams(new URLSearchParams(query), defaults);
@@ -51,5 +51,27 @@ describe("parseGrassParams (ADR-0026 決定 1)", () => {
       mode: "write",
       lang: "en",
     });
+  });
+});
+
+describe("parseIcon (ADR-0028)", () => {
+  const ID = "0123456789abcdef0123456789abcdef";
+
+  it("`?i=` の Gyazo の画像 ID を返す", () => {
+    expect(parseIcon(new URLSearchParams(`l=proj&u=taro&i=${ID}`))).toBe(ID);
+  });
+
+  it("**無ければ undefined。形が外れていても 400 にせず undefined** (描かないだけ)", () => {
+    expect(parseIcon(new URLSearchParams(""))).toBeUndefined();
+    for (const raw of [
+      "",
+      "0".repeat(31),
+      "0".repeat(33),
+      ID.toUpperCase(),
+      "https://gyazo.com/x/raw",
+      "../../x",
+    ]) {
+      expect(parseIcon(new URLSearchParams({ i: raw })), raw).toBeUndefined();
+    }
   });
 });

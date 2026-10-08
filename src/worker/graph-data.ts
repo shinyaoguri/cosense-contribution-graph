@@ -70,6 +70,8 @@ export type GrassOptions = GrassParams & {
   readonly label?: string;
   /** 画像に描くユーザー名 (`?u=`)。同上 */
   readonly user?: string;
+  /** アイコンの Gyazo の画像 ID (`?i=`。ADR-0028)。UserScript が渡す。同上 (保存しない) */
+  readonly gyazo?: string;
 };
 
 /**
@@ -79,14 +81,15 @@ export type GrassOptions = GrassParams & {
  * - 表示する行と `ph = '*'` の母集団を 1 回の batch で読む (`loadGraph` と同じ形)。合算は 1 回だけ読む
  * - **表示する行は右端の翌日まで読む。** 右端の日の夜は翌日の区間 0 を足して組み立てる (過去の年の 12/31 の夜)
  * - 計測開始日は母集団 (`ph = '*'` の全期間) の最も古い日 (草と同じ。Issue #80)
- * - **アイコンは `l` と `u` がそろい、合算でないときだけ取りに行く** (`icon` は注入。D1 の読み取りと並べて待つ)
+ * - **アイコンは `l` と `u` がそろい、合算でないときだけ取りに行く** (`icon` は注入。D1 の読み取りと並べて待つ)。
+ *   `?i=` の Gyazo の ID があれば `icon` の 3 つ目に渡す (ADR-0028。非公開プロジェクトのアイコンはこれで取る)
  */
 export async function renderStoredGrass(
   db: D1Database,
   publicId: string,
   options: GrassOptions,
   nowMs: number,
-  icon: (project: string, user: string) => Promise<string | undefined>,
+  icon: (project: string, user: string, gyazo?: string) => Promise<string | undefined>,
 ): Promise<string | undefined> {
   const graph = await db
     .prepare("SELECT uid, ph FROM graphs WHERE public_id = ?")
@@ -123,12 +126,12 @@ export async function renderStoredGrass(
     ]);
     return [population?.results ?? [], display?.results ?? []];
   };
-  const { label, user } = options;
+  const { label, user, gyazo } = options;
   const [[populationRows, displayRows], iconUri] = await Promise.all([
     readRows(),
     total || label === undefined || user === undefined
       ? Promise.resolve(undefined)
-      : icon(label, user),
+      : icon(label, user, gyazo),
   ]);
 
   const population = new Map(populationRows.map((row) => [row.day, grassDayOf(row)]));

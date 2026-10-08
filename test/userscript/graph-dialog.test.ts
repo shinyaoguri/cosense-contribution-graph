@@ -145,6 +145,7 @@ function setup(
   sendNow: () => Promise<SendNowResult> = () =>
     Promise.resolve({ text: "送りました。", view: SYNC, refresh: false }),
   now?: () => number,
+  iconOf?: (project: string, user: string | undefined) => Promise<string | undefined>,
 ) {
   const copied: string[] = [];
   const settings = { count: 0 };
@@ -155,6 +156,7 @@ function setup(
       return writeText(text);
     },
     ...(now ? { now } : {}),
+    ...(iconOf ? { iconOf } : {}),
   });
   /** 「設定」のハンドラを付けて開く。呼ばれた回数は `settings.count` で見る */
   const open = (view: IntegratedView) =>
@@ -1097,5 +1099,154 @@ describe("createGraphDialog", () => {
       );
       expect(srcsOf(t.find())).toEqual([cardOf("aa")]);
     });
+  });
+});
+
+describe("非公開プロジェクトのアイコン (ADR-0028)", () => {
+  const ICON = "fedcba9876543210fedcba9876543210";
+  const ICON_QUERY = `l=p0&u=alice&i=${ICON}`;
+
+  /** ユーザー名の付いた名前で並べる (`i=` は project と user がそろうときだけ付く) */
+  function withUser(count: number): IntegratedView {
+    const view = graphs(
+      Array.from({ length: count }, (_, i) => ({ label: `alpha${i}`, sent: true })),
+    );
+    if (view.kind !== "graphs") {
+      throw new Error("graphs のはず");
+    }
+    return {
+      ...view,
+      total: { ...view.total, names: { user: "alice" } },
+      projects: view.projects.map((p) => ({ ...p, names: { ...p.names, user: "alice" } })),
+    };
+  }
+
+  /** `captureImages` が集めた `<img>` のうち、囲みの図だけ (説明の図を除く) */
+  const figuresOf = (created: readonly HTMLImageElement[]) =>
+    created.filter((img) => img.alt.endsWith("の図"));
+
+  /** 解決を手で進められる iconOf。呼ばれた (project, user) を記録する */
+  function pending() {
+    const asked: [string, string | undefined][] = [];
+    const resolvers = new Map<string, (icon: string | undefined) => void>();
+    const iconOf = (project: string, user: string | undefined) => {
+      asked.push([project, user]);
+      return new Promise<string | undefined>((resolve) => resolvers.set(project, resolve));
+    };
+    return {
+      iconOf,
+      asked,
+      resolve: (project: string, icon?: string) => resolvers.get(project)?.(icon),
+    };
+  }
+
+  it("**最初の読み込みの前にアイコンを待ち、`i=` 付きの URL で 1 回だけ読む。** 合算 (project が無い) は待たない", async () => {
+    const icons = pending();
+    const t = setup(undefined, undefined, undefined, icons.iconOf);
+    const created = captureImages();
+
+    t.open(withUser(2));
+
+    // 待つ間は読み込まない。合算はすぐ読む
+    expect(figuresOf(created).map((img) => img.getAttribute("src"))).toEqual([
+      cardOf("aa", "?u=alice"),
+      null,
+      null,
+    ]);
+    expect(icons.asked).toEqual([
+      ["p0", "alice"],
+      ["p1", "alice"],
+    ]);
+
+    icons.resolve("p0", ICON);
+    icons.resolve("p1", undefined);
+    await settle();
+
+    // アイコンが分かれば `i=`、分からなければ付けない。どちらも最初の `<img>` が 1 回だけ読む
+    expect(figuresOf(created)).toHaveLength(3);
+    expect(srcsOf(t.find())).toEqual([
+      cardOf("aa", "?u=alice"),
+      cardOf("b0", `?${ICON_QUERY}`),
+      cardOf("b1", "?l=p1&u=alice"),
+    ]);
+  });
+
+  it("**コピーする URL と貼る行にも、分かった `i=` を入れる** (貼った先でもアイコンが出るように)", async () => {
+    const icons = pending();
+    const t = setup(undefined, undefined, undefined, icons.iconOf);
+    t.open(withUser(1));
+    icons.resolve("p0", ICON);
+    await settle();
+
+    t.find()
+      ?.querySelector<HTMLButtonElement>('[aria-label="alpha0 の図の URL をコピー"]')
+      ?.click();
+    t.find()
+      ?.querySelector<HTMLButtonElement>('[aria-label="alpha0 の図の Cosense に貼る行をコピー"]')
+      ?.click();
+    await settle();
+
+    expect(t.copied).toEqual([
+      cardOf("b0", `?${ICON_QUERY}`),
+      `[${cardOf("b0", `?${ICON_QUERY}`)}]`,
+    ]);
+  });
+
+  it("**アイコンを待つ間に形を替えたら、分かった時点で選んだ形の URL で読み直す**", async () => {
+    const icons = pending();
+    const t = setup(undefined, undefined, undefined, icons.iconOf);
+    t.open(withUser(1));
+    const created = captureImages();
+
+    const select = t.find()?.querySelector("select");
+    if (!select) {
+      throw new Error("期間の選択が無い");
+    }
+    select.value = "year";
+    select.dispatchEvent(new Event("change"));
+    // 待つ間の読み直しは、アイコンの分からない URL
+    expect(figuresOf(created).map((img) => img.getAttribute("src"))).toEqual([
+      cardOf("aa", "?span=year&u=alice"),
+      cardOf("b0", "?span=year&l=p0&u=alice"),
+    ]);
+
+    icons.resolve("p0", ICON);
+    await settle();
+
+    expect(figuresOf(created).at(-1)?.getAttribute("src")).toBe(
+      cardOf("b0", `?span=year&${ICON_QUERY}`),
+    );
+  });
+
+  it("**待つ間にダイアログを閉じたら、読み込まない**", async () => {
+    const icons = pending();
+    const t = setup(undefined, undefined, undefined, icons.iconOf);
+    const created = captureImages();
+    t.open(withUser(1));
+
+    clickAt(t.find(), OUTSIDE, OUTSIDE);
+    icons.resolve("p0", ICON);
+    await settle();
+
+    expect(t.find()).toBeNull();
+    expect(figuresOf(created).map((img) => img.getAttribute("src"))).toEqual([
+      cardOf("aa", "?u=alice"),
+      null,
+    ]);
+  });
+
+  it("**iconOf が失敗しても (reject)、アイコン無しで読む**", async () => {
+    const t = setup(undefined, undefined, undefined, () => Promise.reject(new Error("x")));
+    t.open(withUser(1));
+    await settle();
+
+    expect(srcsOf(t.find())).toEqual([cardOf("aa", "?u=alice"), cardOf("b0", "?l=p0&u=alice")]);
+  });
+
+  it("**iconOf が無ければ、従来どおりすぐ読む**", () => {
+    const t = setup();
+    t.open(withUser(1));
+
+    expect(srcsOf(t.find())).toEqual([cardOf("aa", "?u=alice"), cardOf("b0", "?l=p0&u=alice")]);
   });
 });

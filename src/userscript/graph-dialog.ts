@@ -37,7 +37,14 @@ import {
   SEND_NOW_LABEL,
   type SyncView,
 } from "./viewer.ts";
-import { type GrassView, grassLine, grassUrl, guideUrl, PRIVACY_URL } from "./worker-origin.ts";
+import {
+  type GrassView,
+  grassLine,
+  grassUrl,
+  guideUrl,
+  type Names,
+  PRIVACY_URL,
+} from "./worker-origin.ts";
 
 const STOPPED_EVENTS = ["keydown", "keyup", "keypress", "paste", "copy", "cut"] as const;
 
@@ -137,6 +144,12 @@ export type GraphDialogDependencies = {
   readonly writeText: (text: string) => Promise<void>;
   /** 期間の選択肢の「今年」を決める。既定は `Date.now` */
   readonly now?: () => number;
+  /**
+   * プロジェクトの自分のページから、アイコンの Gyazo の画像 ID を読む (`icon.ts`。ADR-0028)。**例外を投げず、分からなければ `undefined`。**
+   * 渡すと、プロジェクト別の図は**最初の読み込みの前に**これを待ち、分かった ID を `i=` で図の URL に添える。
+   * 無ければ待たずに読む (非公開プロジェクトのアイコンが出ないだけ)
+   */
+  readonly iconOf?: (project: string, user: string | undefined) => Promise<string | undefined>;
 };
 
 /**
@@ -193,6 +206,13 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
   let frames: Frame[] = [];
   /** 選んでいる形 (ADR-0026)。**開くたびに既定 (カードの形) へ戻す** (#177) */
   let view: GrassView = CARD_FORM;
+  /** 分かったアイコンの Gyazo の画像 ID (プロジェクト名ごと。ADR-0028)。**URL を作るときに名前へ足す** */
+  const icons = new Map<string, string>();
+  const namesOf = (entry: GraphEntry): Names => {
+    const project = entry.names.project;
+    const icon = project === undefined ? undefined : icons.get(project);
+    return icon === undefined ? entry.names : { ...entry.names, icon };
+  };
 
   const element = <K extends keyof HTMLElementTagNameMap>(tag: K, text?: string) => {
     const node = doc.createElement(tag);
@@ -242,6 +262,8 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
       return;
     }
     dialog = undefined;
+    // 閉じた後は表示中の図が無い。**アイコンを待っていた図が、閉じた後に読み込みを始めない**ようにする (ADR-0028)
+    frames = [];
     if (current.open) {
       current.close();
     }
@@ -297,7 +319,7 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
         ),
       );
     };
-    const src = (bust?: number) => srcOf(grassUrl(entry.publicId, view, entry.names), bust);
+    const src = (bust?: number) => srcOf(grassUrl(entry.publicId, view, namesOf(entry)), bust);
     const img = make(true);
     const target: Frame = { frame, src, make, fail, latest: img };
     // 形を替えた後に最初の図の失敗が届いても、新しい形の図を文言で上書きしない
@@ -306,9 +328,40 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
         fail();
       }
     });
-    img.src = src();
     frame.append(img);
     frames.push(target);
+
+    // **アイコンの手がかり (ADR-0028) を待ってから最初の読み込みを始める** — 待たずに読むと、分かった後にもう一度読むことになる。
+    // 合算 (プロジェクトが無い) と、すでに分かっているプロジェクトは待たない
+    const project = entry.names.project;
+    if (deps.iconOf === undefined || project === undefined || icons.has(project)) {
+      img.src = src();
+      return frame;
+    }
+    // 取得はすぐ始める (読み込みを待たせる時間を短くする)。**契約は例外を投げないが、投げても拒んでもアイコン無しで読む**
+    let lookup: Promise<string | undefined>;
+    try {
+      lookup = deps.iconOf(project, entry.names.user);
+    } catch {
+      lookup = Promise.resolve(undefined);
+    }
+    void lookup
+      .catch(() => undefined)
+      .then((icon) => {
+        // 待つ間にダイアログが閉じた (開き直した) なら、読み込みを始めない
+        if (!frames.includes(target)) {
+          return;
+        }
+        if (icon !== undefined) {
+          icons.set(project, icon);
+        }
+        if (target.latest === img) {
+          img.src = src();
+        } else if (icon !== undefined) {
+          // 待つ間に形を替えて、アイコンの無い URL で読み直していた。分かった ID を足して読み直す
+          reload(target, src(), true);
+        }
+      });
     return frame;
   };
 
@@ -591,12 +644,12 @@ export function createGraphDialog(doc: Document, deps: GraphDialogDependencies):
     rows.append(
       ...copyLine({
         name: "図",
-        value: () => grassUrl(entry.publicId, view, entry.names),
+        value: () => grassUrl(entry.publicId, view, namesOf(entry)),
         what,
       }),
       ...copyLine({
         name: "Cosense",
-        value: () => grassLine(entry.publicId, view, entry.names),
+        value: () => grassLine(entry.publicId, view, namesOf(entry)),
         what,
         kind: "line",
       }),
