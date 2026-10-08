@@ -8,6 +8,11 @@
 #
 #   scripts/check-distribution.sh <page> <bundle>
 #
+# **比べるのは先頭の指紋の行 (`// cosense-grass build ...`) を除いた本体** (scripts/bundle-fingerprint.ts)。
+# 指紋には commit が入り、コードが同じでも main が進むたびに変わる。含めて比べると、docs だけの commit でも
+# 「古い」と知らせ、`npm run paste` が同じコードを貼り直す。配布ページの指紋が自分の本体と合わなければ、
+# 手で編集されたなどで指紋を信じられないので、そう添える (一致の判定は本体で行うので変わらない)。
+#
 # 終了コード: 0 = 一致 / 1 = 違う (配布ページが古い) / 2 = 取得できなかった (見張りの失敗)
 #
 # **外部 URL を見るので `npm run check` からは呼ばない** (check-links.sh と同じ方針)。
@@ -56,15 +61,27 @@ if [[ "$status" != "200" && ! ( "$url" == file://* && "$status" == "000" ) ]]; t
   exit 2
 fi
 
-# 末尾の改行 1 つだけを落とした姿で比べる (上記)
+# 指紋の行と末尾の改行 1 つを落とした本体で比べる (上記)。指紋の本体も同じ形から計算している
 normalized="$(mktemp)"
-trap 'rm -f "$fetched" "$normalized"' EXIT
-perl -0pe 's/\n\z//' "$bundle" >"$normalized"
+page_body="$(mktemp)"
+trap 'rm -f "$fetched" "$normalized" "$page_body"' EXIT
+body() {
+  perl -0pe 's/\A\/\/ cosense-grass build [^\n]*\n//; s/\n\z//' "$1"
+}
+body "$bundle" >"$normalized"
+body "$fetched" >"$page_body"
+
+# 先頭行の指紋 (無ければ空)。表示用で、一致の判定には使わない
+fingerprint() {
+  head -n 1 "$1" | perl -ne 'print $1 if /^\/\/ cosense-grass build (.*)$/'
+}
+bundle_fingerprint="$(fingerprint "$bundle")"
+page_fingerprint="$(fingerprint "$fetched")"
 
 bundle_sha="$(sha256 "$normalized")"
 bundle_bytes="$(bytes "$normalized")"
-page_sha="$(sha256 "$fetched")"
-page_bytes="$(bytes "$fetched")"
+page_sha="$(sha256 "$page_body")"
+page_bytes="$(bytes "$page_body")"
 
 if [[ "$bundle_sha" == "$page_sha" ]]; then
   result="fresh"
@@ -75,8 +92,14 @@ else
 fi
 
 echo "$message"
-echo "  バンドル     ${bundle_sha} (${bundle_bytes} バイト。末尾の改行を落とした姿)"
+echo "  バンドル     ${bundle_sha} (${bundle_bytes} バイト。指紋の行と末尾の改行を落とした姿)"
+echo "               build ${bundle_fingerprint:-(指紋なし)}"
 echo "  配布ページ   ${page_sha} (${page_bytes} バイト) ${url}"
+echo "               build ${page_fingerprint:-(指紋なし)}"
+# 配布ページの指紋が自分の本体と合うか。合わなければ、ページを見た人が指紋を信じると取り違える
+if [[ -n "$page_fingerprint" && "${page_fingerprint:0:12}" != "${page_sha:0:12}" ]]; then
+  echo "  注意: 配布ページの指紋 ${page_fingerprint:0:12} が本体 (${page_sha:0:12}) と合わない。手で編集されたかもしれない"
+fi
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   {
@@ -86,16 +109,18 @@ if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
     echo "bundle_bytes=${bundle_bytes}"
     echo "page_sha=${page_sha}"
     echo "page_bytes=${page_bytes}"
+    echo "bundle_fingerprint=${bundle_fingerprint}"
+    echo "page_fingerprint=${page_fingerprint}"
   } >>"$GITHUB_OUTPUT"
 fi
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   {
     echo "### ${message}"
     echo
-    echo "| | SHA-256 | バイト |"
-    echo "|---|---|---|"
-    echo "| main から作ったバンドル (末尾の改行を落とした姿) | \`${bundle_sha}\` | ${bundle_bytes} |"
-    echo "| [${page}](${url}) | \`${page_sha}\` | ${page_bytes} |"
+    echo "| | SHA-256 | バイト | 指紋 |"
+    echo "|---|---|---|---|"
+    echo "| main から作ったバンドル (指紋の行と末尾の改行を落とした姿) | \`${bundle_sha}\` | ${bundle_bytes} | \`${bundle_fingerprint:-なし}\` |"
+    echo "| [${page}](${url}) | \`${page_sha}\` | ${page_bytes} | \`${page_fingerprint:-なし}\` |"
   } >>"$GITHUB_STEP_SUMMARY"
 fi
 
