@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { fromEpochDay, toEpochDay, weekdayOf } from "../../../src/shared/epoch-day.ts";
 import { CARD_FORM, GRASS_SIZES, SPAN_WEEKS } from "../../../src/shared/grass.ts";
+import { DISTRIBUTION_URL } from "../../../src/shared/links.ts";
 import { MAX_USER_NAME_LENGTH } from "../../../src/shared/project-name.ts";
 import { balanceOf } from "../../../src/worker/graph/balance.ts";
 import {
@@ -380,6 +381,47 @@ describe("名前の行", () => {
     expect(name.icon).toBeUndefined();
     expect(name.user?.text).toBe("taro");
     expect(name.user?.x ?? 0).toBeGreaterThan(56 + 11);
+  });
+});
+
+describe("ヘルプのアイコン (ADR-0027)", () => {
+  const forms = [
+    { span: "half", cell: "slot" },
+    { span: "half", cell: "day" },
+    { span: "year", cell: "slot" },
+    { span: "year", cell: "day" },
+  ] as const;
+
+  it.each(forms)(
+    "$span × $cell: 名前の行の高さで「計」の列の真下に置き、配布プロジェクトへリンクする",
+    (form) => {
+      const g = geometryFor(form);
+      const { width, height } = GRASS_SIZES[form.span][form.cell];
+      const { help } = layoutGrass(input({ form, label: "p", user: "taro" }));
+
+      expect(help.href).toBe(DISTRIBUTION_URL);
+      // 計の列の中央。名前の行は草の右端で切るので、名前と重ならない
+      expect(help.cx).toBeCloseTo(g.sumX + g.cell / 2, 1);
+      expect(help.cx - help.r).toBeGreaterThan(g.gridRight);
+      expect(help.cy).toBe(g.nameMiddle);
+      // 押せる範囲まで外寸に収まる
+      expect(help.cx + help.hit / 2).toBeLessThanOrEqual(width);
+      expect(help.cy + help.hit / 2).toBeLessThanOrEqual(height);
+    },
+  );
+
+  it("名前が無くても、合算でも出す", () => {
+    expect(layoutGrass(input()).help.href).toBe(DISTRIBUTION_URL);
+    expect(layoutGrass(input({ total: true, user: "taro" })).help.href).toBe(DISTRIBUTION_URL);
+  });
+
+  it("`<title>` の文言は lang で、色は theme で変える。リンク先は lang によらない", () => {
+    const ja = layoutGrass(input()).help;
+    const en = layoutGrass(input({ lang: "en", theme: "dark" })).help;
+
+    expect([ja.label, en.label]).toEqual(["cosense-grass について", "About cosense-grass"]);
+    expect(en.stroke).not.toBe(ja.stroke);
+    expect(en.href).toBe(ja.href);
   });
 });
 

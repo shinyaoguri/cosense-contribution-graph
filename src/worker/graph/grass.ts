@@ -22,6 +22,7 @@ import {
   SPAN_WEEKS,
   type Span,
 } from "../../shared/grass.ts";
+import { DISTRIBUTION_URL } from "../../shared/links.ts";
 import type { Quad } from "../segments.ts";
 import { type AxisDay, type AxisTotals, percentages, sumAxes } from "./axes.ts";
 import { balanceOf, type Minutes } from "./balance.ts";
@@ -178,6 +179,19 @@ export type GrassLayout = {
     readonly markCellSize: number;
     readonly markCellRadius: number;
   };
+  /** ヘルプのアイコン。名前の行の高さで「計」の列の真下 (ADR-0027) */
+  readonly help: GrassHelp;
+};
+
+/** 線だけの丸に、点と棒の `i`。`hit` は押せる範囲 (透明な四角) の一辺 */
+type GrassHelp = {
+  readonly cx: number;
+  readonly cy: number;
+  readonly r: number;
+  readonly hit: number;
+  readonly href: string;
+  readonly label: string;
+  readonly stroke: string;
 };
 
 // ---- 寸法 ----
@@ -369,6 +383,12 @@ const ICON_GAP = 5;
 const MARK_GAP = 6;
 const ELLIPSIS = "…";
 
+// ヘルプのアイコン (ADR-0027)
+/** 直径 11px。計の列の幅 (約 10.9〜13.6px) とほぼ同じ */
+const HELP_RADIUS = 5.5;
+/** 押せる範囲の一辺 */
+const HELP_HIT = 18;
+
 /**
  * 文字幅の見積もり (em)。ASCII は Hiragino Sans の小文字・数字の平均より少し広め
  * (15px の `/cosense-grass` が約 0.56em。2026-10-07 に rsvg-convert で描いて測った)、
@@ -416,6 +436,8 @@ type Strings = {
   readonly sum: string;
   /** 作る・育てる・関わる・読む の順 */
   readonly axes: readonly [string, string, string, string];
+  /** ヘルプのアイコンの `<title>` */
+  readonly help: string;
 };
 
 /** 英語は Worker のトップ (`site.ts`) の表記 (Create / Grow / Engage / Read) に合わせる */
@@ -425,12 +447,14 @@ const STRINGS: Record<Lang, Strings> = {
     months: ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"],
     sum: "計",
     axes: ["作る", "育てる", "関わる", "読む"],
+    help: "cosense-grass について",
   },
   en: {
     weekdays: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
     months: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
     sum: "Sum",
     axes: ["Create", "Grow", "Engage", "Read"],
+    help: "About cosense-grass",
   },
 };
 
@@ -880,6 +904,22 @@ function layoutName(input: GrassInput, g: Geometry): GrassLayout["name"] {
   return { ...common, ...result };
 }
 
+/**
+ * ヘルプのアイコン。**名前の行は草の右端で切っているので、計の列の下は空いている** (ADR-0027 決定 2)。
+ * 外寸の角に置かないのは、半年 × 3 分割の下の余白がサムネで切れる前提の余白だから
+ */
+function layoutHelp(input: GrassInput, g: Geometry, strings: Strings): GrassHelp {
+  return {
+    cx: round(g.sumX + g.cell / 2),
+    cy: g.nameMiddle,
+    r: HELP_RADIUS,
+    hit: HELP_HIT,
+    href: DISTRIBUTION_URL,
+    label: strings.help,
+    stroke: MID[input.theme],
+  };
+}
+
 export function layoutGrass(input: GrassInput): GrassLayout {
   const g = geometryFor(input.form ?? CARD_FORM);
   const strings = STRINGS[input.lang];
@@ -898,5 +938,6 @@ export function layoutGrass(input: GrassInput): GrassLayout {
     sum: layoutSum(sums, input.theme, g),
     axis: layoutAxis(input, g),
     name: layoutName(input, g),
+    help: layoutHelp(input, g, strings),
   };
 }

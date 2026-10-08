@@ -536,8 +536,14 @@ SVG を URL で直接開くとドキュメントとして描画されるので�
 ローカルの `wrangler dev` で `/v1/g/demo.svg?l=villagepump` を開き、
 埋め込んだ `scrapbox.io/villagepump` のリンクを押して `https://scrapbox.io` へ遷移するのを確認した。
 
-**Cosense に貼られた `<img>` からは 2 段階になる** — 画像をクリックして画像そのものを開き、
-そこでリンクを押す。**1 段階目の挙動 (画像 URL へ遷移するのか、拡大モーダルなのか) は未確認。**
+**Cosense に貼られた `<img>` からは 3 段階になる** (2026-10-08 実測、Chrome 系の内蔵ブラウザ、Issue #232)。
+
+1. 画像をクリックすると、**画像の URL へは移らず、拡大のモーダル** (`.full-content-modal`) が開く。
+   画像は `<a href="画像のURL" target="_blank">` で包まれているが、クリックは Cosense が受けてモーダルにする
+2. モーダルの中も画像は `<img>` のままで、SVG の中のリンクは押せない。**画像の下に画像の URL が文字のリンク** (`target="_blank"`) で出る
+3. その URL を押すと SVG が新しいタブでドキュメントとして開き、そこで `<a href>` が押せる
+
+[`scrapboxlab/SVG`](https://scrapbox.io/scrapboxlab/SVG) の SVG のバッジで確かめた (DOM を読み、クリックしてモーダルの中身を見た)。
 
 ### SVG の文字コードは XML 宣言では変わらない (2026-10-06 実測、Chrome 系の内蔵ブラウザ、Issue #127)
 

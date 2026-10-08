@@ -187,6 +187,19 @@ describe("GET /v1/g/demo/card.svg", () => {
     expect(unknown).toBe(ja);
     expect(dark).not.toBe(ja);
   });
+
+  it("**どの形にもヘルプのアイコンを描き、配布プロジェクトへリンクする** (ADR-0027)", async () => {
+    for (const span of SPANS) {
+      for (const cell of CELLS) {
+        const svg = await (await SELF.fetch(`${DEMO_URL}?span=${span}&cell=${cell}`)).text();
+        expect(svg).toMatch(
+          /<g data-part="help"><a href="https:\/\/scrapbox\.io\/cosense-grass\/"><title>cosense-grass について<\/title>/,
+        );
+      }
+    }
+    const en = await (await SELF.fetch(`${DEMO_URL}?lang=en`)).text();
+    expect(en).toContain("<title>About cosense-grass</title>");
+  });
 });
 
 describe("renderStoredGrass", () => {
