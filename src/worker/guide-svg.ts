@@ -1,17 +1,19 @@
 /**
  * 草のダイアログの「草と活動の概観の見方」に添える図 (Issue #182)。**具体例に注釈を付けた静的な絵**で、記録を読まない。
  *
- * - **描くのは Worker** (ADR-0019)。UserScript は `<img>` で貼るだけ。色はスキーム、レーダーは `layoutOverview` の
- *   実物から作るので、**図の色と形が実際の草・概観とずれない**
+ * - **描くのは Worker** (ADR-0019)。UserScript は `<img>` で貼るだけ。色はスキーム、4 軸の線は図の `layoutAxisLine` の
+ *   実物から作るので、**図の色と形が実際の図とずれない**
+ * - **名前は変えない** (ADR-0026 決定 7)。`overview` は 4 軸の線の読み方の図で、配布済みの UserScript がこの名前で読む
  * - **ライト・既定の配色に固定する。** ダイアログは常にライトで (research §3)、UserScript は配色を選ばない
  * - 草と同じく `<img>` で描かれるので、すべてインラインで自己完結させる
  */
 import { GUIDE_HEIGHTS, GUIDE_WIDTH, type GuideName, isGuideName } from "../shared/guide.ts";
 import type { AxisTotals } from "./graph/axes.ts";
+import { layoutAxisLine } from "./graph/grass.ts";
 import type { Level } from "./graph/scale.ts";
 import { DEFAULT_SCHEME, schemeOf } from "./graph/scheme.ts";
 import { FONT_FAMILY, MUTED_COLOR, TEXT_COLOR } from "./graph/style.ts";
-import { renderOverview } from "./overview-svg.ts";
+import { axisSvg } from "./grass-svg.ts";
 import { escapeXml } from "./xml.ts";
 
 export const GUIDE_PATH = /^\/v1\/guide\/([^/]+)\.svg$/;
@@ -210,18 +212,18 @@ function minutesSvg(): string {
 }
 
 /**
- * 草の例の 8 週。1 列が 1 週 (上が日曜) で、1 文字目が Level、2 文字目が色合い
+ * 草の例の 8 週。1 列が 1 週 (上が月曜。図と同じ。ADR-0026 決定 3) で、1 文字目が Level、2 文字目が色合い
  * (r 読み寄り・b やや読み・m ふだん・p やや書き・w 書き寄り)。`0` は 3 分未満の日
  */
 const EXAMPLE_WEEKS = [
-  "0  1r 2b 0  2m 1b 0 ",
-  "1b 3m 2p 3b 0  2r 1m",
-  "0  2m 3p 3p 2m 1r 0 ",
-  "2b 1r 3m 2p 3b 3b 1m",
-  "1m 3r 2m 3m 3w 2b 0 ",
-  "0  2b 4w 3p 2m 1r 1m",
-  "2m 3b 3m 2p 4p 3b 0 ",
-  "1r 2m 3p 4m 2b 1r 0 ",
+  "1r 2b 0  2m 1b 0  0 ",
+  "3m 2p 3b 0  2r 1m 1b",
+  "2m 3p 3p 2m 1r 0  0 ",
+  "1r 3m 2p 3b 3b 1m 2b",
+  "3r 2m 3m 3w 2b 0  1m",
+  "2b 4w 3p 2m 1r 1m 0 ",
+  "3b 3m 2p 4p 3b 0  2m",
+  "2m 3p 4m 2b 1r 0  1r",
 ];
 const TONES: Record<string, number> = { r: -1, b: -0.4, m: 0, p: 0.4, w: 1 };
 
@@ -233,10 +235,10 @@ function exampleDay(column: number, row: number): readonly [Level, number] {
 }
 
 /** ① よく書いた日 (列, 行)、② 少し読んだだけの日 */
-const EXAMPLE_HEAVY = [5, 2] as const;
-const EXAMPLE_LIGHT = [3, 1] as const;
+const EXAMPLE_HEAVY = [5, 1] as const;
+const EXAMPLE_LIGHT = [3, 0] as const;
 
-const WEEKDAYS = ["日", "月", "火", "水", "木", "金", "土"];
+const WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"];
 
 function grassSvg(): string {
   // 左: 小さな草
@@ -358,6 +360,9 @@ const OVERVIEW_ROWS = [
   { key: "create", name: "作る", note: "その日に作ったページに書いた" },
 ] as const satisfies readonly { key: keyof AxisTotals; name: string; note: string }[];
 
+/** 4 軸の線を拡大する倍率。実物 (軸名 7.5px・% 6.5px・線の太さ 3) のままでは説明の図で読めない */
+const AXIS_SCALE = 2;
+
 function overviewSvg(): string {
   const tableX = 20;
   const tableRight = tableX + 286;
@@ -369,10 +374,21 @@ function overviewSvg(): string {
       text(tableRight, rowY(i), `${EXAMPLE_TOTALS[key]} 分`, { anchor: "end", fill: STRONG }),
   ).join("");
   const total = Object.values(EXAMPLE_TOTALS).reduce((a, b) => a + b, 0);
-  const radar = renderOverview({ totals: EXAMPLE_TOTALS, theme: THEME, palette: DEFAULT_SCHEME });
-  const radarX = GUIDE_WIDTH - 310;
-  const radarY = 10;
-  const notesY = 250;
+
+  // 線は実物の部品で描き、拡大して置く。幅は図の左右の余白の内側いっぱい
+  const lineY = 248;
+  const width = (GUIDE_WIDTH - 2 * tableX) / AXIS_SCALE;
+  const axis = layoutAxisLine(EXAMPLE_TOTALS, {
+    left: 0,
+    right: width,
+    y: 0,
+    nameY: 10,
+    theme: THEME,
+    lang: "ja",
+  });
+
+  const notesX = tableRight + 34;
+  const note = (i: number, body: string) => text(notesX, 60 + i * 24, body, { size: SMALL });
   return svg(
     "overview",
     text(tableX, 18, "例: ある期間の分の内訳", { weight: "bold", fill: STRONG }) +
@@ -381,25 +397,15 @@ function overviewSvg(): string {
       line(tableX, rowY(3) + 14, tableRight, rowY(3) + 14, MUTED) +
       text(tableX, rowY(3) + 34, "合計", { weight: "bold", fill: STRONG }) +
       text(tableRight, rowY(3) + 34, `${total} 分`, { anchor: "end", fill: STRONG }) +
-      text(tableRight + 18, radarY + 116, "→", { anchor: "middle", size: 18, fill: STRONG }) +
-      `<g data-part="radar" transform="translate(${radarX} ${radarY})">${radar}</g>` +
-      line(20, notesY - 22, GUIDE_WIDTH - 20, notesY - 22, MUTED) +
-      text(
-        20,
-        notesY,
-        "・いちばん多い軸 (この例では 読む) が端まで届く。% は分の割合で、合計が 100",
-        {
-          size: SMALL,
-        },
-      ) +
-      text(
-        20,
-        notesY + 20,
-        "・少ない軸も見えるよう、長さは割合の平方根にしている (面積がおおむね割合に比例する)",
-        {
-          size: SMALL,
-        },
-      ),
+      text(notesX, 36, "図の下の線の読み方", { weight: "bold", fill: STRONG }) +
+      note(0, "・1 本の線を 4 つの軸が分の割合で取り合う") +
+      note(1, "・並びは 作る・育てる・関わる・読む (濃 → 淡)") +
+      note(2, "・% は分の割合で、合計が 100") +
+      note(3, "・狭い区間は軸名を省いて % だけ") +
+      note(4, "・0 分の軸は線に現れない") +
+      note(5, "・期間は図の草と同じ") +
+      text(tableX, lineY - 16, "この例の線 (2 倍に拡大)", { size: SMALL, fill: STRONG }) +
+      `<g data-part="axis" transform="translate(${tableX} ${lineY}) scale(${AXIS_SCALE})">${axisSvg(axis, FONT_FAMILY)}</g>`,
   );
 }
 

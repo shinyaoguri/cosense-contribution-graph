@@ -30,7 +30,7 @@ Cosense の公式サービスではない。運営元の株式会社 Helpfeel �
 **1 マスが 1 日、1 列が 1 週間。** 濃さが量、色合いが読み書きの比率を表す。
 
 <!-- readme-image: guide-grass -->
-<img src="https://i.gyazo.com/0c37b915a429d2b449f07bc7cf1d24ff.png" width="672" alt="草の読み方の例">
+<img src="https://i.gyazo.com/db197ac239510760b66085a313348329.png" width="672" alt="草の読み方の例">
 
 - 濃さは、自分の全期間の分布の四分位で 4 段に分ける (他の人とは比べない)
 - 色合いは、**自分のふだんの比率**を青緑にして、読み寄りなら紫、書き寄りなら琥珀に振れる (色覚に配慮した配色。ADR-0023)
@@ -38,13 +38,14 @@ Cosense の公式サービスではない。運営元の株式会社 Helpfeel �
 
 ## 活動の概観
 
-書いた分を「どのページに書いたか」で 3 つに分け、読んだ分と並べて 4 軸のレーダーにする。
+書いた分を「どのページに書いたか」で 3 つに分け、読んだ分と並べて 4 軸で見せる。
+今は活動の概観のレーダー (1 枚目) と、カードの図の下の 1 本の線 (2 枚目) の 2 通りで、レーダーは線にまとめる予定 (ADR-0026)。
 
 <!-- readme-image: demo-overview -->
 <img src="https://i.gyazo.com/5e86939433b622728aee4beb4e177915.png" width="332" alt="活動の概観の例 (デモ)">
 
 <!-- readme-image: guide-overview -->
-<img src="https://i.gyazo.com/a8e4a7853d5187890bd2481532256a4e.png" width="672" alt="活動の概観の読み方の例">
+<img src="https://i.gyazo.com/4d5ba8f3b11809e52db2faa656cab402.png" width="672" alt="4 軸の線の読み方の例">
 
 | 軸 | 数えるもの |
 |---|---|

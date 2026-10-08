@@ -5,7 +5,13 @@
  * (`<img>` で読まれた SVG は外部の画像を読まない)。応答の CSP はカードだけ `img-src data:` を足す (`index.ts`)。
  * **本文を変えると ETag が変わる。** 属性とグループの順は `test/worker/card-golden.test.ts` が固定している。
  */
-import { type GrassCell, type GrassInput, type GrassLayout, layoutGrass } from "./graph/grass.ts";
+import {
+  type GrassAxis,
+  type GrassCell,
+  type GrassInput,
+  type GrassLayout,
+  layoutGrass,
+} from "./graph/grass.ts";
 import { escapeXml } from "./xml.ts";
 
 const n = (v: number) => Math.round(v * 100) / 100;
@@ -20,6 +26,29 @@ function cellPath(cell: GrassCell, w: number, h: number, r: number): string {
     return `M${x} ${y}H${n(x + w)}V${n(y + h - r)}A${r} ${r} 0 0 1 ${n(x + w - r)} ${n(y + h)}H${n(x + r)}A${r} ${r} 0 0 1 ${x} ${n(y + h - r)}Z`;
   }
   return `M${x} ${y}H${n(x + w)}V${n(y + h)}H${x}Z`;
+}
+
+/**
+ * 4 軸の線と、その下の軸名と %。説明の図 (`guide-svg.ts`) も同じものを拡大して描く (図と実物をずらさない)
+ */
+export function axisSvg(axis: GrassAxis, fontFamily: string): string {
+  const lines = axis.lines
+    .map(
+      (line) =>
+        `<line x1="${line.x1}" y1="${axis.y}" x2="${line.x2}" y2="${axis.y}" stroke="${line.stroke}"/>`,
+    )
+    .join("");
+  // % は軸名より一段小さく淡く (よく見たら読める程度。ADR-0026 決定 5)。軸名が入らない区間は % だけ
+  const percentAttrs = `font-size="${axis.percentSize}" letter-spacing="${axis.percentSpacing}" fill="${axis.percentColor}" fill-opacity="${axis.percentOpacity}"`;
+  const axisName = (a: (typeof axis.names)[number]) =>
+    a.name === undefined
+      ? `<text x="${a.x}" y="${a.y}" ${percentAttrs}>${a.percent}</text>`
+      : `<text x="${a.x}" y="${a.y}">${escapeXml(a.name)}<tspan dx="${axis.percentGap}" ${percentAttrs}>${a.percent}</tspan></text>`;
+  const names =
+    axis.names.length === 0
+      ? ""
+      : `<g data-part="axis-names" font-family="${fontFamily}" font-size="${axis.nameSize}" letter-spacing="${axis.letterSpacing}" fill="${axis.nameColor}">${axis.names.map(axisName).join("")}</g>`;
+  return `<g data-part="axis" stroke-width="${axis.strokeWidth}" stroke-linecap="round">${lines}</g>${names}`;
 }
 
 function toSvg(layout: GrassLayout): string {
@@ -38,24 +67,7 @@ function toSvg(layout: GrassLayout): string {
   const text = (t: { x: number; y: number; text: string; anchor: string; fill: string }) =>
     `<text x="${t.x}" y="${t.y}"${t.anchor === "start" ? "" : ` text-anchor="${t.anchor}"`} fill="${t.fill}">${escapeXml(t.text)}</text>`;
 
-  const { axis, name } = layout;
-  const lines = axis.lines
-    .map(
-      (line) =>
-        `<line x1="${line.x1}" y1="${axis.y}" x2="${line.x2}" y2="${axis.y}" stroke="${line.stroke}"/>`,
-    )
-    .join("");
-  // % は軸名より一段小さく淡く (よく見たら読める程度。ADR-0026 決定 5)。軸名が入らない区間は % だけ
-  const percentAttrs = `font-size="${axis.percentSize}" letter-spacing="${axis.percentSpacing}" fill="${axis.percentColor}" fill-opacity="${axis.percentOpacity}"`;
-  const axisName = (a: (typeof axis.names)[number]) =>
-    a.name === undefined
-      ? `<text x="${a.x}" y="${a.y}" ${percentAttrs}>${a.percent}</text>`
-      : `<text x="${a.x}" y="${a.y}">${escapeXml(a.name)}<tspan dx="${axis.percentGap}" ${percentAttrs}>${a.percent}</tspan></text>`;
-  const axisNames =
-    axis.names.length === 0
-      ? ""
-      : `<g data-part="axis-names" font-family="${layout.fontFamily}" font-size="${axis.nameSize}" letter-spacing="${axis.letterSpacing}" fill="${axis.nameColor}">${axis.names.map(axisName).join("")}</g>`;
-
+  const { name } = layout;
   const project =
     name.project === undefined
       ? ""
@@ -84,8 +96,7 @@ function toSvg(layout: GrassLayout): string {
     `<g data-part="labels" font-family="${layout.fontFamily}" font-size="${layout.fontSize}">${layout.labels.map(text).join("")}</g>` +
     `<g data-part="grid">${layout.grid.map(cell).join("")}</g>` +
     `<g data-part="sum">${layout.sum.map(cell).join("")}</g>` +
-    `<g data-part="axis" stroke-width="${axis.strokeWidth}" stroke-linecap="round">${lines}</g>` +
-    axisNames +
+    axisSvg(layout.axis, layout.fontFamily) +
     // 名前が無ければ (合算の印も無ければ) グループごと省く
     (nameRow === ""
       ? ""
