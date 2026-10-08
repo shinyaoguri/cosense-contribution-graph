@@ -94,7 +94,8 @@ Each day can be drawn as one cell or as three cells for the morning (9:00–13:0
 
 **The URL for daily numbers (JSON) is separate from the graph URL.** The management page shows the one for your combined total, and the graph dialog opened in Cosense shows the ones for your combined total and for each project.
 Anyone you give this URL to can see **daily minutes written, minutes read, pages edited, pages newly created,
-minutes written on pages you newly created and on pages created by others, and links created.** This URL cannot be derived from the graph URL, so you can choose separately whether to show the numbers to people you showed the graph to.
+minutes written on pages you newly created and on pages created by others, links created,
+and minutes written and read in the morning (9:00–13:00), afternoon (13:00–18:00), and night (18:00 to 9:00 the next day).** This URL cannot be derived from the graph URL, so you can choose separately whether to show the numbers to people you showed the graph to.
 This URL is also derived one-way from the user identifier, and third parties cannot guess or compute it.
 We instruct search engines not to index it.
 
