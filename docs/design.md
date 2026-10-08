@@ -78,6 +78,7 @@ src/shared/                 Worker と UserScript の両方から import する
   grass-icon.ts             草のマス目 3×3 のアイコン。UserScript のボタンと Worker の favicon が同じ絵を使う
   probe.ts                  GET /v1/probe.gif (送信の疎通確認) の取り決め。使うのは Worker だけ
   project-name.ts           Cosense のプロジェクト名の形 (半角英数とハイフン。research §2)
+  gyazo-id.ts               Gyazo の画像 ID の形 (32 桁の小文字 hex)。図の `?i=` の取り決め (ADR-0028)
   guide.ts                  草のダイアログの説明に添える図の名前と寸法 (描くのは Worker。Issue #182)
   links.ts                  人が開くページへのリンク (ポリシー・配布ページ・リポジトリ)。トップとダイアログが共用
 src/worker/
@@ -98,7 +99,7 @@ src/worker/
   graph-data.ts             図を D1 の記録から描く (publicId を引いて、図の入力を作る)
   grass-svg.ts              図 (card.svg・{publicId}.svg・overview.svg)。graph/grass.ts のレイアウトを文字列にする (ADR-0024・0026)
   grass-image.ts            Worker のページに図を出す <img>。寸法は GRASS_SIZES から取る
-  card-icon.ts              図に埋め込むアイコンを Cosense から取って data: URI にする (ADR-0024 決定 5)
+  card-icon.ts              図に埋め込むアイコンを Cosense (または ?i= の Gyazo の ID) から取って data: URI にする (ADR-0024 決定 5、ADR-0028)
   xml.ts                    SVG に書く文字列のエスケープ。外から来る名前の XSS を塞ぐ要点
   json.ts                   GET /v1/g/{publicId}/{dataKey}.json。日ごとの集計値 (ADR-0020)
   demo.ts                   デモの草 (publicId = demo)。実データを持たず、決定論的に作る
@@ -135,6 +136,7 @@ src/userscript/
   profile.ts                プロフィールページにカードの行を貼り続ける (ADR-0025)。足す位置・commit とメタデータの組み立て・読み直し
   cosense-socket.ts         Cosense 本体と同じ WebSocket で commit を 1 つ送る。Engine.IO v4 / socket.io v5 の最小限 (ADR-0025)
   menu-icon.ts              ページメニューのボタンのアイコン (data: URI の SVG。Issue #122)
+  icon.ts                   プロジェクトの自分のページの image から Gyazo の画像 ID を取り出す (非公開プロジェクトのアイコン。ADR-0028)
   dialog.ts                 背景のクリックで <dialog> を閉じる。草のダイアログと設定のダイアログが使う
   store.ts                  localStorage (直近 30 日のビットマップ。ADR-0019)
   viewer.ts                 草のダイアログに並べる草を決める (段階 8)
@@ -907,6 +909,7 @@ UserScript からは読めない (CSP に受信方向が無い) ので、Worker 
 | `lang` | `ja` | ラベルの言語。`en` 以外は `ja` |
 | `l` | (なし) | **画像に描くプロジェクト名** (Issue #119)。**サーバは保存しない** — この要求で描くだけ |
 | `u` | (なし) | **画像に描く Cosense のユーザー名** (Issue #134)。`l` と同じく**サーバは保存しない** |
+| `i` | (なし) | **アイコンの Gyazo の画像 ID** (32 桁の小文字 hex。ADR-0028)。UserScript が渡す。`l` と `u` がそろうときだけ使い、**サーバは保存しない** |
 
 - **不正な値は既定値に落とし、400 にしない。** 画像として読まれるので、400 を返しても Cosense では壊れた画像になるだけで何が悪いか伝わらない。
   `palette` は登録表に自身のキーとしてあるかで見る (`toString` のような継承したキーを通さない)。未知のキーは無視する
@@ -919,6 +922,8 @@ UserScript からは読めない (CSP に受信方向が無い) ので、Worker 
   拒むのは制御文字・行と段落の区切り・片割れのサロゲート・双方向の制御文字・空白だけの名前だけ。書記素で 48、UTF-16 で 256 まで。
   **`<` `&` `"` も通すので、`escapeXml` (`src/worker/xml.ts`) が XSS を塞ぐ要点になる** (ADR-0007 決定 2 の 2026-09-29 の改訂)。
   外れた名前は描かないだけで壊れない。長い名前は草の右端で `…` に切り、外寸は変えない
+- **`i` は 32 桁の小文字 hex だけを通す** (`src/shared/gyazo-id.ts`)。**URL ではなく ID だけを受け**、取りに行く先は Worker が ID から組み立てる (`card-icon.ts`) ので、
+  任意の URL を取らせる口にならない。外れたら使わないだけで 400 にはしない (`/icon` に落ちる)
 - **`l` は許可リストで見る** (`src/shared/project-name.ts`)。英字・数字・ハイフンで、先頭と末尾は英字か数字、64 文字まで。
   **外れたら描かないだけで 400 にはしない**。通す文字に `<` `&` `"` が無いことが XSS を塞ぐ要点で、`escapeXml` にも通して二重にする
 - **`palette` は見た目だけを変える** (ADR-0016)。四分位のスケールにもバランスの中心にも効かないので、どの配色でも同じ日は同じ Level になる
@@ -933,7 +938,10 @@ UserScript からは読めない (CSP に受信方向が無い) ので、Worker 
 - 転送を辿る先は `gyazo.com` / `i.gyazo.com` / `scrapbox.io` / `storage.googleapis.com` に限る。小さいサイズで取る (Gyazo なら `max_size` を小さくする)
 - 種類は png / jpeg / gif / webp だけ。SVG は入れない。大きさの上限を超えたら捨てる
 - 結果は失敗も含めて `caches.default` に置く (例: 成功 1 日、失敗 1 時間)。**D1 には保存しない**
-- 取れないとき (非公開プロジェクト・404・失敗) はアイコンを出さず、名前だけにする。デモは固定の小さな画像を埋め込み、外へ取りに行かない
+- **非公開プロジェクトは `?i=` で取る** (ADR-0028)。未認証の `/icon` は 401 で取れない (research §4) ので、UserScript がログイン中のブラウザで読んだページの `image` から
+  Gyazo の画像 ID だけを取り出して `?i=` に添える。Worker は **ID から `https://gyazo.com/<id>/max_size/64` を自分で組み立てて取り** (渡された URL は取らない)、
+  取れなければ上の `/icon` に落ちる。**キャッシュの鍵は ID 単位で、(project, user) の鍵と別** (先に ID 無しで失敗を記憶しても、ID 付きの要求が引きずられない)
+- 取れないとき (Gyazo 以外の非公開プロジェクト・404・失敗) はアイコンを出さず、名前だけにする。デモは固定の小さな画像を埋め込み、外へ取りに行かない (`?i=` も無視する)
 
 ### `GET /v1/g/{publicId}/{dataKey}.json` — 日ごとの集計値
 
@@ -1487,7 +1495,11 @@ URL は `src/shared/links.ts` に置き、Worker のトップと共用する。�
   - マス: 「時間帯 (朝・昼・夜)」と「1 日」の radio (2 択は並べて見せる)
   - **開くたびに既定 (カードの形 = 直近 26 週 × 時間帯) に戻す**
 - **図の URL と貼る行は選んだ形から作る** (`worker-origin.ts` の `grassUrl` / `grassLine`)。選んだ形を既定に持つ経路 (`card.svg` か `{publicId}.svg`) を選び、
-  既定と違うキーだけを付ける (1 年 × 1 日は `{publicId}.svg` でクエリなし)。年は `year=` だけを付ける。名前 (`l` / `u`) は形の後に続ける
+  既定と違うキーだけを付ける (1 年 × 1 日は `{publicId}.svg` でクエリなし)。年は `year=` だけを付ける。名前 (`l` / `u`) は形の後に続け、
+  **アイコンの Gyazo の画像 ID (`i`。ADR-0028) は `l` と `u` が付くときだけ末尾に付ける**
+- **プロジェクト別の図は、最初の読み込みの前に `iconOf` (`src/userscript/icon.ts`) を待つ** (ADR-0028)。`/api/pages/<project>/<user>` の `image` から Gyazo の ID を取り出し、
+  取れなければ `i=` 無しで読む。待つ上限は 3 秒 (`index.ts`)。合算は待たない。プロジェクトごとにそのページの読み込みの間だけ覚える。
+  待つ間にダイアログを閉じたら読み込まず、形を替えていたら分かった ID を足して読み直す。**コピーする URL と貼る行にも同じ ID を入れる**
 - `sender.ts` の status と `viewer.ts` の `GraphEntry` は URL を持たず、`publicId` と名前を渡す。ダイアログが選んだ形から URL を作る
 - **`<img>` の寸法は外寸の表 (`GRASS_SIZES`)** を属性で先に確保し、狭ければ縦横比を保って縮める。形を替えたら新しい寸法の `<img>` を読み、読めてから差し替える
   (読めなければ文言にする。前の形の絵を残すと別の形と取り違える)
@@ -1513,8 +1525,10 @@ UserScript が、導入したプロジェクトのプロフィールページ (�
 - 行はただの画像 (ADR-0025 の 2026-10-07 の改訂。最初はリンク付きの画像だった):
 
   ```
-  [https://grass.soui.dev/v1/g/<publicId>/card.svg?l=<project>&u=<user>]
+  [https://grass.soui.dev/v1/g/<publicId>/card.svg?l=<project>&u=<user>&i=<Gyazo の画像 ID>]
   ```
+
+  **`i=` は、そのとき読んだプロフィールページの `image` が Gyazo のときだけ付く** (ADR-0028。追加の取得は無い)。すでに貼ってある行は書き換えない
 
 - **経路は同一オリジンの WebSocket** (`wss://scrapbox.io/socket.io/`、research §1・§4)。ライブラリを使わず、ネイティブの `WebSocket` の上に
   Engine.IO v4 / socket.io v5 の最小限を書く (`src/userscript/cosense-socket.ts`)。`0` → `40` → `42<ack>` (socket.io-request の `commit`) → `43<ack>`。
@@ -1661,7 +1675,9 @@ UserScript は一度読み込まれると全プロジェクトで常駐する (r
   **UserScript がプロフィールページに図を貼る** (ADR-0025) ので、公開プロジェクトではそのページを見る誰もが `publicId` を知る。
   JSON の URL は作れないのは変わらない
 - **Worker が scrapbox.io へ外向きのリクエストを送る** (カードのアイコン、ADR-0024)。受け取った `l` / `u` から組み立てるが、
-  取り先は scrapbox.io の 1 つの API に固定し、転送を辿る先も許可リストに限る。画像の種類と大きさを確かめ、SVG は埋め込まない
+  取り先は scrapbox.io の 1 つの API に固定し、転送を辿る先も許可リストに限る。画像の種類と大きさを確かめ、SVG は埋め込まない。
+  `?i=` (ADR-0028) は **32 桁の hex だけを受け、Worker が `gyazo.com` の URL を自分で組み立てる** ので、任意の URL を取らせる口にはならない。
+  **図の URL を受け取った人には、アイコンの Gyazo の画像 ID が分かる** (Gyazo は URL を知っていれば誰でも開ける。プライバシーポリシーに書いた)
 - **草のダイアログで開いた草の URL は、scrapbox.io の Cache Storage に 48 時間残る** (Cosense の Service Worker が画像を保存する。research §3)。
   同じオリジンで動くスクリプトから列挙できるが、それらは IndexedDB の鍵も使えるので、新しく増える露出は無い。
   UserScript のコードからは URL をコンソールにもログにも出さない
