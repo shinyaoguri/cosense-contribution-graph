@@ -112,7 +112,7 @@ describe("GET /v1/g/{publicId}/{dataKey}.json", () => {
 
     it("**夜は その日の 18–24 時 + 翌日の 0–9 時**。朝と昼はその日の区間 1・2", async () => {
       const url = await storeSegments(randomUid(), [
-        ["2026-09-01", [1, 2, 3, 4], [10, 20, 30, 40]],
+        ["2026-09-01", [0, 2, 3, 4], [0, 20, 30, 40]],
         ["2026-09-02", [5, 6, 7, 8], [50, 60, 70, 80]],
       ]);
 
@@ -141,6 +141,33 @@ describe("GET /v1/g/{publicId}/{dataKey}.json", () => {
         { w: 3, r: 0 },
         { w: 4, r: 0 },
       ]);
+    });
+
+    it("**前日の行が無くても、0–9 時の分は前日の夜に入れる**。前日は値が 0 で slots だけの日として足す (#230)", async () => {
+      const url = await storeSegments(randomUid(), [
+        ["2026-09-02", [5, 0, 0, 0], [7, 0, 0, 0]],
+        // 0–9 時が 0 分なら前日を足さない
+        ["2026-09-05", [0, 1, 0, 0], [0, 0, 0, 0]],
+      ]);
+
+      const { days } = (await (await SELF.fetch(url)).json()) as { days: { day: string }[] };
+
+      expect(days.map(({ day }) => day)).toEqual(["2026-09-01", "2026-09-02", "2026-09-05"]);
+      expect(days[0]).toEqual({
+        day: "2026-09-01",
+        w: 0,
+        r: 0,
+        pages: 0,
+        created: 0,
+        wc: 0,
+        wo: 0,
+        links: 0,
+        slots: [
+          { w: 0, r: 0 },
+          { w: 0, r: 0 },
+          { w: 5, r: 7 },
+        ],
+      });
     });
 
     it("**内訳なしの日は slots のキー自体を出さない** (0 で埋めると活動なしと区別できない)", async () => {

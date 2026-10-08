@@ -78,11 +78,40 @@ describe("夜の組み立て (slotsOf)", () => {
     expect(slotsOf(sparse, day(-5), TODAY)?.[2]).toEqual({ w: 4, r: 1 });
     expect(slotsOf(sparse, day(-3), TODAY)?.[2]).toEqual({ w: 2, r: 2 });
     expect(slotsOf(sparse, day(-2), TODAY)).toBeUndefined();
+    // 行の無い日の翌日の 0–9 時が 0 分なら、内訳を作らない (空きマスのまま)
     expect(slotsOf(sparse, day(-4), TODAY)).toBeUndefined();
+  });
+
+  it("**前日の行が無くても、翌日の 0–9 時に分があれば その日の夜に入れる** (朝・昼は 0。#230)", () => {
+    const sparse = new Map<string, GrassDay>([[day(-3), withSegments([7, 1, 0, 0], [3, 0, 0, 0])]]);
+    expect(slotsOf(sparse, day(-4), TODAY)).toEqual([
+      { w: 0, r: 0 },
+      { w: 0, r: 0 },
+      { w: 7, r: 3 },
+    ]);
+    // 今日 (以降) は翌日を見ないので、行が無ければ内訳も無い
+    const ahead = new Map<string, GrassDay>([[day(1), withSegments([5, 0, 0, 0], [0, 0, 0, 0])]]);
+    expect(slotsOf(ahead, TODAY, TODAY)).toBeUndefined();
+  });
+
+  it("**行の無い日の夜も母集団に入る** (#230)", () => {
+    const sparse = new Map<string, GrassDay>([[day(-3), withSegments([7, 0, 0, 0], [3, 0, 0, 0])]]);
+    expect(slotPopulation(sparse)).toEqual([
+      { w: 0, r: 0 },
+      { w: 0, r: 0 },
+      { w: 7, r: 3 },
+      { w: 0, r: 0 },
+      { w: 0, r: 0 },
+      { w: 0, r: 0 },
+    ]);
   });
 
   it("母集団は内訳のある日の 朝・昼・夜 を並べ、翌日の区間 0 を夜に足す", () => {
     expect(slotPopulation(days)).toEqual([
+      // day(-3) は行が無いが、day(-2) の 0–9 時が夜に入る (#230)
+      { w: 0, r: 0 },
+      { w: 0, r: 0 },
+      { w: 1, r: 10 },
       { w: 2, r: 20 },
       { w: 3, r: 30 },
       { w: 9, r: 90 },
@@ -457,6 +486,22 @@ describe("形 (期間 × マス。ADR-0026)", () => {
     // 開始日からは塗る
     expect(cellsOf(layout, day(-1))).toHaveLength(form.cell === "slot" ? 3 : 1);
     expect(cellsOf(layout, day(-1)).every((c) => c.outline === undefined)).toBe(true);
+  });
+
+  it("**計測開始日の前日でも、開始日の 0–9 時の分は前日の夜に塗る** (3 マスの形だけ。#230)", () => {
+    const days = new Map<string, GrassDay>([[day(-1), withSegments([40, 0, 0, 0], [0, 0, 0, 0])]]);
+    const slot = layoutGrass(
+      input({ days, startDay: day(-1), form: { span: "half", cell: "slot" } }),
+    );
+    const night = cellsOf(slot, day(-2));
+    expect(night).toHaveLength(3);
+    expect(night.every((c) => c.outline === undefined)).toBe(true);
+    expect(night[2]?.minutes).toEqual({ w: 40, r: 0 });
+    // 1 日 1 マスは暦の日の合計なので、前日は計測開始前の点線の枠のまま
+    const whole = layoutGrass(
+      input({ days, startDay: day(-1), form: { span: "half", cell: "day" } }),
+    );
+    expect(cellsOf(whole, day(-2))[0]).toMatchObject({ fill: "none" });
   });
 
   it("**右端 (`end`) が過去の 12/31 でも、その日の夜は翌日の区間 0 を足す** (実際の今日で決める)", () => {
